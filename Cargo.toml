@@ -1,0 +1,39 @@
+[package]
+name    = "hc-web-leptos"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+leptos        = { version = "0.8", features = ["csr"] }
+leptos_router = { version = "0.8" }
+thaw          = { version = "0.5.0-beta", features = ["csr"] }
+
+# HTTP + JSON
+gloo-net    = { version = "0.6", features = ["http"] }
+serde       = { version = "1",   features = ["derive"] }
+serde_json  = "1"
+
+# Types — mirrors hc-types; in a workspace build replace with:
+#   hc-types = { path = "../../core/crates/hc-types" }
+chrono = { version = "0.4", features = ["serde", "wasmbind"] }
+
+# WASM
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Storage",
+    "WebSocket",
+    "MessageEvent",
+    "CloseEvent",
+    "ErrorEvent",
+    "EventTarget",
+    "console",
+] }
+console_error_panic_hook = "0.1"
+
+[profile.release]
+opt-level = "z"
+lto       = true

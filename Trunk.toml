@@ -1,0 +1,14 @@
+[build]
+target = "index.html"
+
+# Proxy /api and /ws paths to the HomeCore server.
+# Override HOMECORE_DEV_TARGET to point at a different host.
+# Default: http://10.0.10.200:8080
+[[proxy]]
+rewrite = "/api"
+backend = "http://10.0.10.200:8080/api"
+
+[[proxy]]
+rewrite = "/ws"
+backend = "ws://10.0.10.200:8080/api/v1/events/stream"
+ws      = true

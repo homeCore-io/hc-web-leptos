@@ -196,8 +196,9 @@ pub fn DevicesPage() -> impl IntoView {
     // Filters
     let search       = RwSignal::new(String::new());
     let availability = RwSignal::new(Availability::All);
-    let area_filter  = RwSignal::new("all".to_string());
-    let type_filter  = RwSignal::new("all".to_string());
+    let area_filter   = RwSignal::new("all".to_string());
+    let type_filter   = RwSignal::new("all".to_string());
+    let plugin_filter = RwSignal::new("all".to_string());
 
     // Sort
     let sort_by  = RwSignal::new(SortKey::Name);
@@ -328,6 +329,19 @@ pub fn DevicesPage() -> impl IntoView {
         types
     });
 
+    let plugin_options: Memo<Vec<String>> = Memo::new(move |_| {
+        let mut plugins: Vec<String> = devices
+            .get()
+            .iter()
+            .filter(|d| !is_scene_like(d))
+            .map(|d| d.plugin_id.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        plugins.sort();
+        plugins
+    });
+
     // ── Derived: filtered + sorted list ──────────────────────────────────────
     //
     // This Memo is the key Leptos demonstration.  It subscribes to exactly the
@@ -337,10 +351,11 @@ pub fn DevicesPage() -> impl IntoView {
     let sorted_filtered: Memo<Vec<DeviceState>> = Memo::new(move |_| {
         let all    = devices.get();
         let q      = search.get().trim().to_lowercase();
-        let avail  = availability.get();
-        let area   = area_filter.get();
-        let type_f = type_filter.get();
-        let sb     = sort_by.get();
+        let avail    = availability.get();
+        let area     = area_filter.get();
+        let type_f   = type_filter.get();
+        let plugin_f = plugin_filter.get();
+        let sb       = sort_by.get();
         let sd     = sort_dir.get();
 
         let mut result: Vec<DeviceState> = all
@@ -359,6 +374,7 @@ pub fn DevicesPage() -> impl IntoView {
                 type_f == "all"
                     || d.device_type.as_deref().unwrap_or("device") == type_f
             })
+            .filter(|d| plugin_f == "all" || d.plugin_id == plugin_f)
             .filter(|d| {
                 if q.is_empty() { return true; }
                 let haystack = format!(
@@ -497,6 +513,17 @@ pub fn DevicesPage() -> impl IntoView {
                                     }
                                 />
                             </select>
+
+                            <select on:change=move |ev| plugin_filter.set(event_target_value(&ev))>
+                                <option value="all">"All plugins"</option>
+                                <For
+                                    each=move || plugin_options.get()
+                                    key=|p| p.clone()
+                                    children=|p| view! {
+                                        <option value=p.clone()>{p.clone()}</option>
+                                    }
+                                />
+                            </select>
                         </div>
 
                         // Filter row 2 — display prefs
@@ -535,6 +562,10 @@ pub fn DevicesPage() -> impl IntoView {
                                     show_media.set(false);
                                     sort_by.set(SortKey::Name);
                                     sort_dir.set(SortDir::Asc);
+                                    plugin_filter.set("all".to_string());
+                                    type_filter.set("all".to_string());
+                                    area_filter.set("all".to_string());
+                                    availability.set(Availability::All);
                                 }
                             >
                                 "Reset layout"

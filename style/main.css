@@ -167,7 +167,6 @@ label { font-size: 0.92rem; display: flex; align-items: center; gap: 0.4rem; }
   background: var(--hc-surface);
   border: 1px solid var(--hc-border);
   border-radius: 0.65rem;
-  overflow: hidden;
 }
 
 .filter-bar {

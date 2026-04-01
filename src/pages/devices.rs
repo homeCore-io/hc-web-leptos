@@ -748,14 +748,11 @@ fn DeviceRow(
 
                             Col::Name => view! {
                                 <td data-col="name">
-                                    <div class="cell-primary">
-                                        <a class="cell-link"
-                                           href=format!("/devices/{}", id)
-                                           on:click=|ev: web_sys::MouseEvent| ev.stop_propagation()>
-                                            {name.clone()}
-                                        </a>
-                                        <span class="cell-subtle">{device.device_id.clone()}</span>
-                                    </div>
+                                    <a class="cell-link"
+                                       href=format!("/devices/{}", id)
+                                       on:click=|ev: web_sys::MouseEvent| ev.stop_propagation()>
+                                        {name.clone()}
+                                    </a>
                                 </td>
                             }.into_any(),
 

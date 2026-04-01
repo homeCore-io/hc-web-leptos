@@ -51,6 +51,10 @@ pub async fn fetch_devices(token: &str) -> Result<Vec<DeviceState>, String> {
     get_json("/devices", token).await
 }
 
+pub async fn fetch_device(token: &str, id: &str) -> Result<DeviceState, String> {
+    get_json(&format!("/devices/{id}"), token).await
+}
+
 pub async fn set_device_state(
     token: &str,
     device_id: &str,
@@ -59,12 +63,29 @@ pub async fn set_device_state(
     patch_json(&format!("/devices/{device_id}/state"), token, body).await
 }
 
+pub async fn update_device_meta(
+    token: &str,
+    id: &str,
+    body: &Value,
+) -> Result<(), String> {
+    patch_json(&format!("/devices/{id}"), token, body).await
+}
+
+pub async fn fetch_device_history(
+    token: &str,
+    id: &str,
+    limit: u32,
+) -> Result<Vec<HistoryEntry>, String> {
+    get_json(&format!("/devices/{id}/history?limit={limit}"), token).await
+}
+
 // ── WebSocket event types ─────────────────────────────────────────────────────
 //
 // Only the subset needed for live-updating the devices page.
 // The full `hc_types::Event` enum is tagged with `"type"` using
 // snake_case variant names.
 
+use crate::models::HistoryEntry;
 use serde::Deserialize;
 use std::collections::HashMap;
 

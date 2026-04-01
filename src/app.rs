@@ -2,7 +2,7 @@
 //! and the nav shell wrapper.
 
 use crate::auth::{use_auth, AuthState};
-use crate::pages::{devices::DevicesPage, login::LoginPage};
+use crate::pages::{device_detail::DeviceDetailPage, devices::DevicesPage, login::LoginPage};
 use leptos::prelude::*;
 use leptos_router::{
     components::{Route, Router, Routes},
@@ -25,6 +25,9 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/login")   view=LoginPage />
                     <Route path=path!("/devices") view=move || view! {
                         <AuthGuard><DevicesPage /></AuthGuard>
+                    }/>
+                    <Route path=path!("/devices/:id") view=move || view! {
+                        <AuthGuard><DeviceDetailPage /></AuthGuard>
                     }/>
                 </Routes>
             </Router>

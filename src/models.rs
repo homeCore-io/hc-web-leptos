@@ -270,6 +270,33 @@ fn map_icon_name(s: &str) -> Option<&'static str> {
     })
 }
 
+// ── History ───────────────────────────────────────────────────────────────────
+
+/// One state-change record from `GET /devices/{id}/history`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub attribute: String,
+    pub value: serde_json::Value,
+    pub recorded_at: DateTime<Utc>,
+}
+
+impl HistoryEntry {
+    /// Format `value` as a short display string.
+    pub fn value_display(&self) -> String {
+        match &self.value {
+            serde_json::Value::Bool(b)   => if *b { "true".into() } else { "false".into() },
+            serde_json::Value::Number(n) => {
+                if let Some(f) = n.as_f64() {
+                    if f.fract() == 0.0 { format!("{}", f as i64) } else { format!("{f:.2}") }
+                } else { n.to_string() }
+            }
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Null      => "null".into(),
+            other                        => other.to_string(),
+        }
+    }
+}
+
 // ── Sorting helpers ───────────────────────────────────────────────────────────
 
 pub fn sort_key_str(s: &str) -> String {
@@ -294,6 +321,15 @@ pub fn format_relative(ts: Option<&DateTime<Utc>>) -> String {
     } else {
         format!("{}d ago", diff / 86400)
     }
+}
+
+/// Format a duration in milliseconds as M:SS or H:MM:SS.
+pub fn format_duration_ms(ms: u64) -> String {
+    let total = ms / 1000;
+    let h = total / 3600;
+    let m = (total % 3600) / 60;
+    let s = total % 60;
+    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
 }
 
 pub fn format_abs(ts: Option<&DateTime<Utc>>) -> String {

@@ -957,6 +957,8 @@ fn ColumnChooser(
             </Button>
 
             {move || menu_open.get().then(|| view! {
+                // Invisible full-screen backdrop — clicking anywhere closes the menu
+                <div class="col-chooser-backdrop" on:click=move |_| menu_open.set(false)></div>
                 <div class="col-chooser-menu">
                     {all_cols.iter().map(|&col| {
                         let is_on = move || visible_cols.get().contains(&col);

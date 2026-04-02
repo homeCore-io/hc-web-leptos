@@ -4,17 +4,17 @@ use crate::auth::{api_login, use_auth};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
-use thaw::{Button, ButtonAppearance, ButtonType, Input, InputType};
+use leptos_shadcn_ui::Input;
 
 #[component]
 pub fn LoginPage() -> impl IntoView {
-    let auth     = use_auth();
+    let auth = use_auth();
     let navigate = use_navigate();
 
     let username = RwSignal::new(String::new());
     let password = RwSignal::new(String::new());
-    let error    = RwSignal::new(Option::<String>::None);
-    let loading  = RwSignal::new(false);
+    let error = RwSignal::new(Option::<String>::None);
+    let loading = RwSignal::new(false);
 
     // Redirect already-authenticated users
     let nav_redirect = navigate.clone();
@@ -65,19 +65,20 @@ pub fn LoginPage() -> impl IntoView {
                             <label for="username">"Username"</label>
                             <Input
                                 id="username"
-                                value=username
-                                autocomplete="username"
+                                value=Signal::derive(move || username.get())
+                                on_change=Callback::new(move |value| username.set(value))
                                 placeholder="admin"
                                 disabled=is_loading
+                                input_type="text"
                             />
                         </div>
                         <div class="login-field">
                             <label for="password">"Password"</label>
                             <Input
                                 id="password"
-                                value=password
-                                input_type=InputType::Password
-                                autocomplete="current-password"
+                                value=Signal::derive(move || password.get())
+                                on_change=Callback::new(move |value| password.set(value))
+                                input_type="password"
                                 disabled=is_loading
                             />
                         </div>
@@ -88,15 +89,13 @@ pub fn LoginPage() -> impl IntoView {
                     })}
 
                     <div style="margin-top:0.5rem;">
-                        <Button
-                            button_type=ButtonType::Submit
-                            appearance=ButtonAppearance::Primary
-                            block=true
-                            loading=is_loading
+                        <button
+                            type="submit"
+                            class="primary hc-btn-block"
                             disabled=is_loading
                         >
-                            "Sign in"
-                        </Button>
+                            {move || if loading.get() { "Signing in…" } else { "Sign in" }}
+                        </button>
                     </div>
                 </form>
             </div>

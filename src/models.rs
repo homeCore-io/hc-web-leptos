@@ -13,6 +13,37 @@ use std::collections::HashMap;
 
 // ── Core type ────────────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Area {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub device_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceChangeKind {
+    Homecore,
+    Physical,
+    External,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceChange {
+    pub changed_at: DateTime<Utc>,
+    pub kind: DeviceChangeKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+}
+
 /// Canonical state snapshot for a single device.
 /// Field layout is identical to `hc_types::DeviceState`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -30,6 +61,8 @@ pub struct DeviceState {
     pub available: bool,
     pub attributes: HashMap<String, serde_json::Value>,
     pub last_seen: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_change: Option<DeviceChange>,
 }
 
 // ── Attribute helpers ─────────────────────────────────────────────────────────
@@ -70,18 +103,15 @@ pub fn playback_state(d: &DeviceState) -> String {
 }
 
 pub fn media_title(d: &DeviceState) -> Option<&str> {
-    str_attr(d.attributes.get("title"))
-        .or_else(|| str_attr(d.attributes.get("media_title")))
+    str_attr(d.attributes.get("title")).or_else(|| str_attr(d.attributes.get("media_title")))
 }
 
 pub fn media_artist(d: &DeviceState) -> Option<&str> {
-    str_attr(d.attributes.get("artist"))
-        .or_else(|| str_attr(d.attributes.get("media_artist")))
+    str_attr(d.attributes.get("artist")).or_else(|| str_attr(d.attributes.get("media_artist")))
 }
 
 pub fn media_album(d: &DeviceState) -> Option<&str> {
-    str_attr(d.attributes.get("album"))
-        .or_else(|| str_attr(d.attributes.get("media_album")))
+    str_attr(d.attributes.get("album")).or_else(|| str_attr(d.attributes.get("media_album")))
 }
 
 pub fn media_source(d: &DeviceState) -> Option<&str> {
@@ -128,6 +158,220 @@ pub fn supports_inline_toggle(d: &DeviceState) -> bool {
     bool_attr(d.attributes.get("on")).is_some()
 }
 
+pub fn presentation_device_type_key(d: &DeviceState) -> &'static str {
+    let raw = d.device_type.as_deref().unwrap_or("").trim().to_lowercase();
+
+    if is_media_player(d) {
+        return "media_player";
+    }
+    if bool_attr(d.attributes.get("locked")).is_some() || raw == "lock" {
+        return "lock";
+    }
+    if d.attributes
+        .get("position")
+        .and_then(serde_json::Value::as_f64)
+        .is_some()
+        || raw == "shade"
+    {
+        return "shade";
+    }
+    if d.attributes
+        .get("brightness_pct")
+        .and_then(serde_json::Value::as_f64)
+        .is_some()
+    {
+        return "dimmer";
+    }
+    if bool_attr(d.attributes.get("motion")).is_some() || raw == "motion" || raw == "motion_sensor"
+    {
+        return "motion_sensor";
+    }
+    if bool_attr(d.attributes.get("occupied")).is_some()
+        || bool_attr(d.attributes.get("occupancy")).is_some()
+        || raw == "occupancy_group"
+        || raw == "occupancy_sensor"
+    {
+        return "occupancy_sensor";
+    }
+    if bool_attr(d.attributes.get("contact")).is_some()
+        || d.attributes.contains_key("contact_state")
+        || raw == "contact_sensor"
+    {
+        return "contact_sensor";
+    }
+    if bool_attr(d.attributes.get("leak")).is_some()
+        || bool_attr(d.attributes.get("water")).is_some()
+        || raw == "leak_sensor"
+    {
+        return "leak_sensor";
+    }
+    if bool_attr(d.attributes.get("vibration")).is_some() || raw == "vibration_sensor" {
+        return "vibration_sensor";
+    }
+    if d.attributes
+        .get("temperature")
+        .and_then(serde_json::Value::as_f64)
+        .is_some()
+        || d.attributes
+            .get("temperature_c")
+            .and_then(serde_json::Value::as_f64)
+            .is_some()
+    {
+        if d.attributes
+            .get("humidity")
+            .and_then(serde_json::Value::as_f64)
+            .is_some()
+        {
+            return "environment_sensor";
+        }
+        if raw == "temperature_sensor" {
+            return "temperature_sensor";
+        }
+    }
+    if d.attributes
+        .get("humidity")
+        .and_then(serde_json::Value::as_f64)
+        .is_some()
+        || raw == "humidity_sensor"
+    {
+        return "humidity_sensor";
+    }
+    match raw.as_str() {
+        "light" => "light",
+        "dimmer_light" | "dimmer" => "dimmer",
+        "switch" => "switch",
+        "vswitch" => "virtual_switch",
+        "timer" => "timer",
+        "keypad" => "keypad",
+        "pico_remote" => "remote",
+        "temperature_sensor" => "temperature_sensor",
+        "binary_sensor" => "sensor",
+        "sensor" => "sensor",
+        _ => {
+            if bool_attr(d.attributes.get("on")).is_some() {
+                "switch"
+            } else {
+                "device"
+            }
+        }
+    }
+}
+
+pub fn presentation_device_type_label(d: &DeviceState) -> &'static str {
+    match presentation_device_type_key(d) {
+        "media_player" => "Media Player",
+        "lock" => "Lock",
+        "shade" => "Shade",
+        "light" => "Light",
+        "dimmer" => "Dimmer",
+        "switch" => "Switch",
+        "virtual_switch" => "Virtual Switch",
+        "motion_sensor" => "Motion Sensor",
+        "occupancy_sensor" => "Occupancy Sensor",
+        "contact_sensor" => "Contact Sensor",
+        "leak_sensor" => "Leak Sensor",
+        "vibration_sensor" => "Vibration Sensor",
+        "temperature_sensor" => "Temperature Sensor",
+        "humidity_sensor" => "Humidity Sensor",
+        "environment_sensor" => "Temp / Humidity Sensor",
+        "keypad" => "Keypad",
+        "remote" => "Remote",
+        "timer" => "Timer",
+        "sensor" => "Sensor",
+        _ => "Device",
+    }
+}
+
+pub fn raw_device_type_label(d: &DeviceState) -> String {
+    d.device_type
+        .as_deref()
+        .unwrap_or("unknown")
+        .replace('_', " ")
+}
+
+fn humanize_identifier(value: &str) -> String {
+    value.replace(['_', '.'], " ")
+}
+
+fn title_case_words(value: &str) -> String {
+    value
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => {
+                    first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
+                }
+                None => String::new(),
+            }
+        })
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub fn display_area_name(value: &str) -> String {
+    title_case_words(&humanize_identifier(value))
+}
+
+pub fn display_area_value(value: Option<&str>) -> String {
+    value
+        .map(display_area_name)
+        .unwrap_or_else(|| "Unassigned".to_string())
+}
+
+pub fn last_change_time(d: &DeviceState) -> Option<&DateTime<Utc>> {
+    d.last_change
+        .as_ref()
+        .map(|change| &change.changed_at)
+        .or(d.last_seen.as_ref())
+}
+
+pub fn change_kind_label(kind: DeviceChangeKind) -> &'static str {
+    match kind {
+        DeviceChangeKind::Homecore => "HomeCore",
+        DeviceChangeKind::Physical => "Physical",
+        DeviceChangeKind::External => "Plugin",
+        DeviceChangeKind::Unknown => "Unknown",
+    }
+}
+
+pub fn change_summary(d: &DeviceState) -> String {
+    let Some(change) = d.last_change.as_ref() else {
+        return "Unknown source".to_string();
+    };
+
+    let mut parts = vec![change_kind_label(change.kind).to_string()];
+
+    if let Some(source) = change
+        .source
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        parts.push(humanize_identifier(source));
+    }
+
+    if let Some(actor) = change
+        .actor_name
+        .as_deref()
+        .or(change.actor_id.as_deref())
+        .filter(|value| !value.trim().is_empty())
+    {
+        let actor = actor.to_string();
+        if !parts.iter().any(|part| part.eq_ignore_ascii_case(&actor)) {
+            parts.push(actor);
+        }
+    }
+
+    parts.join(" · ")
+}
+
+pub fn change_correlation_id(d: &DeviceState) -> Option<&str> {
+    d.last_change
+        .as_ref()
+        .and_then(|change| change.correlation_id.as_deref())
+}
+
 // ── Status ────────────────────────────────────────────────────────────────────
 
 pub fn status_text(d: &DeviceState) -> String {
@@ -138,9 +382,9 @@ pub fn status_text(d: &DeviceState) -> String {
         let s = playback_state(d);
         return match s.as_str() {
             "playing" => "Playing".to_string(),
-            "paused"  => "Paused".to_string(),
+            "paused" => "Paused".to_string(),
             "stopped" => "Stopped".to_string(),
-            other     => other.replace('_', " "),
+            other => other.replace('_', " "),
         };
     }
     if let Some(on) = bool_attr(d.attributes.get("on")) {
@@ -181,10 +425,10 @@ pub enum StatusTone {
 impl StatusTone {
     pub fn css_class(self) -> &'static str {
         match self {
-            Self::Good    => "tone-good",
-            Self::Warn    => "tone-warn",
-            Self::Idle    => "tone-idle",
-            Self::Media   => "tone-media",
+            Self::Good => "tone-good",
+            Self::Warn => "tone-warn",
+            Self::Idle => "tone-idle",
+            Self::Media => "tone-media",
             Self::Offline => "tone-offline",
         }
     }
@@ -198,15 +442,29 @@ pub fn status_tone(d: &DeviceState) -> StatusTone {
         return StatusTone::Media;
     }
     if let Some(on) = bool_attr(d.attributes.get("on")) {
-        return if on { StatusTone::Good } else { StatusTone::Idle };
+        return if on {
+            StatusTone::Good
+        } else {
+            StatusTone::Idle
+        };
     }
     if let Some(motion) = bool_attr(d.attributes.get("motion")) {
-        return if motion { StatusTone::Warn } else { StatusTone::Idle };
+        return if motion {
+            StatusTone::Warn
+        } else {
+            StatusTone::Idle
+        };
     }
     if let Some(open) = bool_attr(
-        d.attributes.get("open").or_else(|| d.attributes.get("contact")),
+        d.attributes
+            .get("open")
+            .or_else(|| d.attributes.get("contact")),
     ) {
-        return if open { StatusTone::Warn } else { StatusTone::Idle };
+        return if open {
+            StatusTone::Warn
+        } else {
+            StatusTone::Idle
+        };
     }
     StatusTone::Idle
 }
@@ -226,9 +484,9 @@ pub fn status_icon_name(d: &DeviceState) -> &'static str {
     if is_media_player(d) {
         return match playback_state(d).as_str() {
             "playing" => "play_arrow",
-            "paused"  => "pause",
+            "paused" => "pause",
             "stopped" => "stop",
-            _         => "speaker",
+            _ => "speaker",
         };
     }
     if let Some(on) = bool_attr(d.attributes.get("on")) {
@@ -241,8 +499,11 @@ pub fn status_icon_name(d: &DeviceState) -> &'static str {
         return "motion_sensor_active";
     }
     if bool_attr(
-        d.attributes.get("open").or_else(|| d.attributes.get("contact")),
-    ).is_some()
+        d.attributes
+            .get("open")
+            .or_else(|| d.attributes.get("contact")),
+    )
+    .is_some()
     {
         return "door_front";
     }
@@ -251,29 +512,29 @@ pub fn status_icon_name(d: &DeviceState) -> &'static str {
 
 fn map_icon_name(s: &str) -> Option<&'static str> {
     Some(match s {
-        "power"     => "power",
+        "power" => "power",
         "power_off" => "power_off",
-        "lock"      => "lock",
+        "lock" => "lock",
         "lock_open" => "lock_open_right",
-        "motion"    => "motion_sensor_active",
-        "open"      => "door_open",
-        "closed"    => "door_front",
-        "play"      => "play_arrow",
-        "pause"     => "pause",
-        "stop"      => "stop",
-        "media"     => "speaker",
-        "devices"   => "devices",
-        "offline"   => "wifi_off",
-        "warning"   => "warning",
-        "check"     => "check_circle",
-        _           => return None,
+        "motion" => "motion_sensor_active",
+        "open" => "door_open",
+        "closed" => "door_front",
+        "play" => "play_arrow",
+        "pause" => "pause",
+        "stop" => "stop",
+        "media" => "speaker",
+        "devices" => "devices",
+        "offline" => "wifi_off",
+        "warning" => "warning",
+        "check" => "check_circle",
+        _ => return None,
     })
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
 
 /// One state-change record from `GET /devices/{id}/history`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HistoryEntry {
     pub attribute: String,
     pub value: serde_json::Value,
@@ -284,15 +545,27 @@ impl HistoryEntry {
     /// Format `value` as a short display string.
     pub fn value_display(&self) -> String {
         match &self.value {
-            serde_json::Value::Bool(b)   => if *b { "true".into() } else { "false".into() },
+            serde_json::Value::Bool(b) => {
+                if *b {
+                    "true".into()
+                } else {
+                    "false".into()
+                }
+            }
             serde_json::Value::Number(n) => {
                 if let Some(f) = n.as_f64() {
-                    if f.fract() == 0.0 { format!("{}", f as i64) } else { format!("{f:.2}") }
-                } else { n.to_string() }
+                    if f.fract() == 0.0 {
+                        format!("{}", f as i64)
+                    } else {
+                        format!("{f:.2}")
+                    }
+                } else {
+                    n.to_string()
+                }
             }
             serde_json::Value::String(s) => s.clone(),
-            serde_json::Value::Null      => "null".into(),
-            other                        => other.to_string(),
+            serde_json::Value::Null => "null".into(),
+            other => other.to_string(),
         }
     }
 }
@@ -308,7 +581,7 @@ pub fn sort_key_str(s: &str) -> String {
 pub fn format_relative(ts: Option<&DateTime<Utc>>) -> String {
     let ts = match ts {
         Some(t) => t,
-        None    => return "Unknown".to_string(),
+        None => return "Unknown".to_string(),
     };
     let now = Utc::now();
     let diff = (now - ts).num_seconds().max(0) as u64;
@@ -329,7 +602,11 @@ pub fn format_duration_ms(ms: u64) -> String {
     let h = total / 3600;
     let m = (total % 3600) / 60;
     let s = total % 60;
-    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m}:{s:02}") }
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
 }
 
 pub fn format_abs(ts: Option<&DateTime<Utc>>) -> String {

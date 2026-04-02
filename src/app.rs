@@ -1,15 +1,17 @@
 //! Root application component: provides AuthState context, router, auth guard,
 //! and the nav shell wrapper.
 
-use crate::auth::{use_auth, AuthState};
-use crate::pages::{device_detail::DeviceDetailPage, devices::DevicesPage, login::LoginPage};
+use crate::auth::{AuthState, use_auth};
+use crate::pages::{
+    areas::AreasPage, device_detail::DeviceDetailPage, devices::DevicesPage, login::LoginPage,
+};
 use leptos::prelude::*;
 use leptos_router::{
     components::{Route, Router, Routes},
     hooks::use_location,
     path,
 };
-use thaw::{Button, ConfigProvider};
+use leptos_shadcn_ui::{Button, ButtonVariant};
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 
@@ -18,20 +20,21 @@ pub fn App() -> impl IntoView {
     provide_context(AuthState::new());
 
     view! {
-        <ConfigProvider>
-            <Router>
-                <Routes fallback=|| view! { <p class="msg-error">"Page not found."</p> }>
-                    <Route path=path!("/")        view=HomeRedirect />
-                    <Route path=path!("/login")   view=LoginPage />
-                    <Route path=path!("/devices") view=move || view! {
-                        <AuthGuard><DevicesPage /></AuthGuard>
-                    }/>
-                    <Route path=path!("/devices/:id") view=move || view! {
-                        <AuthGuard><DeviceDetailPage /></AuthGuard>
-                    }/>
-                </Routes>
-            </Router>
-        </ConfigProvider>
+        <Router>
+            <Routes fallback=|| view! { <p class="msg-error">"Page not found."</p> }>
+                <Route path=path!("/")        view=HomeRedirect />
+                <Route path=path!("/login")   view=LoginPage />
+                <Route path=path!("/areas") view=move || view! {
+                    <AuthGuard><AreasPage /></AuthGuard>
+                }/>
+                <Route path=path!("/devices") view=move || view! {
+                    <AuthGuard><DevicesPage /></AuthGuard>
+                }/>
+                <Route path=path!("/devices/:id") view=move || view! {
+                    <AuthGuard><DeviceDetailPage /></AuthGuard>
+                }/>
+            </Routes>
+        </Router>
     }
 }
 
@@ -53,13 +56,15 @@ fn HomeRedirect() -> impl IntoView {
 
 #[component]
 fn AuthGuard(children: Children) -> impl IntoView {
-    let auth     = use_auth();
+    let auth = use_auth();
     let navigate = leptos_router::hooks::use_navigate();
 
     if auth.is_authenticated() {
         view! { <NavShell>{children()}</NavShell> }.into_any()
     } else {
-        Effect::new(move |_| { navigate("/login", Default::default()); });
+        Effect::new(move |_| {
+            navigate("/login", Default::default());
+        });
         view! {}.into_any()
     }
 }
@@ -68,21 +73,21 @@ fn AuthGuard(children: Children) -> impl IntoView {
 
 #[component]
 fn NavShell(children: Children) -> impl IntoView {
-    let auth     = use_auth();
+    let auth = use_auth();
     let location = use_location();
 
-    let username = move || {
-        auth.user.get().map(|u| u.username).unwrap_or_default()
-    };
-    let role = move || {
-        auth.user.get().map(|u| u.role).unwrap_or_default()
-    };
+    let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
+    let role = move || auth.user.get().map(|u| u.role).unwrap_or_default();
 
     // Active class helper — reacts to route changes
     let active = move |prefix: &'static str| {
         let pathname = location.pathname.get();
         move || {
-            if pathname.starts_with(prefix) { "active" } else { "" }
+            if pathname.starts_with(prefix) {
+                "active"
+            } else {
+                ""
+            }
         }
     };
 
@@ -97,6 +102,10 @@ fn NavShell(children: Children) -> impl IntoView {
                     <a href="/devices" class=active("/devices")>
                         <span class="material-icons" style="font-size:18px">"devices"</span>
                         "Devices"
+                    </a>
+                    <a href="/areas" class=active("/areas")>
+                        <span class="material-icons" style="font-size:18px">"home_work"</span>
+                        "Areas"
                     </a>
                     <a href="/scenes" class=active("/scenes")>
                         <span class="material-icons" style="font-size:18px">"lightbulb"</span>
@@ -130,7 +139,10 @@ fn NavShell(children: Children) -> impl IntoView {
                             (!r.is_empty()).then(|| view! { <span class="role">{r}</span> })
                         }}
                     </div>
-                    <Button on_click=move |_| auth.logout()>
+                    <Button
+                        variant=ButtonVariant::Outline
+                        on_click=Callback::new(move |_| auth.logout())
+                    >
                         "Logout"
                     </Button>
                 </header>

@@ -174,6 +174,7 @@ pub fn DevicesPage() -> impl IntoView {
     let filter_open = RwSignal::new(false);
     let timer_tick = RwSignal::new(0u64);
     let ws_retry = RwSignal::new(0u64);
+    let active_ws: RwSignal<Option<web_sys::WebSocket>> = RwSignal::new(None);
 
     Effect::new(move |_| {
         let callback = Closure::<dyn FnMut()>::new({
@@ -215,12 +216,24 @@ pub fn DevicesPage() -> impl IntoView {
             Some(t) => t,
             None => return,
         };
+        let has_live_socket = active_ws.with(|slot| {
+            slot.as_ref().map(|ws| {
+                matches!(
+                    ws.ready_state(),
+                    web_sys::WebSocket::CONNECTING | web_sys::WebSocket::OPEN
+                )
+            }).unwrap_or(false)
+        });
+        if has_live_socket {
+            return;
+        }
 
         let url = events_ws_url(&token);
         let ws = match web_sys::WebSocket::new(&url) {
             Ok(ws) => ws,
             Err(_) => return,
         };
+        active_ws.set(Some(ws.clone()));
 
         let open_token = token.clone();
         let on_open = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
@@ -276,24 +289,48 @@ pub fn DevicesPage() -> impl IntoView {
         ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
         on_msg.forget();
 
+        let active_ws_close = active_ws;
         let on_close = Closure::<dyn FnMut(web_sys::CloseEvent)>::new(move |_| {
+            active_ws_close.update(|slot| {
+                if slot
+                    .as_ref()
+                    .map(|ws| matches!(ws.ready_state(), web_sys::WebSocket::CLOSING | web_sys::WebSocket::CLOSED))
+                    .unwrap_or(false)
+                {
+                    *slot = None;
+                }
+            });
             schedule_ws_retry(ws_retry, generation);
         });
         ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
         on_close.forget();
 
+        let active_ws_error = active_ws;
         let on_error = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+            active_ws_error.update(|slot| {
+                if slot
+                    .as_ref()
+                    .map(|ws| !matches!(ws.ready_state(), web_sys::WebSocket::OPEN))
+                    .unwrap_or(false)
+                {
+                    *slot = None;
+                }
+            });
             schedule_ws_retry(ws_retry, generation);
         });
         ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
         on_error.forget();
+    });
 
-        on_cleanup(move || {
-            ws.set_onopen(None);
-            ws.set_onmessage(None);
-            ws.set_onclose(None);
-            ws.set_onerror(None);
-            let _ = ws.close();
+    on_cleanup(move || {
+        active_ws.update(|slot| {
+            if let Some(ws) = slot.take() {
+                ws.set_onopen(None);
+                ws.set_onmessage(None);
+                ws.set_onclose(None);
+                ws.set_onerror(None);
+                let _ = ws.close();
+            }
         });
     });
 

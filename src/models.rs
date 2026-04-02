@@ -267,6 +267,47 @@ pub fn media_summary(d: &DeviceState) -> Option<String> {
     }
 }
 
+pub fn string_list_attr(v: Option<&serde_json::Value>) -> Vec<String> {
+    v.and_then(|value| value.as_array())
+        .map(|items| {
+            items.iter()
+                .filter_map(|item| item.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn media_ui_enrichments(d: &DeviceState) -> Vec<String> {
+    string_list_attr(d.attributes.get("ui_enrichments"))
+}
+
+pub fn media_available_favorites(d: &DeviceState) -> Vec<String> {
+    let favorites = string_list_attr(d.attributes.get("available_favorites"));
+    if favorites.is_empty() {
+        string_list_attr(
+            d.attributes
+                .get("sonos")
+                .and_then(|value| value.get("favorites")),
+        )
+    } else {
+        favorites
+    }
+}
+
+pub fn media_available_playlists(d: &DeviceState) -> Vec<String> {
+    let playlists = string_list_attr(d.attributes.get("available_playlists"));
+    if playlists.is_empty() {
+        string_list_attr(
+            d.attributes
+                .get("sonos")
+                .and_then(|value| value.get("playlists")),
+        )
+    } else {
+        playlists
+    }
+}
+
 pub fn supported_actions(d: &DeviceState) -> Vec<&str> {
     d.attributes
         .get("supported_actions")

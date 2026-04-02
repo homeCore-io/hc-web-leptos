@@ -79,6 +79,8 @@ pub fn DeviceDetailPage() -> impl IntoView {
     let edit_icon = RwSignal::new(String::new());
     let delete_confirm = RwSignal::new(String::new());
     let timer_secs = RwSignal::new("60".to_string());
+    let selected_favorite = RwSignal::new(String::new());
+    let selected_playlist = RwSignal::new(String::new());
     let timer_tick = RwSignal::new(0u64);
     let ws_retry = RwSignal::new(0u64);
     let history_sort_by = RwSignal::new(HistorySortKey::Time);
@@ -109,6 +111,28 @@ pub fn DeviceDetailPage() -> impl IntoView {
         on_cleanup(move || {
             if let (Some(window), Some(handle)) = (web_sys::window(), handle) {
                 window.clear_interval_with_handle(handle);
+            }
+        });
+    });
+
+    Effect::new(move |_| {
+        let Some(d) = device.get() else { return };
+
+        let favorites = media_available_favorites(&d);
+        selected_favorite.update(|current| {
+            if favorites.is_empty() {
+                current.clear();
+            } else if current.is_empty() || !favorites.iter().any(|item| item == current) {
+                *current = favorites[0].clone();
+            }
+        });
+
+        let playlists = media_available_playlists(&d);
+        selected_playlist.update(|current| {
+            if playlists.is_empty() {
+                current.clear();
+            } else if current.is_empty() || !playlists.iter().any(|item| item == current) {
+                *current = playlists[0].clone();
             }
         });
     });
@@ -401,6 +425,9 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let pb_state     = playback_state(&d);
                 let media_sum    = media_summary(&d);
                 let media_img    = media_image_url(&d).map(str::to_string);
+                let media_enrichments = media_ui_enrichments(&d);
+                let media_favorites = media_available_favorites(&d);
+                let media_playlists = media_available_playlists(&d);
                 let last_changed = last_change_time(&d);
                 let change_text  = change_summary(&d);
                 let correlation  = change_correlation_id(&d).map(str::to_string);
@@ -438,6 +465,8 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let id_lock  = id.clone();
                 let id_unlck = id.clone();
                 let id_play  = id.clone();
+                let id_play_favorite = id.clone();
+                let id_play_playlist = id.clone();
                 let id_pause = id.clone();
                 let id_stop  = id.clone();
                 let id_prev  = id.clone();
@@ -814,6 +843,11 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                 let sup_prev = supports_action(&d, "previous");
                                 let sup_stop = supports_action(&d, "stop");
                                 let sup_next = supports_action(&d, "next");
+                                let sup_play_media = supports_action(&d, "play_media");
+                                let show_favorites = media_enrichments.iter().any(|item| item == "favorites")
+                                    && !media_favorites.is_empty();
+                                let show_playlists = media_enrichments.iter().any(|item| item == "playlists")
+                                    && !media_playlists.is_empty();
                                 view! {
                                     <div class="control-section">
                                         {sum.map(|s| view! {
@@ -824,6 +858,98 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                     <span class="cell-subtle">{pb2}</span>
                                                 </div>
                                             </div>
+                                        })}
+                                        {show_favorites.then(|| {
+                                            let favorites = media_favorites.clone();
+                                            view! {
+                                                <div class="control-row">
+                                                    <span class="control-label">"Favorites"</span>
+                                                    <div class="timer-start-row">
+                                                        <select
+                                                            on:change=move |ev| selected_favorite.set(event_target_value(&ev))
+                                                        >
+                                                            {favorites.into_iter().map(|favorite| {
+                                                                let selected_name = favorite.clone();
+                                                                view! {
+                                                                    <option
+                                                                        value=selected_name.clone()
+                                                                        selected=move || selected_favorite.get() == selected_name
+                                                                    >
+                                                                        {favorite}
+                                                                    </option>
+                                                                }
+                                                            }).collect_view()}
+                                                        </select>
+                                                        <button disabled=move || busy.get() || selected_favorite.get().is_empty()
+                                                            on:click=move |_| {
+                                                                let token = auth_token.get().unwrap_or_default();
+                                                                let did = id_play_favorite.clone();
+                                                                let favorite = selected_favorite.get();
+                                                                if favorite.is_empty() {
+                                                                    return;
+                                                                }
+                                                                let body = if sup_play_media {
+                                                                    serde_json::json!({"action":"play_media","media_type":"favorite","name": favorite})
+                                                                } else {
+                                                                    serde_json::json!({"action":"play_favorite","favorite": favorite})
+                                                                };
+                                                                busy.set(true); error.set(None);
+                                                                spawn_local(async move {
+                                                                    let _ = set_device_state(&token, &did, &body).await;
+                                                                    busy.set(false);
+                                                                });
+                                                            }>
+                                                            <span class="material-icons">"play_arrow"</span>" Play"
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        })}
+                                        {show_playlists.then(|| {
+                                            let playlists = media_playlists.clone();
+                                            view! {
+                                                <div class="control-row">
+                                                    <span class="control-label">"Playlists"</span>
+                                                    <div class="timer-start-row">
+                                                        <select
+                                                            on:change=move |ev| selected_playlist.set(event_target_value(&ev))
+                                                        >
+                                                            {playlists.into_iter().map(|playlist| {
+                                                                let selected_name = playlist.clone();
+                                                                view! {
+                                                                    <option
+                                                                        value=selected_name.clone()
+                                                                        selected=move || selected_playlist.get() == selected_name
+                                                                    >
+                                                                        {playlist}
+                                                                    </option>
+                                                                }
+                                                            }).collect_view()}
+                                                        </select>
+                                                        <button disabled=move || busy.get() || selected_playlist.get().is_empty()
+                                                            on:click=move |_| {
+                                                                let token = auth_token.get().unwrap_or_default();
+                                                                let did = id_play_playlist.clone();
+                                                                let playlist = selected_playlist.get();
+                                                                if playlist.is_empty() {
+                                                                    return;
+                                                                }
+                                                                let body = if sup_play_media {
+                                                                    serde_json::json!({"action":"play_media","media_type":"playlist","name": playlist})
+                                                                } else {
+                                                                    serde_json::json!({"action":"play_playlist","playlist": playlist})
+                                                                };
+                                                                busy.set(true); error.set(None);
+                                                                spawn_local(async move {
+                                                                    let _ = set_device_state(&token, &did, &body).await;
+                                                                    busy.set(false);
+                                                                });
+                                                            }>
+                                                            <span class="material-icons">"play_arrow"</span>" Play"
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            }
                                         })}
                                         <div class="control-row">
                                             <span class="control-label">"Playback"</span>

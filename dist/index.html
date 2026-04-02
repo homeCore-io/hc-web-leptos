@@ -14,8 +14,8 @@
   <!-- Trunk injects the WASM bundle here -->
   
 <script type="module">
-import init, * as bindings from '/hc-web-leptos-231cdfc833cb7d7d.js';
-const wasm = await init({ module_or_path: '/hc-web-leptos-231cdfc833cb7d7d_bg.wasm' });
+import init, * as bindings from '/hc-web-leptos-379faddecef79c70.js';
+const wasm = await init({ module_or_path: '/hc-web-leptos-379faddecef79c70_bg.wasm' });
 
 
 window.wasmBindings = bindings;
@@ -24,6 +24,6 @@ window.wasmBindings = bindings;
 dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
 
 </script>
-<link rel="modulepreload" href="/hc-web-leptos-231cdfc833cb7d7d.js" crossorigin="anonymous" integrity="sha384-FA+LD3SE6ziiKVWBvfszMfZailfIW7oFxCbSrbI3sfqPePxnvIBTvE2nFKCpQ0Qd"><link rel="preload" href="/hc-web-leptos-231cdfc833cb7d7d_bg.wasm" crossorigin="anonymous" integrity="sha384-0LarHy1afdcxjsRSQkSJ1TzRtcHRoHw4EaNlU0O2+l35oM6rrAP54Oh1MaFF/Xes" as="fetch" type="application/wasm"></head>
+<link rel="modulepreload" href="/hc-web-leptos-379faddecef79c70.js" crossorigin="anonymous" integrity="sha384-bmGsJ/J9dc4AP10spVXlfHcRKkkgFzGx3X3YkyeCPySark79EAuNBO1NhOkg/kU5"><link rel="preload" href="/hc-web-leptos-379faddecef79c70_bg.wasm" crossorigin="anonymous" integrity="sha384-Jb3zCLhUCmRceadAYPNOeO779eRTR+1IGRVPzR6HT6BgtZiUq6ikBuzNqTe/+BDQ" as="fetch" type="application/wasm"></head>
 <body></body>
 </html>

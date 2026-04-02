@@ -435,13 +435,6 @@ pub fn DevicesPage() -> impl IntoView {
                     <h1>"Devices"</h1>
                     <p>"Responsive inventory list with filters, live updates, and inline controls."</p>
                 </div>
-                <Button
-                    variant=ButtonVariant::Outline
-                    on_click=Callback::new(move |_| refresh())
-                    disabled=Signal::derive(move || loading.get())
-                >
-                    {move || if loading.get() { "Refreshing…" } else { "Refresh" }}
-                </Button>
             </div>
 
             <DeviceFiltersPanel

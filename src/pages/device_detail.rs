@@ -358,13 +358,6 @@ pub fn DeviceDetailPage() -> impl IntoView {
                         </div>
                         <div class="detail-heading-actions">
                             <Button
-                                variant=ButtonVariant::Outline
-                                on_click=Callback::new(move |_| refresh_trigger.update(|n| *n += 1))
-                                disabled=Signal::derive(move || loading.get())
-                            >
-                                {move || if loading.get() { "Refreshing…" } else { "Refresh" }}
-                            </Button>
-                            <Button
                                 variant=ButtonVariant::Secondary
                                 on_click=Callback::new(move |_| show_edit.update(|v| *v = !*v))
                             >

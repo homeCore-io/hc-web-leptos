@@ -102,6 +102,25 @@ pub fn battery_pct(d: &DeviceState) -> Option<f64> {
     )
 }
 
+pub fn temperature_unit(d: &DeviceState) -> Option<&'static str> {
+    let explicit = str_attr(
+        d.attributes
+            .get("temperature_unit")
+            .or_else(|| d.attributes.get("tempUnit")),
+    )
+    .map(str::trim)
+    .filter(|value| !value.is_empty());
+
+    match explicit {
+        Some("F" | "f" | "°F" | "℉") => Some("F"),
+        Some("C" | "c" | "°C" | "℃") => Some("C"),
+        Some(_) => None,
+        None if d.attributes.contains_key("temperature_f") => Some("F"),
+        None if d.attributes.contains_key("temperature_c") => Some("C"),
+        None => None,
+    }
+}
+
 // ── Classification ────────────────────────────────────────────────────────────
 
 pub fn is_media_player(d: &DeviceState) -> bool {
@@ -479,14 +498,21 @@ pub fn status_text(d: &DeviceState) -> String {
             .get("humidity_pct")
             .or_else(|| d.attributes.get("humidity")),
     );
+    let temp_unit = temperature_unit(d);
     if let (Some(temp), Some(humidity)) = (temperature, humidity) {
-        return format!("{temp:.1}°, {humidity:.0}%");
+        return match temp_unit {
+            Some(unit) => format!("Temp {temp:.1} {unit}, RH {humidity:.0}%"),
+            None => format!("Temp {temp:.1}°, RH {humidity:.0}%"),
+        };
     }
     if let Some(temp) = temperature {
-        return format!("{temp:.1}°");
+        return match temp_unit {
+            Some(unit) => format!("Temp {temp:.1} {unit}"),
+            None => format!("Temp {temp:.1}°"),
+        };
     }
     if let Some(humidity) = humidity {
-        return format!("{humidity:.0}%");
+        return format!("RH {humidity:.0}%");
     }
     let battery_pct = battery_pct(d);
     let battery_state = str_attr(d.attributes.get("battery_state"))

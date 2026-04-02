@@ -115,6 +115,40 @@ fn apply_command_result(devices: &mut [DeviceState], device_id: &str, intent: Co
     }
 }
 
+fn refresh_devices(
+    token: String,
+    devices: RwSignal<Vec<DeviceState>>,
+    loading: RwSignal<bool>,
+    error: RwSignal<Option<String>>,
+) {
+    loading.set(true);
+    error.set(None);
+    spawn_local(async move {
+        match fetch_devices(&token).await {
+            Ok(list) => devices.set(list),
+            Err(e) => error.set(Some(e)),
+        }
+        loading.set(false);
+    });
+}
+
+fn schedule_ws_retry(retry: RwSignal<u64>, generation: u64) {
+    let callback = Closure::<dyn FnMut()>::new(move || {
+        if retry.get_untracked() == generation {
+            retry.update(|n| *n += 1);
+        }
+    });
+
+    if let Some(window) = web_sys::window() {
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            callback.as_ref().unchecked_ref(),
+            1000,
+        );
+    }
+
+    callback.forget();
+}
+
 #[component]
 pub fn DevicesPage() -> impl IntoView {
     let auth = use_auth();
@@ -139,6 +173,7 @@ pub fn DevicesPage() -> impl IntoView {
     let show_media = RwSignal::new(init_show_media);
     let filter_open = RwSignal::new(false);
     let timer_tick = RwSignal::new(0u64);
+    let ws_retry = RwSignal::new(0u64);
 
     Effect::new(move |_| {
         let callback = Closure::<dyn FnMut()>::new({
@@ -167,15 +202,7 @@ pub fn DevicesPage() -> impl IntoView {
 
     let refresh = move || {
         let token = auth.token_str().unwrap_or_default();
-        loading.set(true);
-        error.set(None);
-        spawn_local(async move {
-            match fetch_devices(&token).await {
-                Ok(list) => devices.set(list),
-                Err(e) => error.set(Some(e)),
-            }
-            loading.set(false);
-        });
+        refresh_devices(token, devices, loading, error);
     };
 
     Effect::new(move |_| {
@@ -183,6 +210,7 @@ pub fn DevicesPage() -> impl IntoView {
     });
 
     Effect::new(move |_| {
+        let generation = ws_retry.get();
         let token = match auth.token_str() {
             Some(t) => t,
             None => return,
@@ -193,6 +221,15 @@ pub fn DevicesPage() -> impl IntoView {
             Ok(ws) => ws,
             Err(_) => return,
         };
+
+        let open_token = token.clone();
+        let on_open = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+            if generation > 0 {
+                refresh_devices(open_token.clone(), devices, loading, error);
+            }
+        });
+        ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+        on_open.forget();
 
         let on_msg =
             Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |ev: web_sys::MessageEvent| {
@@ -239,7 +276,23 @@ pub fn DevicesPage() -> impl IntoView {
         ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
         on_msg.forget();
 
+        let on_close = Closure::<dyn FnMut(web_sys::CloseEvent)>::new(move |_| {
+            schedule_ws_retry(ws_retry, generation);
+        });
+        ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+        on_close.forget();
+
+        let on_error = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+            schedule_ws_retry(ws_retry, generation);
+        });
+        ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+        on_error.forget();
+
         on_cleanup(move || {
+            ws.set_onopen(None);
+            ws.set_onmessage(None);
+            ws.set_onclose(None);
+            ws.set_onerror(None);
             let _ = ws.close();
         });
     });

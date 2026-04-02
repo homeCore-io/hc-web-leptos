@@ -39,6 +39,23 @@ fn sync_edit_fields(
     edit_icon.set(device.status_icon.clone().unwrap_or_default());
 }
 
+fn schedule_ws_retry(retry: RwSignal<u64>, generation: u64) {
+    let callback = Closure::<dyn FnMut()>::new(move || {
+        if retry.get_untracked() == generation {
+            retry.update(|n| *n += 1);
+        }
+    });
+
+    if let Some(window) = web_sys::window() {
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            callback.as_ref().unchecked_ref(),
+            1000,
+        );
+    }
+
+    callback.forget();
+}
+
 #[component]
 pub fn DeviceDetailPage() -> impl IntoView {
     let auth = use_auth();
@@ -63,6 +80,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
     let delete_confirm = RwSignal::new(String::new());
     let timer_secs = RwSignal::new("60".to_string());
     let timer_tick = RwSignal::new(0u64);
+    let ws_retry = RwSignal::new(0u64);
     let history_sort_by = RwSignal::new(HistorySortKey::Time);
     let history_sort_dir = RwSignal::new(HistorySortDir::Desc);
 
@@ -215,6 +233,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
     // ── WebSocket live updates ────────────────────────────────────────────────
     let did_ws = device_id.clone();
     Effect::new(move |_| {
+        let generation = ws_retry.get();
         let token = match auth_token.get() {
             Some(t) => t,
             None => return,
@@ -224,6 +243,16 @@ pub fn DeviceDetailPage() -> impl IntoView {
             Ok(ws) => ws,
             Err(_) => return,
         };
+
+        let on_open = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+            if generation > 0 {
+                refresh_trigger.update(|n| *n += 1);
+                hist_trigger.update(|n| *n += 1);
+            }
+        });
+        ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+        on_open.forget();
+
         let id_ws = did_ws.clone();
         let cb =
             Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |ev: web_sys::MessageEvent| {
@@ -270,7 +299,24 @@ pub fn DeviceDetailPage() -> impl IntoView {
             });
         ws.set_onmessage(Some(cb.as_ref().unchecked_ref()));
         cb.forget();
+
+        let on_close = Closure::<dyn FnMut(web_sys::CloseEvent)>::new(move |_| {
+            schedule_ws_retry(ws_retry, generation);
+        });
+        ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+        on_close.forget();
+
+        let on_error = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+            schedule_ws_retry(ws_retry, generation);
+        });
+        ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+        on_error.forget();
+
         on_cleanup(move || {
+            ws.set_onopen(None);
+            ws.set_onmessage(None);
+            ws.set_onclose(None);
+            ws.set_onerror(None);
             let _ = ws.close();
         });
     });

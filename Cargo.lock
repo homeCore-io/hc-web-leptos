@@ -649,7 +649,6 @@ dependencies = [
  "chrono",
  "console_error_panic_hook",
  "gloo-net",
- "js-sys",
  "leptos",
  "leptos-shadcn-ui",
  "leptos_router",

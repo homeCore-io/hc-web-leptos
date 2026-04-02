@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 
 pub const API_BASE: &str = "/api/v1";
 const TOKEN_KEY: &str = "hc-leptos:token";
-const CLIENT_ID_KEY: &str = "hc-leptos:tab-id";
 
 // ── User type ─────────────────────────────────────────────────────────────────
 
@@ -113,32 +112,6 @@ fn ls_remove(key: &str) {
     }
 }
 
-fn ss_get(key: &str) -> Option<String> {
-    web_sys::window()
-        .and_then(|w| w.session_storage().ok().flatten())
-        .and_then(|s| s.get_item(key).ok().flatten())
-}
-
-fn ss_set(key: &str, val: &str) {
-    if let Some(s) = web_sys::window().and_then(|w| w.session_storage().ok().flatten()) {
-        let _ = s.set_item(key, val);
-    }
-}
-
-fn stable_client_id() -> String {
-    if let Some(existing) = ss_get(CLIENT_ID_KEY).filter(|value| !value.trim().is_empty()) {
-        return existing;
-    }
-
-    let seed = format!(
-        "hc-web-leptos-tab-{}-{}",
-        js_sys::Date::now() as u64,
-        (js_sys::Math::random() * 1_000_000_000.0) as u64
-    );
-    ss_set(CLIENT_ID_KEY, &seed);
-    seed
-}
-
 // ── WebSocket URL helper ──────────────────────────────────────────────────────
 
 /// Build the WebSocket URL for the HomeCore events stream.
@@ -154,7 +127,6 @@ pub fn events_ws_url(token: &str) -> String {
     let host = web_sys::window()
         .and_then(|w| w.location().host().ok())
         .unwrap_or_else(|| "localhost:8080".to_string());
-    let client_id = stable_client_id();
 
-    format!("{protocol}://{host}/api/v1/events/stream?token={token}&client_id={client_id}")
+    format!("{protocol}://{host}/api/v1/events/stream?token={token}")
 }

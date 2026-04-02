@@ -4,8 +4,7 @@ use crate::api::{
     StreamEvent, delete_device as delete_device_request, fetch_areas, fetch_device,
     fetch_device_history, set_device_state, update_device_meta,
 };
-use crate::auth::use_auth;
-use crate::live::use_live_event_stream;
+use crate::auth::{events_ws_url, use_auth};
 use crate::models::*;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -43,7 +42,6 @@ fn sync_edit_fields(
 #[component]
 pub fn DeviceDetailPage() -> impl IntoView {
     let auth = use_auth();
-    let live_events = use_live_event_stream();
     let params = use_params_map();
     let device_id: String =
         params.with_untracked(|p| p.get("id").map(|s| s.clone()).unwrap_or_default());
@@ -238,55 +236,67 @@ pub fn DeviceDetailPage() -> impl IntoView {
         entries
     });
 
-    Effect::new(move |_| {
-        let connect_count = live_events.connect_count.get();
-        if connect_count <= 1 {
-            return;
-        }
-
-        refresh_trigger.update(|n| *n += 1);
-        hist_trigger.update(|n| *n += 1);
-    });
-
     // ── WebSocket live updates ────────────────────────────────────────────────
     let did_ws = device_id.clone();
     Effect::new(move |_| {
-        let _ = live_events.seq.get();
-        let Some(event) = live_events.last_event.get() else {
-            return;
+        let token = match auth_token.get() {
+            Some(t) => t,
+            None => return,
         };
-        match event {
-            StreamEvent::DeviceStateChanged {
-                device_id: eid,
-                current,
-                change,
-                ..
-            } if eid == did_ws => {
-                device.update(|d| {
-                    if let Some(d) = d {
-                        d.attributes = current;
-                        if let Some(change) = change {
-                            d.last_seen = Some(change.changed_at);
-                            d.last_change = Some(change);
-                        } else {
-                            d.last_seen = Some(chrono::Utc::now());
-                        }
+        let url = events_ws_url(&token);
+        let ws = match web_sys::WebSocket::new(&url) {
+            Ok(ws) => ws,
+            Err(_) => return,
+        };
+        let id_ws = did_ws.clone();
+        let cb =
+            Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |ev: web_sys::MessageEvent| {
+                let text = match ev.data().as_string() {
+                    Some(s) => s,
+                    None => return,
+                };
+                let event: StreamEvent = match serde_json::from_str(&text) {
+                    Ok(e) => e,
+                    Err(_) => return,
+                };
+                match event {
+                    StreamEvent::DeviceStateChanged {
+                        device_id: eid,
+                        current,
+                        change,
+                        ..
+                    } if eid == id_ws => {
+                        device.update(|d| {
+                            if let Some(d) = d {
+                                d.attributes = current;
+                                if let Some(change) = change {
+                                    d.last_seen = Some(change.changed_at);
+                                    d.last_change = Some(change);
+                                } else {
+                                    d.last_seen = Some(chrono::Utc::now());
+                                }
+                            }
+                        });
+                        hist_trigger.update(|n| *n += 1);
                     }
-                });
-                hist_trigger.update(|n| *n += 1);
-            }
-            StreamEvent::DeviceAvailabilityChanged {
-                device_id: eid,
-                available,
-            } if eid == did_ws => {
-                device.update(|d| {
-                    if let Some(d) = d {
-                        d.available = available;
+                    StreamEvent::DeviceAvailabilityChanged {
+                        device_id: eid,
+                        available,
+                    } if eid == id_ws => {
+                        device.update(|d| {
+                            if let Some(d) = d {
+                                d.available = available;
+                            }
+                        });
                     }
-                });
-            }
-            _ => {}
-        }
+                    _ => {}
+                }
+            });
+        ws.set_onmessage(Some(cb.as_ref().unchecked_ref()));
+        cb.forget();
+        on_cleanup(move || {
+            let _ = ws.close();
+        });
     });
 
     // ── View ──────────────────────────────────────────────────────────────────

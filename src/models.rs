@@ -93,6 +93,15 @@ pub fn num_attr(v: Option<&serde_json::Value>) -> Option<f64> {
     })
 }
 
+pub fn battery_pct(d: &DeviceState) -> Option<f64> {
+    num_attr(
+        d.attributes
+            .get("battery_pct")
+            .or_else(|| d.attributes.get("battery"))
+            .or_else(|| d.attributes.get("battery_level")),
+    )
+}
+
 // ── Classification ────────────────────────────────────────────────────────────
 
 pub fn is_media_player(d: &DeviceState) -> bool {
@@ -478,6 +487,19 @@ pub fn status_text(d: &DeviceState) -> String {
     }
     if let Some(humidity) = humidity {
         return format!("{humidity:.0}%");
+    }
+    let battery_pct = battery_pct(d);
+    let battery_state = str_attr(d.attributes.get("battery_state"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(level) = battery_pct {
+        if matches!(battery_state, Some("low" | "critical")) {
+            return format!("Battery {level:.0}% ({})", battery_state.unwrap());
+        }
+        return format!("Battery {level:.0}%");
+    }
+    if let Some(state) = battery_state {
+        return format!("Battery {}", state.replace('_', " "));
     }
     if let Some(s) = str_attr(d.attributes.get("state")) {
         if !s.trim().is_empty() {

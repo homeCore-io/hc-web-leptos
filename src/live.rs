@@ -61,7 +61,7 @@ pub fn LiveEventStreamBridge() -> impl IntoView {
             None => return,
         };
 
-        let has_live_socket = stream.socket.with(|slot| {
+        let has_live_socket = stream.socket.with_untracked(|slot| {
             slot.as_ref()
                 .map(|ws| {
                     matches!(

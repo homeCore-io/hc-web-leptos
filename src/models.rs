@@ -85,6 +85,14 @@ pub fn str_attr<'a>(v: Option<&'a serde_json::Value>) -> Option<&'a str> {
     v.and_then(|v| v.as_str())
 }
 
+pub fn num_attr(v: Option<&serde_json::Value>) -> Option<f64> {
+    v.and_then(|v| {
+        v.as_f64()
+            .or_else(|| v.as_i64().map(|n| n as f64))
+            .or_else(|| v.as_u64().map(|n| n as f64))
+    })
+}
+
 // ── Classification ────────────────────────────────────────────────────────────
 
 pub fn is_media_player(d: &DeviceState) -> bool {
@@ -418,6 +426,26 @@ pub fn status_text(d: &DeviceState) -> String {
     }
     if let Some(locked) = bool_attr(d.attributes.get("locked")) {
         return if locked { "Locked" } else { "Unlocked" }.to_string();
+    }
+    let temperature = num_attr(
+        d.attributes
+            .get("temperature")
+            .or_else(|| d.attributes.get("temperature_f"))
+            .or_else(|| d.attributes.get("temperature_c")),
+    );
+    let humidity = num_attr(
+        d.attributes
+            .get("humidity_pct")
+            .or_else(|| d.attributes.get("humidity")),
+    );
+    if let (Some(temp), Some(humidity)) = (temperature, humidity) {
+        return format!("{temp:.1}°, {humidity:.0}%");
+    }
+    if let Some(temp) = temperature {
+        return format!("{temp:.1}°");
+    }
+    if let Some(humidity) = humidity {
+        return format!("{humidity:.0}%");
     }
     if let Some(s) = str_attr(d.attributes.get("state")) {
         if !s.trim().is_empty() {

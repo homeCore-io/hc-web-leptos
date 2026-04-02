@@ -68,7 +68,17 @@ pub struct DeviceState {
 // ── Attribute helpers ─────────────────────────────────────────────────────────
 
 pub fn bool_attr(v: Option<&serde_json::Value>) -> Option<bool> {
-    v.and_then(|v| v.as_bool())
+    v.and_then(|v| {
+        v.as_bool().or_else(|| {
+            v.as_str().and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
+                "true" | "on" | "open" | "active" | "occupied" | "detected" => Some(true),
+                "false" | "off" | "closed" | "inactive" | "clear" | "unoccupied" => {
+                    Some(false)
+                }
+                _ => None,
+            })
+        })
+    })
 }
 
 pub fn str_attr<'a>(v: Option<&'a serde_json::Value>) -> Option<&'a str> {
@@ -396,6 +406,13 @@ pub fn status_text(d: &DeviceState) -> String {
     if let Some(motion) = bool_attr(d.attributes.get("motion")) {
         return if motion { "Motion detected" } else { "Clear" }.to_string();
     }
+    if let Some(occupied) = bool_attr(
+        d.attributes
+            .get("occupied")
+            .or_else(|| d.attributes.get("occupancy")),
+    ) {
+        return if occupied { "Occupied" } else { "Clear" }.to_string();
+    }
     if let Some(contact) = bool_attr(d.attributes.get("contact")) {
         return if contact { "Open" } else { "Closed" }.to_string();
     }
@@ -455,6 +472,17 @@ pub fn status_tone(d: &DeviceState) -> StatusTone {
             StatusTone::Idle
         };
     }
+    if let Some(occupied) = bool_attr(
+        d.attributes
+            .get("occupied")
+            .or_else(|| d.attributes.get("occupancy")),
+    ) {
+        return if occupied {
+            StatusTone::Warn
+        } else {
+            StatusTone::Idle
+        };
+    }
     if let Some(open) = bool_attr(
         d.attributes
             .get("open")
@@ -495,8 +523,19 @@ pub fn status_icon_name(d: &DeviceState) -> &'static str {
     if let Some(locked) = bool_attr(d.attributes.get("locked")) {
         return if locked { "lock" } else { "lock_open_right" };
     }
-    if bool_attr(d.attributes.get("motion")).is_some() {
-        return "motion_sensor_active";
+    if let Some(motion) = bool_attr(d.attributes.get("motion")) {
+        return if motion {
+            "motion_sensor_active"
+        } else {
+            "sensors"
+        };
+    }
+    if let Some(occupied) = bool_attr(
+        d.attributes
+            .get("occupied")
+            .or_else(|| d.attributes.get("occupancy")),
+    ) {
+        return if occupied { "person" } else { "person_off" };
     }
     if bool_attr(
         d.attributes
@@ -517,6 +556,8 @@ fn map_icon_name(s: &str) -> Option<&'static str> {
         "lock" => "lock",
         "lock_open" => "lock_open_right",
         "motion" => "motion_sensor_active",
+        "occupied" => "person",
+        "unoccupied" => "person_off",
         "open" => "door_open",
         "closed" => "door_front",
         "play" => "play_arrow",

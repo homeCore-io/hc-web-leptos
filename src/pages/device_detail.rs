@@ -432,6 +432,10 @@ pub fn DeviceDetailPage() -> impl IntoView {
                     .or_else(|| d.attributes.get("duration_ms").and_then(|v| v.as_u64()).map(|ms| ms / 1000))
                     .unwrap_or(0);
                 let pb_state     = playback_state(&d);
+                let media_title_text = media_title(&d).map(str::to_string);
+                let media_artist_text = media_artist(&d).map(str::to_string);
+                let media_album_text = media_album(&d).map(str::to_string);
+                let media_source_text = media_source(&d).map(str::to_string);
                 let media_sum    = media_summary(&d);
                 let media_img    = media_image_url(&d).map(str::to_string);
                 let media_enrichments = media_ui_enrichments(&d);
@@ -850,9 +854,13 @@ pub fn DeviceDetailPage() -> impl IntoView {
                             // Media player controls
                             {is_media.then(|| {
                                 let pb  = pb_state.clone();
-                                let pb2 = pb_state.clone();
+                                let pb_label = pb_state.replace('_', " ");
                                 let img = media_img.clone();
                                 let sum = media_sum.clone();
+                                let title = media_title_text.clone();
+                                let artist = media_artist_text.clone();
+                                let album = media_album_text.clone();
+                                let source = media_source_text.clone();
                                 let show_play  = pb != "playing";
                                 let show_pause = pb == "playing";
                                 let sup_prev = supports_action(&d, "previous");
@@ -871,28 +879,59 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                     && !media_playlists.is_empty();
                                 let show_media_adv = sup_set_mute || sup_set_shuffle || sup_set_repeat
                                     || sup_set_bass || sup_set_treble || sup_set_loudness;
+                                let show_media_header = img.is_some() || sum.is_some() || title.is_some()
+                                    || artist.is_some() || album.is_some() || source.is_some();
                                 view! {
                                     <div class="control-section">
-                                        {sum.clone().map(|s| view! {
+                                        {show_media_header.then(|| view! {
                                             <div class="media-now-playing">
-                                                {img.clone().map(|url| view! { <img src=url alt="Album art" class="media-thumb" /> })}
-                                                <div class="cell-primary">
-                                                    <span class="media-title">{s}</span>
-                                                    <span class="cell-subtle">{pb2.clone()}</span>
+                                                {move || {
+                                                    if let Some(url) = img.clone() {
+                                                        view! { <img src=url alt="Album art" class="media-thumb" /> }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <div class="media-thumb media-thumb-placeholder">
+                                                                <span class="material-icons">"album"</span>
+                                                            </div>
+                                                        }.into_any()
+                                                    }
+                                                }}
+                                                <div class="media-now-playing-body">
+                                                    <div class="media-now-playing-header">
+                                                        <span class="media-now-playing-label">"Now Playing"</span>
+                                                        <span class="cell-subtle">{pb_label.clone()}</span>
+                                                    </div>
+                                                    {sum.clone().map(|s| view! {
+                                                        <span class="media-summary">{s}</span>
+                                                    })}
+                                                    {title.clone().map(|value| view! {
+                                                        <div class="media-meta-row">
+                                                            <span class="media-meta-key">"Title"</span>
+                                                            <span class="media-meta-value">{value}</span>
+                                                        </div>
+                                                    })}
+                                                    {artist.clone().map(|value| view! {
+                                                        <div class="media-meta-row">
+                                                            <span class="media-meta-key">"Artist"</span>
+                                                            <span class="media-meta-value">{value}</span>
+                                                        </div>
+                                                    })}
+                                                    {album.clone().map(|value| view! {
+                                                        <div class="media-meta-row">
+                                                            <span class="media-meta-key">"Album"</span>
+                                                            <span class="media-meta-value">{value}</span>
+                                                        </div>
+                                                    })}
+                                                    {source.clone().filter(|value| {
+                                                        title.as_ref().map(|title| title != value).unwrap_or(true)
+                                                    }).map(|value| view! {
+                                                        <div class="media-meta-row">
+                                                            <span class="media-meta-key">"Source"</span>
+                                                            <span class="media-meta-value">{value}</span>
+                                                        </div>
+                                                    })}
                                                 </div>
                                             </div>
-                                        })}
-                                        {(sum.is_none() && img.is_some()).then(|| {
-                                            let url = img.clone().unwrap_or_default();
-                                            view! {
-                                                <div class="media-now-playing">
-                                                    <img src=url alt="Album art" class="media-thumb" />
-                                                    <div class="cell-primary">
-                                                        <span class="media-title">"Album art"</span>
-                                                        <span class="cell-subtle">{pb2.clone()}</span>
-                                                    </div>
-                                                </div>
-                                            }
                                         })}
                                         {show_favorites.then(|| {
                                             let favorites = media_favorites.clone();

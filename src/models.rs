@@ -108,6 +108,12 @@ pub fn is_scene_like(d: &DeviceState) -> bool {
     dt == "scene" || kind == "scene"
 }
 
+pub fn is_timer_device(d: &DeviceState) -> bool {
+    d.plugin_id.starts_with("core.timer")
+        || d.device_type.as_deref() == Some("timer")
+        || str_attr(d.attributes.get("kind")) == Some("timer")
+}
+
 // ── Display helpers ───────────────────────────────────────────────────────────
 
 pub fn display_name(d: &DeviceState) -> &str {
@@ -396,6 +402,32 @@ pub fn status_text(d: &DeviceState) -> String {
     if !d.available {
         return "Offline".to_string();
     }
+    if is_timer_device(d) {
+        let timer_state = str_attr(d.attributes.get("state"))
+            .unwrap_or("idle")
+            .trim()
+            .to_lowercase();
+        let remaining_secs = d
+            .attributes
+            .get("remaining_secs")
+            .and_then(|v| v.as_u64())
+            .or_else(|| {
+                d.attributes
+                    .get("remaining_ms")
+                    .and_then(|v| v.as_u64())
+                    .map(|ms| ms / 1000)
+            })
+            .unwrap_or(0);
+
+        return match timer_state.as_str() {
+            "running" | "paused" if remaining_secs > 0 => {
+                format!("{} remaining", format_duration_secs(remaining_secs))
+            }
+            "finished" => "Finished".to_string(),
+            "idle" => "Idle".to_string(),
+            other => other.replace('_', " "),
+        };
+    }
     if is_media_player(d) {
         let s = playback_state(d);
         return match s.as_str() {
@@ -668,6 +700,10 @@ pub fn format_relative(ts: Option<&DateTime<Utc>>) -> String {
 /// Format a duration in milliseconds as M:SS or H:MM:SS.
 pub fn format_duration_ms(ms: u64) -> String {
     let total = ms / 1000;
+    format_duration_secs(total)
+}
+
+pub fn format_duration_secs(total: u64) -> String {
     let h = total / 3600;
     let m = (total % 3600) / 60;
     let s = total % 60;

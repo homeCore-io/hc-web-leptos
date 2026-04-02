@@ -121,6 +121,30 @@ pub fn temperature_unit(d: &DeviceState) -> Option<&'static str> {
     }
 }
 
+pub fn illuminance_value(d: &DeviceState) -> Option<f64> {
+    num_attr(
+        d.attributes
+            .get("illuminance")
+            .or_else(|| d.attributes.get("illuminance_lux"))
+            .or_else(|| d.attributes.get("illuminance_raw")),
+    )
+}
+
+pub fn illuminance_unit(d: &DeviceState) -> Option<&'static str> {
+    let explicit = str_attr(d.attributes.get("illuminance_unit"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match explicit {
+        Some("lux" | "lx" | "Lux" | "LUX") => Some("lux"),
+        Some("raw" | "Raw" | "RAW") => Some("raw"),
+        Some(_) => None,
+        None if d.attributes.contains_key("illuminance_lux") => Some("lux"),
+        None if d.attributes.contains_key("illuminance_raw") => Some("raw"),
+        None => None,
+    }
+}
+
 // ── Classification ────────────────────────────────────────────────────────────
 
 pub fn is_media_player(d: &DeviceState) -> bool {
@@ -559,6 +583,14 @@ pub fn status_text(d: &DeviceState) -> String {
     }
     if let Some(humidity) = humidity {
         return format!("RH {humidity:.0}%");
+    }
+    if let Some(illuminance) = illuminance_value(d) {
+        return match illuminance_unit(d) {
+            Some("raw") => format!("Light {illuminance:.0} raw"),
+            Some("lux") => format!("Light {illuminance:.1} lux"),
+            Some(unit) => format!("Light {illuminance:.1} {unit}"),
+            None => format!("Light {illuminance:.1}"),
+        };
     }
     let battery_pct = battery_pct(d);
     let battery_state = str_attr(d.attributes.get("battery_state"))

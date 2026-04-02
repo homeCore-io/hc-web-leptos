@@ -4,7 +4,8 @@ use crate::api::{
     StreamEvent, delete_device as delete_device_request, fetch_areas, fetch_device,
     fetch_device_history, set_device_state, update_device_meta,
 };
-use crate::auth::{events_ws_url, use_auth};
+use crate::auth::use_auth;
+use crate::live::use_live_event_stream;
 use crate::models::*;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -39,26 +40,10 @@ fn sync_edit_fields(
     edit_icon.set(device.status_icon.clone().unwrap_or_default());
 }
 
-fn schedule_ws_retry(retry: RwSignal<u64>, generation: u64) {
-    let callback = Closure::<dyn FnMut()>::new(move || {
-        if retry.get_untracked() == generation {
-            retry.update(|n| *n += 1);
-        }
-    });
-
-    if let Some(window) = web_sys::window() {
-        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
-            callback.as_ref().unchecked_ref(),
-            1000,
-        );
-    }
-
-    callback.forget();
-}
-
 #[component]
 pub fn DeviceDetailPage() -> impl IntoView {
     let auth = use_auth();
+    let live_events = use_live_event_stream();
     let params = use_params_map();
     let device_id: String =
         params.with_untracked(|p| p.get("id").map(|s| s.clone()).unwrap_or_default());
@@ -82,8 +67,6 @@ pub fn DeviceDetailPage() -> impl IntoView {
     let selected_favorite = RwSignal::new(String::new());
     let selected_playlist = RwSignal::new(String::new());
     let timer_tick = RwSignal::new(0u64);
-    let ws_retry = RwSignal::new(0u64);
-    let active_ws: RwSignal<Option<web_sys::WebSocket>> = RwSignal::new(None);
     let history_sort_by = RwSignal::new(HistorySortKey::Time);
     let history_sort_dir = RwSignal::new(HistorySortDir::Desc);
 
@@ -255,131 +238,55 @@ pub fn DeviceDetailPage() -> impl IntoView {
         entries
     });
 
+    Effect::new(move |_| {
+        let connect_count = live_events.connect_count.get();
+        if connect_count <= 1 {
+            return;
+        }
+
+        refresh_trigger.update(|n| *n += 1);
+        hist_trigger.update(|n| *n += 1);
+    });
+
     // ── WebSocket live updates ────────────────────────────────────────────────
     let did_ws = device_id.clone();
     Effect::new(move |_| {
-        let generation = ws_retry.get();
-        let token = match auth_token.get() {
-            Some(t) => t,
-            None => return,
-        };
-        let has_live_socket = active_ws.with(|slot| {
-            slot.as_ref().map(|ws| {
-                matches!(
-                    ws.ready_state(),
-                    web_sys::WebSocket::CONNECTING | web_sys::WebSocket::OPEN
-                )
-            }).unwrap_or(false)
-        });
-        if has_live_socket {
+        let _ = live_events.seq.get();
+        let Some(event) = live_events.last_event.get() else {
             return;
-        }
-        let url = events_ws_url(&token);
-        let ws = match web_sys::WebSocket::new(&url) {
-            Ok(ws) => ws,
-            Err(_) => return,
         };
-        active_ws.set(Some(ws.clone()));
-
-        let on_open = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
-            if generation > 0 {
-                refresh_trigger.update(|n| *n += 1);
+        match event {
+            StreamEvent::DeviceStateChanged {
+                device_id: eid,
+                current,
+                change,
+                ..
+            } if eid == did_ws => {
+                device.update(|d| {
+                    if let Some(d) = d {
+                        d.attributes = current;
+                        if let Some(change) = change {
+                            d.last_seen = Some(change.changed_at);
+                            d.last_change = Some(change);
+                        } else {
+                            d.last_seen = Some(chrono::Utc::now());
+                        }
+                    }
+                });
                 hist_trigger.update(|n| *n += 1);
             }
-        });
-        ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-        on_open.forget();
-
-        let id_ws = did_ws.clone();
-        let cb =
-            Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |ev: web_sys::MessageEvent| {
-                let text = match ev.data().as_string() {
-                    Some(s) => s,
-                    None => return,
-                };
-                let event: StreamEvent = match serde_json::from_str(&text) {
-                    Ok(e) => e,
-                    Err(_) => return,
-                };
-                match event {
-                    StreamEvent::DeviceStateChanged {
-                        device_id: eid,
-                        current,
-                        change,
-                        ..
-                    } if eid == id_ws => {
-                        device.update(|d| {
-                            if let Some(d) = d {
-                                d.attributes = current;
-                                if let Some(change) = change {
-                                    d.last_seen = Some(change.changed_at);
-                                    d.last_change = Some(change);
-                                } else {
-                                    d.last_seen = Some(chrono::Utc::now());
-                                }
-                            }
-                        });
-                        hist_trigger.update(|n| *n += 1);
+            StreamEvent::DeviceAvailabilityChanged {
+                device_id: eid,
+                available,
+            } if eid == did_ws => {
+                device.update(|d| {
+                    if let Some(d) = d {
+                        d.available = available;
                     }
-                    StreamEvent::DeviceAvailabilityChanged {
-                        device_id: eid,
-                        available,
-                    } if eid == id_ws => {
-                        device.update(|d| {
-                            if let Some(d) = d {
-                                d.available = available;
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            });
-        ws.set_onmessage(Some(cb.as_ref().unchecked_ref()));
-        cb.forget();
-
-        let active_ws_close = active_ws;
-        let on_close = Closure::<dyn FnMut(web_sys::CloseEvent)>::new(move |_| {
-            active_ws_close.update(|slot| {
-                if slot
-                    .as_ref()
-                    .map(|ws| matches!(ws.ready_state(), web_sys::WebSocket::CLOSING | web_sys::WebSocket::CLOSED))
-                    .unwrap_or(false)
-                {
-                    *slot = None;
-                }
-            });
-            schedule_ws_retry(ws_retry, generation);
-        });
-        ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
-        on_close.forget();
-
-        let active_ws_error = active_ws;
-        let on_error = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
-            active_ws_error.update(|slot| {
-                if slot
-                    .as_ref()
-                    .map(|ws| !matches!(ws.ready_state(), web_sys::WebSocket::OPEN))
-                    .unwrap_or(false)
-                {
-                    *slot = None;
-                }
-            });
-            schedule_ws_retry(ws_retry, generation);
-        });
-        ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
-        on_error.forget();
-    });
-
-    on_cleanup(move || {
-        active_ws.update(|slot| {
-            if let Some(ws) = slot.take() {
-                ws.set_onopen(None);
-                ws.set_onmessage(None);
-                ws.set_onclose(None);
-                ws.set_onerror(None);
-                let _ = ws.close();
+                });
             }
-        });
+            _ => {}
+        }
     });
 
     // ── View ──────────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 //! and the nav shell wrapper.
 
 use crate::auth::{AuthState, use_auth};
+use crate::live::{LiveEventStream, LiveEventStreamBridge};
 use crate::pages::{
     areas::AreasPage, device_detail::DeviceDetailPage, devices::DevicesPage, login::LoginPage,
 };
@@ -18,8 +19,10 @@ use leptos_shadcn_ui::{Button, ButtonVariant};
 #[component]
 pub fn App() -> impl IntoView {
     provide_context(AuthState::new());
+    provide_context(LiveEventStream::new());
 
     view! {
+        <LiveEventStreamBridge />
         <Router>
             <Routes fallback=|| view! { <p class="msg-error">"Page not found."</p> }>
                 <Route path=path!("/")        view=HomeRedirect />

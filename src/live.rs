@@ -10,6 +10,7 @@ pub struct LiveEventStream {
     pub last_event: RwSignal<Option<StreamEvent>>,
     pub connect_count: RwSignal<u64>,
     retry_generation: RwSignal<u64>,
+    active_connection_id: RwSignal<u64>,
     socket: RwSignal<Option<web_sys::WebSocket>>,
 }
 
@@ -20,6 +21,7 @@ impl LiveEventStream {
             last_event: RwSignal::new(None),
             connect_count: RwSignal::new(0),
             retry_generation: RwSignal::new(0),
+            active_connection_id: RwSignal::new(0),
             socket: RwSignal::new(None),
         }
     }
@@ -78,6 +80,8 @@ pub fn LiveEventStreamBridge() -> impl IntoView {
             Ok(ws) => ws,
             Err(_) => return,
         };
+        stream.active_connection_id.update(|id| *id += 1);
+        let connection_id = stream.active_connection_id.get_untracked();
         stream.socket.set(Some(ws.clone()));
 
         let connect_count = stream.connect_count;
@@ -106,19 +110,31 @@ pub fn LiveEventStreamBridge() -> impl IntoView {
         on_message.forget();
 
         let socket_on_close = stream.socket;
+        let active_connection_id = stream.active_connection_id;
         let retry_generation = stream.retry_generation;
         let on_close = Closure::<dyn FnMut(web_sys::CloseEvent)>::new(move |_| {
+            if active_connection_id.get_untracked() != connection_id {
+                return;
+            }
             socket_on_close.set(None);
             schedule_ws_retry(retry_generation, generation);
         });
         ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
         on_close.forget();
 
-        let socket_on_error = stream.socket;
-        let retry_generation = stream.retry_generation;
+        let ws_on_error = ws.clone();
+        let active_connection_id = stream.active_connection_id;
         let on_error = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
-            socket_on_error.set(None);
-            schedule_ws_retry(retry_generation, generation);
+            if active_connection_id.get_untracked() != connection_id {
+                return;
+            }
+
+            if matches!(
+                ws_on_error.ready_state(),
+                web_sys::WebSocket::CONNECTING | web_sys::WebSocket::OPEN
+            ) {
+                let _ = ws_on_error.close();
+            }
         });
         ws.set_onerror(Some(on_error.as_ref().unchecked_ref()));
         on_error.forget();

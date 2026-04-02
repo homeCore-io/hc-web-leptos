@@ -412,6 +412,15 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let has_ct    = d.attributes.get("color_temp").and_then(|v| v.as_f64()).is_some();
                 let has_vol   = d.attributes.get("volume").and_then(|v| v.as_f64()).is_some();
                 let has_lock  = bool_attr(d.attributes.get("locked")).is_some();
+                let media_muted = bool_attr(d.attributes.get("muted"));
+                let media_shuffle = bool_attr(d.attributes.get("shuffle"));
+                let media_loudness = bool_attr(d.attributes.get("loudness"));
+                let media_repeat = str_attr(d.attributes.get("repeat"))
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let media_bass = d.attributes.get("bass").and_then(|v| v.as_i64());
+                let media_treble = d.attributes.get("treble").and_then(|v| v.as_i64());
                 let cur_on    = bool_attr(d.attributes.get("on")).unwrap_or(false);
                 let cur_bri   = d.attributes.get("brightness_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let cur_ct    = d.attributes.get("color_temp").and_then(|v| v.as_f64()).unwrap_or(2700.0);
@@ -472,6 +481,12 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let id_prev  = id.clone();
                 let id_next  = id.clone();
                 let id_vol   = id.clone();
+                let id_mute  = id.clone();
+                let id_shuffle = id.clone();
+                let id_repeat = id.clone();
+                let id_bass  = id.clone();
+                let id_treble = id.clone();
+                let id_loudness = id.clone();
                 let id_tpaus = id.clone();
                 let id_tcanc = id.clone();
                 let id_tresu = id.clone();
@@ -844,10 +859,18 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                 let sup_stop = supports_action(&d, "stop");
                                 let sup_next = supports_action(&d, "next");
                                 let sup_play_media = supports_action(&d, "play_media");
+                                let sup_set_mute = supports_action(&d, "set_mute");
+                                let sup_set_shuffle = supports_action(&d, "set_shuffle");
+                                let sup_set_repeat = supports_action(&d, "set_repeat");
+                                let sup_set_bass = supports_action(&d, "set_bass");
+                                let sup_set_treble = supports_action(&d, "set_treble");
+                                let sup_set_loudness = supports_action(&d, "set_loudness");
                                 let show_favorites = media_enrichments.iter().any(|item| item == "favorites")
                                     && !media_favorites.is_empty();
                                 let show_playlists = media_enrichments.iter().any(|item| item == "playlists")
                                     && !media_playlists.is_empty();
+                                let show_media_adv = sup_set_mute || sup_set_shuffle || sup_set_repeat
+                                    || sup_set_bass || sup_set_treble || sup_set_loudness;
                                 view! {
                                     <div class="control-section">
                                         {sum.map(|s| view! {
@@ -1037,6 +1060,161 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                     <span class="material-icons" style="font-size:18px;color:var(--hc-text-muted)">"volume_up"</span>
                                                     <span class="slider-value">{format!("{:.0}%", cur_vol)}</span>
                                                 </div>
+                                            </div>
+                                        })}
+                                        {show_media_adv.then(|| view! {
+                                            <div class="control-section">
+                                                {(sup_set_mute && media_muted.is_some()).then(|| {
+                                                    let muted = media_muted.unwrap_or(false);
+                                                    view! {
+                                                        <div class="control-row">
+                                                            <span class="control-label">"Mute"</span>
+                                                            <div class="btn-group">
+                                                                <button class:active=muted disabled=move || busy.get()
+                                                                    on:click=move |_| {
+                                                                        let token = auth_token.get().unwrap_or_default();
+                                                                        let did = id_mute.clone();
+                                                                        busy.set(true); error.set(None);
+                                                                        spawn_local(async move {
+                                                                            let _ = set_device_state(&token, &did, &serde_json::json!({"action":"set_mute","muted": !muted})).await;
+                                                                            busy.set(false);
+                                                                        });
+                                                                    }>
+                                                                    <span class="material-icons">{if muted { "volume_off" } else { "volume_up" }}</span>
+                                                                    {if muted { " Unmute" } else { " Mute" }}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                })}
+                                                {(sup_set_shuffle && media_shuffle.is_some()).then(|| {
+                                                    let shuffle = media_shuffle.unwrap_or(false);
+                                                    view! {
+                                                        <div class="control-row">
+                                                            <span class="control-label">"Shuffle"</span>
+                                                            <div class="btn-group">
+                                                                <button class:active=shuffle disabled=move || busy.get()
+                                                                    on:click=move |_| {
+                                                                        let token = auth_token.get().unwrap_or_default();
+                                                                        let did = id_shuffle.clone();
+                                                                        busy.set(true); error.set(None);
+                                                                        spawn_local(async move {
+                                                                            let _ = set_device_state(&token, &did, &serde_json::json!({"action":"set_shuffle","shuffle": !shuffle})).await;
+                                                                            busy.set(false);
+                                                                        });
+                                                                    }>
+                                                                    <span class="material-icons">"shuffle"</span>
+                                                                    {if shuffle { " On" } else { " Off" }}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                })}
+                                                {(sup_set_repeat && media_repeat.is_some()).then(|| {
+                                                    let repeat_value = media_repeat.clone().unwrap_or_else(|| "none".to_string());
+                                                    view! {
+                                                        <div class="control-row">
+                                                            <span class="control-label">"Repeat"</span>
+                                                            <div class="timer-start-row">
+                                                                <select
+                                                                    on:change=move |ev| {
+                                                                        let value = event_target_value(&ev);
+                                                                        let token = auth_token.get().unwrap_or_default();
+                                                                        let did = id_repeat.clone();
+                                                                        busy.set(true); error.set(None);
+                                                                        spawn_local(async move {
+                                                                            let _ = set_device_state(&token, &did, &serde_json::json!({"action":"set_repeat","repeat": value})).await;
+                                                                            busy.set(false);
+                                                                        });
+                                                                    }
+                                                                >
+                                                                    <option value="none" selected=repeat_value == "none">"Off"</option>
+                                                                    <option value="all" selected=repeat_value == "all">"All"</option>
+                                                                    <option value="one" selected=repeat_value == "one">"One"</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                })}
+                                                {(sup_set_bass && media_bass.is_some()).then(|| {
+                                                    let bass = media_bass.unwrap_or(0);
+                                                    view! {
+                                                        <div class="control-row">
+                                                            <span class="control-label">"Bass"</span>
+                                                            <div class="slider-row">
+                                                                <input type="range" min="-10" max="10" step="1"
+                                                                    prop:value=bass
+                                                                    on:change=move |ev| {
+                                                                        if let Some(el) = ev.target()
+                                                                            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                                                        {
+                                                                            let val: i64 = el.value().parse().unwrap_or(0);
+                                                                            let token = auth_token.get().unwrap_or_default();
+                                                                            let did = id_bass.clone();
+                                                                            busy.set(true); error.set(None);
+                                                                            spawn_local(async move {
+                                                                                let _ = set_device_state(&token, &did, &serde_json::json!({"action":"set_bass","bass": val})).await;
+                                                                                busy.set(false);
+                                                                            });
+                                                                        }
+                                                                    }
+                                                                />
+                                                                <span class="slider-value">{bass}</span>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                })}
+                                                {(sup_set_treble && media_treble.is_some()).then(|| {
+                                                    let treble = media_treble.unwrap_or(0);
+                                                    view! {
+                                                        <div class="control-row">
+                                                            <span class="control-label">"Treble"</span>
+                                                            <div class="slider-row">
+                                                                <input type="range" min="-10" max="10" step="1"
+                                                                    prop:value=treble
+                                                                    on:change=move |ev| {
+                                                                        if let Some(el) = ev.target()
+                                                                            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                                                        {
+                                                                            let val: i64 = el.value().parse().unwrap_or(0);
+                                                                            let token = auth_token.get().unwrap_or_default();
+                                                                            let did = id_treble.clone();
+                                                                            busy.set(true); error.set(None);
+                                                                            spawn_local(async move {
+                                                                                let _ = set_device_state(&token, &did, &serde_json::json!({"action":"set_treble","treble": val})).await;
+                                                                                busy.set(false);
+                                                                            });
+                                                                        }
+                                                                    }
+                                                                />
+                                                                <span class="slider-value">{treble}</span>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                })}
+                                                {(sup_set_loudness && media_loudness.is_some()).then(|| {
+                                                    let loudness = media_loudness.unwrap_or(false);
+                                                    view! {
+                                                        <div class="control-row">
+                                                            <span class="control-label">"Loudness"</span>
+                                                            <div class="btn-group">
+                                                                <button class:active=loudness disabled=move || busy.get()
+                                                                    on:click=move |_| {
+                                                                        let token = auth_token.get().unwrap_or_default();
+                                                                        let did = id_loudness.clone();
+                                                                        busy.set(true); error.set(None);
+                                                                        spawn_local(async move {
+                                                                            let _ = set_device_state(&token, &did, &serde_json::json!({"action":"set_loudness","loudness": !loudness})).await;
+                                                                            busy.set(false);
+                                                                        });
+                                                                    }>
+                                                                    <span class="material-icons">"graphic_eq"</span>
+                                                                    {if loudness { " On" } else { " Off" }}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                })}
                                             </div>
                                         })}
                                     </div>

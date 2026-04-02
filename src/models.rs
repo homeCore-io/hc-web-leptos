@@ -252,6 +252,9 @@ pub fn media_source(d: &DeviceState) -> Option<&str> {
 
 pub fn media_image_url(d: &DeviceState) -> Option<&str> {
     str_attr(d.attributes.get("media_image_url"))
+        .or_else(|| str_attr(d.attributes.get("image_url")))
+        .or_else(|| str_attr(d.attributes.get("album_art_url")))
+        .or_else(|| str_attr(d.attributes.get("albumArtUri")))
 }
 
 pub fn media_summary(d: &DeviceState) -> Option<String> {

@@ -873,14 +873,26 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                     || sup_set_bass || sup_set_treble || sup_set_loudness;
                                 view! {
                                     <div class="control-section">
-                                        {sum.map(|s| view! {
+                                        {sum.clone().map(|s| view! {
                                             <div class="media-now-playing">
-                                                {img.map(|url| view! { <img src=url alt="" class="media-thumb" /> })}
+                                                {img.clone().map(|url| view! { <img src=url alt="Album art" class="media-thumb" /> })}
                                                 <div class="cell-primary">
                                                     <span class="media-title">{s}</span>
-                                                    <span class="cell-subtle">{pb2}</span>
+                                                    <span class="cell-subtle">{pb2.clone()}</span>
                                                 </div>
                                             </div>
+                                        })}
+                                        {(sum.is_none() && img.is_some()).then(|| {
+                                            let url = img.clone().unwrap_or_default();
+                                            view! {
+                                                <div class="media-now-playing">
+                                                    <img src=url alt="Album art" class="media-thumb" />
+                                                    <div class="cell-primary">
+                                                        <span class="media-title">"Album art"</span>
+                                                        <span class="cell-subtle">{pb2.clone()}</span>
+                                                    </div>
+                                                </div>
+                                            }
                                         })}
                                         {show_favorites.then(|| {
                                             let favorites = media_favorites.clone();

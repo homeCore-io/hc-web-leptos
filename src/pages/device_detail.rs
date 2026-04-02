@@ -1,16 +1,43 @@
 //! Device detail page — `/devices/:id`
 
 use crate::api::{
-    fetch_device, fetch_device_history, set_device_state, update_device_meta, StreamEvent,
+    StreamEvent, delete_device as delete_device_request, fetch_areas, fetch_device,
+    fetch_device_history, set_device_state, update_device_meta,
 };
 use crate::auth::{events_ws_url, use_auth};
 use crate::models::*;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
-use thaw::{Button, Input, InputType};
-use wasm_bindgen::prelude::*;
+use leptos_shadcn_ui::{Button, ButtonVariant, Input};
 use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistorySortKey {
+    Time,
+    Attribute,
+    Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistorySortDir {
+    Asc,
+    Desc,
+}
+
+fn sync_edit_fields(
+    device: &DeviceState,
+    edit_name: RwSignal<String>,
+    edit_area: RwSignal<String>,
+    edit_canonical: RwSignal<String>,
+    edit_icon: RwSignal<String>,
+) {
+    edit_name.set(device.name.clone());
+    edit_area.set(device.area.clone().unwrap_or_default());
+    edit_canonical.set(device.canonical_name.clone().unwrap_or_default());
+    edit_icon.set(device.status_icon.clone().unwrap_or_default());
+}
 
 #[component]
 pub fn DeviceDetailPage() -> impl IntoView {
@@ -22,6 +49,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
     // ── Signals (all RwSignal = Copy) ─────────────────────────────────────────
     let device: RwSignal<Option<DeviceState>> = RwSignal::new(None);
     let history: RwSignal<Vec<HistoryEntry>> = RwSignal::new(vec![]);
+    let areas: RwSignal<Vec<Area>> = RwSignal::new(vec![]);
     let loading = RwSignal::new(true);
     let hist_loading = RwSignal::new(true);
     let error = RwSignal::new(Option::<String>::None);
@@ -30,8 +58,12 @@ pub fn DeviceDetailPage() -> impl IntoView {
     let show_edit = RwSignal::new(false);
     let edit_name = RwSignal::new(String::new());
     let edit_area = RwSignal::new(String::new());
+    let edit_canonical = RwSignal::new(String::new());
     let edit_icon = RwSignal::new(String::new());
+    let delete_confirm = RwSignal::new(String::new());
     let timer_secs = RwSignal::new("60".to_string());
+    let history_sort_by = RwSignal::new(HistorySortKey::Time);
+    let history_sort_dir = RwSignal::new(HistorySortDir::Desc);
 
     // Trigger signals — increment to re-run the matching effect.
     // All are RwSignal (Copy), safe to capture in any closure.
@@ -40,6 +72,17 @@ pub fn DeviceDetailPage() -> impl IntoView {
     let save_trigger = RwSignal::new(0u32);
 
     let auth_token = auth.token; // RwSignal<Option<String>> — Copy
+
+    // ── Areas fetch ───────────────────────────────────────────────────────────
+    Effect::new(move |_| {
+        let token = auth_token.get().unwrap_or_default();
+        spawn_local(async move {
+            if let Ok(mut list) = fetch_areas(&token).await {
+                list.sort_by(|a, b| sort_key_str(&a.name).cmp(&sort_key_str(&b.name)));
+                areas.set(list);
+            }
+        });
+    });
 
     // ── Device fetch ──────────────────────────────────────────────────────────
     let did1 = device_id.clone();
@@ -52,10 +95,8 @@ pub fn DeviceDetailPage() -> impl IntoView {
         spawn_local(async move {
             match fetch_device(&token, &id).await {
                 Ok(d) => {
-                    if device.get_untracked().is_none() {
-                        edit_name.set(d.name.clone());
-                        edit_area.set(d.area.clone().unwrap_or_default());
-                        edit_icon.set(d.status_icon.clone().unwrap_or_default());
+                    if device.get_untracked().is_none() || !show_edit.get_untracked() {
+                        sync_edit_fields(&d, edit_name, edit_area, edit_canonical, edit_icon);
                     }
                     device.set(Some(d));
                 }
@@ -74,10 +115,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
         hist_loading.set(true);
         spawn_local(async move {
             match fetch_device_history(&token, &id, 25).await {
-                Ok(mut h) => {
-                    h.reverse();
-                    history.set(h);
-                }
+                Ok(h) => history.set(h),
                 Err(_) => {}
             }
             hist_loading.set(false);
@@ -95,10 +133,12 @@ pub fn DeviceDetailPage() -> impl IntoView {
         let id = did3.clone();
         let name_val = edit_name.get();
         let area_val = edit_area.get();
+        let canonical_val = edit_canonical.get();
         let icon_val = edit_icon.get();
         let body = serde_json::json!({
-            "name": name_val,
+            "name": name_val.trim(),
             "area": if area_val.trim().is_empty() { serde_json::Value::Null } else { area_val.trim().into() },
+            "canonical_name": if canonical_val.trim().is_empty() { serde_json::Value::Null } else { canonical_val.trim().into() },
             "status_icon": if icon_val.trim().is_empty() { serde_json::Value::Null } else { icon_val.trim().into() },
         });
         busy.set(true);
@@ -106,7 +146,9 @@ pub fn DeviceDetailPage() -> impl IntoView {
         notice.set(None);
         spawn_local(async move {
             match update_device_meta(&token, &id, &body).await {
-                Ok(_) => {
+                Ok(updated) => {
+                    sync_edit_fields(&updated, edit_name, edit_area, edit_canonical, edit_icon);
+                    device.set(Some(updated));
                     notice.set(Some("Device updated.".into()));
                     show_edit.set(false);
                 }
@@ -114,6 +156,38 @@ pub fn DeviceDetailPage() -> impl IntoView {
             }
             busy.set(false);
         });
+    });
+
+    let sorted_history: Memo<Vec<HistoryEntry>> = Memo::new(move |_| {
+        let mut entries = history.get();
+        let sort_key = history_sort_by.get();
+        let sort_dir = history_sort_dir.get();
+
+        entries.sort_by(|a, b| {
+            let cmp = match sort_key {
+                HistorySortKey::Time => a.recorded_at.cmp(&b.recorded_at),
+                HistorySortKey::Attribute => {
+                    sort_key_str(&a.attribute).cmp(&sort_key_str(&b.attribute))
+                }
+                HistorySortKey::Value => {
+                    sort_key_str(&a.value_display()).cmp(&sort_key_str(&b.value_display()))
+                }
+            };
+
+            let cmp = if cmp == std::cmp::Ordering::Equal {
+                a.recorded_at.cmp(&b.recorded_at)
+            } else {
+                cmp
+            };
+
+            if sort_dir == HistorySortDir::Desc {
+                cmp.reverse()
+            } else {
+                cmp
+            }
+        });
+
+        entries
     });
 
     // ── WebSocket live updates ────────────────────────────────────────────────
@@ -129,8 +203,8 @@ pub fn DeviceDetailPage() -> impl IntoView {
             Err(_) => return,
         };
         let id_ws = did_ws.clone();
-        let cb = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
-            move |ev: web_sys::MessageEvent| {
+        let cb =
+            Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |ev: web_sys::MessageEvent| {
                 let text = match ev.data().as_string() {
                     Some(s) => s,
                     None => return,
@@ -140,20 +214,29 @@ pub fn DeviceDetailPage() -> impl IntoView {
                     Err(_) => return,
                 };
                 match event {
-                    StreamEvent::DeviceStateChanged { device_id: eid, current, .. }
-                        if eid == id_ws =>
-                    {
+                    StreamEvent::DeviceStateChanged {
+                        device_id: eid,
+                        current,
+                        change,
+                        ..
+                    } if eid == id_ws => {
                         device.update(|d| {
                             if let Some(d) = d {
                                 d.attributes = current;
-                                d.last_seen = Some(chrono::Utc::now());
+                                if let Some(change) = change {
+                                    d.last_seen = Some(change.changed_at);
+                                    d.last_change = Some(change);
+                                } else {
+                                    d.last_seen = Some(chrono::Utc::now());
+                                }
                             }
                         });
                         hist_trigger.update(|n| *n += 1);
                     }
-                    StreamEvent::DeviceAvailabilityChanged { device_id: eid, available }
-                        if eid == id_ws =>
-                    {
+                    StreamEvent::DeviceAvailabilityChanged {
+                        device_id: eid,
+                        available,
+                    } if eid == id_ws => {
                         device.update(|d| {
                             if let Some(d) = d {
                                 d.available = available;
@@ -162,8 +245,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                     }
                     _ => {}
                 }
-            },
-        );
+            });
         ws.set_onmessage(Some(cb.as_ref().unchecked_ref()));
         cb.forget();
         on_cleanup(move || {
@@ -173,7 +255,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
 
     // ── View ──────────────────────────────────────────────────────────────────
     view! {
-        <div class="page">
+        <div class="page device-detail-page">
 
             // Back link
             <div>
@@ -190,7 +272,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let stext = status_text(&d);
                 let avail = d.available;
                 let name  = d.name.clone();
-                let area  = d.area.clone();
+                let area  = d.area.as_deref().map(display_area_name);
                 view! {
                     <div class="detail-title-row">
                         <span class=format!("status-badge-lg {}", tone.css_class())>
@@ -208,13 +290,18 @@ pub fn DeviceDetailPage() -> impl IntoView {
                         </div>
                         <div class="detail-heading-actions">
                             <Button
-                                on_click=move |_| refresh_trigger.update(|n| *n += 1)
+                                variant=ButtonVariant::Outline
+                                on_click=Callback::new(move |_| refresh_trigger.update(|n| *n += 1))
                                 disabled=Signal::derive(move || loading.get())
-                                loading=Signal::derive(move || loading.get())
-                            >"Refresh"</Button>
-                            <Button on_click=move |_| show_edit.update(|v| *v = !*v)>
+                            >
+                                {move || if loading.get() { "Refreshing…" } else { "Refresh" }}
+                            </Button>
+                            <Button
+                                variant=ButtonVariant::Secondary
+                                on_click=Callback::new(move |_| show_edit.update(|v| *v = !*v))
+                            >
                                 <span class="material-icons" style="font-size:16px;vertical-align:middle">"edit"</span>
-                                " Edit"
+                                {move || if show_edit.get() { " Close editor" } else { " Edit" }}
                             </Button>
                         </div>
                     </div>
@@ -250,6 +337,10 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let pb_state     = playback_state(&d);
                 let media_sum    = media_summary(&d);
                 let media_img    = media_image_url(&d).map(str::to_string);
+                let last_changed = last_change_time(&d);
+                let change_text  = change_summary(&d);
+                let correlation  = change_correlation_id(&d).map(str::to_string);
+                let area_options = areas.get();
 
                 let mut attr_pairs: Vec<(String, String)> = d.attributes.iter().map(|(k, v)| {
                     let disp = match v {
@@ -294,8 +385,177 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let id_tcanc2= id.clone();
                 let id_start = id.clone();
                 let ts_label = timer_state.clone();
+                let delete_confirm_label = d.device_id.clone();
+                let delete_confirm_target = d.device_id.clone();
+                let delete_request_target = d.device_id.clone();
 
                 view! {
+                    // ── Edit form ─────────────────────────────────────────────
+                    {move || show_edit.get().then({
+                        let area_options = area_options.clone();
+                        let delete_confirm_label = delete_confirm_label.clone();
+                        let delete_confirm_target = delete_confirm_target.clone();
+                        let delete_request_target = delete_request_target.clone();
+                        move || view! {
+                        <div class="detail-card edit-card">
+                            <h2 class="card-title">"Edit Device"</h2>
+                            <div class="edit-grid">
+                                <div class="edit-field">
+                                    <label>"Display Name"</label>
+                                    <Input
+                                        value=Signal::derive(move || edit_name.get())
+                                        on_change=Callback::new(move |value| edit_name.set(value))
+                                        placeholder="Display name"
+                                    />
+                                </div>
+                                <div class="edit-field">
+                                    <label>"Area"</label>
+                                    <select
+                                        on:change=move |ev| edit_area.set(event_target_value(&ev))
+                                    >
+                                        <option value="" selected=move || edit_area.get().is_empty()>
+                                            "Unassigned"
+                                        </option>
+                                        <For
+                                            each=move || area_options.clone()
+                                            key=|area| area.id.clone()
+                                            children=move |area| {
+                                                let selected_name = area.name.clone();
+                                                let label = display_area_name(&area.name);
+                                                view! {
+                                                    <option
+                                                        value=selected_name.clone()
+                                                        selected=move || edit_area.get() == selected_name
+                                                    >
+                                                        {label}
+                                                    </option>
+                                                }
+                                            }
+                                        />
+                                    </select>
+                                    <span class="cell-subtle">
+                                        "Areas come from HomeCore’s defined areas list."
+                                    </span>
+                                </div>
+                                <div class="edit-field">
+                                    <label>"Canonical Name"</label>
+                                    <Input
+                                        value=Signal::derive(move || edit_canonical.get())
+                                        on_change=Callback::new(move |value| edit_canonical.set(value))
+                                        placeholder="e.g. living_room.floor_lamp (blank to clear)"
+                                    />
+                                </div>
+                                <div class="edit-field">
+                                    <label>"Status Icon"</label>
+                                    <Input
+                                        value=Signal::derive(move || edit_icon.get())
+                                        on_change=Callback::new(move |value| edit_icon.set(value))
+                                        placeholder="e.g. power, lock (blank to clear)"
+                                    />
+                                </div>
+                            </div>
+                            <div class="edit-actions">
+                                <Button
+                                    variant=ButtonVariant::Default
+                                    on_click=Callback::new(move |_| save_trigger.update(|n| *n += 1))
+                                    disabled=Signal::derive(move || busy.get() || edit_name.get().trim().is_empty())
+                                >
+                                    {move || if busy.get() { "Saving…" } else { "Save" }}
+                                </Button>
+                                <Button
+                                    variant=ButtonVariant::Outline
+                                    on_click=Callback::new(move |_| {
+                                        if let Some(current) = device.get() {
+                                            sync_edit_fields(
+                                                &current,
+                                                edit_name,
+                                                edit_area,
+                                                edit_canonical,
+                                                edit_icon,
+                                            );
+                                        }
+                                        delete_confirm.set(String::new());
+                                    })
+                                >
+                                    "Reset fields"
+                                </Button>
+                                <Button
+                                    variant=ButtonVariant::Outline
+                                    on_click=Callback::new(move |_| {
+                                        if let Some(current) = device.get() {
+                                            sync_edit_fields(
+                                                &current,
+                                                edit_name,
+                                                edit_area,
+                                                edit_canonical,
+                                                edit_icon,
+                                            );
+                                        }
+                                        delete_confirm.set(String::new());
+                                        show_edit.set(false);
+                                    })
+                                >
+                                    "Cancel"
+                                </Button>
+                            </div>
+
+                            <div class="danger-zone">
+                                <div class="danger-zone-copy">
+                                    <h3>"Delete Device"</h3>
+                                    <p>
+                                        "This removes the device from HomeCore. Rule references are rewritten to deleted placeholders on the backend."
+                                    </p>
+                                </div>
+                                <div class="danger-zone-controls">
+                                    <div class="edit-field">
+                                        <label>{format!("Type {} to confirm", delete_confirm_label)}</label>
+                                        <Input
+                                            value=Signal::derive(move || delete_confirm.get())
+                                            on_change=Callback::new(move |value| delete_confirm.set(value))
+                                            placeholder="Device ID confirmation"
+                                        />
+                                    </div>
+                                    <button
+                                        class="danger"
+                                        disabled=move || busy.get() || delete_confirm.get().trim() != delete_confirm_target
+                                        on:click=move |_| {
+                                            let token = auth_token.get().unwrap_or_default();
+                                            let did = delete_request_target.clone();
+                                            busy.set(true);
+                                            error.set(None);
+                                            notice.set(None);
+                                            spawn_local(async move {
+                                                match delete_device_request(&token, &did).await {
+                                                    Ok(resp) if resp.deleted => {
+                                                        let rule_note = if resp.affected_rules.is_empty() {
+                                                            String::new()
+                                                        } else {
+                                                            format!(" {} rules updated.", resp.affected_rules.len())
+                                                        };
+                                                        notice.set(Some(format!("Device deleted.{rule_note}")));
+                                                        if let Some(win) = web_sys::window() {
+                                                            let _ = win.location().set_href("/devices");
+                                                        }
+                                                    }
+                                                    Ok(_) => {
+                                                        error.set(Some("Delete did not complete.".into()));
+                                                        busy.set(false);
+                                                    }
+                                                    Err(e) => {
+                                                        error.set(Some(format!("Delete failed: {e}")));
+                                                        busy.set(false);
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    >
+                                        {move || if busy.get() { "Deleting…" } else { "Delete device" }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }})}
+
                     // ── Two-column info grid ──────────────────────────────────
                     <div class="detail-grid">
 
@@ -309,9 +569,18 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                 <tr><td class="info-label">"Plugin"</td>
                                     <td>{d.plugin_id.clone()}</td></tr>
                                 <tr><td class="info-label">"Area"</td>
-                                    <td>{d.area.as_deref().unwrap_or("—").to_string()}</td></tr>
+                                    <td>{display_area_value(d.area.as_deref())}</td></tr>
+                                <tr><td class="info-label">"Canonical"</td>
+                                    <td><code class="mono">{d.canonical_name.as_deref().unwrap_or("—").to_string()}</code></td></tr>
                                 <tr><td class="info-label">"Type"</td>
-                                    <td>{d.device_type.as_deref().unwrap_or("—").to_string()}</td></tr>
+                                    <td>
+                                        <div class="cell-primary">
+                                            <span>{presentation_device_type_label(&d).to_string()}</span>
+                                            <span class="cell-subtle">
+                                                {"Raw type: "}{raw_device_type_label(&d)}
+                                            </span>
+                                        </div>
+                                    </td></tr>
                                 <tr><td class="info-label">"Availability"</td>
                                     <td>
                                         <span class:chip-online=d.available class:chip-offline=!d.available>
@@ -325,10 +594,24 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                             <span class="cell-subtle">{format_abs(d.last_seen.as_ref())}</span>
                                         </div>
                                     </td></tr>
-                                {d.canonical_name.as_ref().map(|cn| view! {
-                                    <tr><td class="info-label">"Canonical"</td>
-                                        <td><code class="mono">{cn.clone()}</code></td></tr>
-                                })}
+                                <tr><td class="info-label">"Last changed"</td>
+                                    <td>
+                                        <div class="cell-primary">
+                                            <span>{format_relative(last_changed)}</span>
+                                            <span class="cell-subtle">{format_abs(last_changed)}</span>
+                                        </div>
+                                    </td></tr>
+                                <tr><td class="info-label">"Change source"</td>
+                                    <td>
+                                        <div class="cell-primary">
+                                            <span>{change_text}</span>
+                                            {correlation.map(|id| view! {
+                                                <span class="cell-subtle">
+                                                    {"Correlation: "}<code class="mono">{id}</code>
+                                                </span>
+                                            })}
+                                        </div>
+                                    </td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -626,7 +909,12 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                         <div class="control-row">
                                             <span class="control-label">"Start"</span>
                                             <div class="timer-start-row">
-                                                <Input value=timer_secs input_type=InputType::Text placeholder="Seconds" />
+                                                <Input
+                                                    value=Signal::derive(move || timer_secs.get())
+                                                    on_change=Callback::new(move |value| timer_secs.set(value))
+                                                    input_type="text"
+                                                    placeholder="Seconds"
+                                                />
                                                 <button disabled=move || busy.get()
                                                     on:click=move |_| {
                                                         let secs: u64 = timer_secs.get().trim().parse().unwrap_or(60);
@@ -685,79 +973,142 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                 <span class="card-subtitle">" — last 25 changes"</span>
                             </h2>
                             <Button
-                                on_click=move |_| hist_trigger.update(|n| *n += 1)
+                                variant=ButtonVariant::Outline
+                                on_click=Callback::new(move |_| hist_trigger.update(|n| *n += 1))
                                 disabled=Signal::derive(move || hist_loading.get())
-                                loading=Signal::derive(move || hist_loading.get())
-                            >"Reload"</Button>
+                            >
+                                {move || if hist_loading.get() { "Reloading…" } else { "Reload" }}
+                            </Button>
                         </div>
                         {move || {
-                            let h = history.get();
+                            let h = sorted_history.get();
                             if hist_loading.get() && h.is_empty() {
                                 view! { <p style="padding:0.5rem 0;color:var(--hc-text-muted)">"Loading history…"</p> }.into_any()
                             } else if h.is_empty() {
                                 view! { <p style="padding:0.5rem 0;color:var(--hc-text-muted)">"No history recorded yet."</p> }.into_any()
                             } else {
                                 view! {
-                                    <table class="hist-table">
-                                        <thead><tr>
-                                            <th>"Time"</th><th>"Attribute"</th><th>"Value"</th>
-                                        </tr></thead>
-                                        <tbody>
-                                            <For
-                                                each=move || history.get()
-                                                key=|e| format!("{}{}", e.recorded_at, e.attribute)
-                                                children=|entry| {
-                                                    let rel  = format_relative(Some(&entry.recorded_at));
-                                                    let abs  = format_abs(Some(&entry.recorded_at));
-                                                    let val  = entry.value_display();
-                                                    let attr = entry.attribute.clone();
-                                                    view! {
-                                                        <tr>
-                                                            <td><div class="cell-primary">
-                                                                <span>{rel}</span>
-                                                                <span class="cell-subtle">{abs}</span>
-                                                            </div></td>
-                                                            <td><code class="mono">{attr}</code></td>
-                                                            <td class="hist-val">{val}</td>
-                                                        </tr>
+                                    <div class="history-toolbar">
+                                        <div class="history-toolbar-meta">
+                                            <strong>{move || sorted_history.get().len()}</strong>
+                                            <span>" rows"</span>
+                                        </div>
+                                        <div class="history-sort-group">
+                                            <button
+                                                class="hist-sort-btn"
+                                                class:active=move || history_sort_by.get() == HistorySortKey::Time
+                                                on:click=move |_| {
+                                                    if history_sort_by.get() == HistorySortKey::Time {
+                                                        history_sort_dir.update(|dir| {
+                                                            *dir = if *dir == HistorySortDir::Desc {
+                                                                HistorySortDir::Asc
+                                                            } else {
+                                                                HistorySortDir::Desc
+                                                            }
+                                                        });
+                                                    } else {
+                                                        history_sort_by.set(HistorySortKey::Time);
+                                                        history_sort_dir.set(HistorySortDir::Desc);
                                                     }
                                                 }
-                                            />
-                                        </tbody>
-                                    </table>
+                                            >
+                                                "Time"
+                                            </button>
+                                            <button
+                                                class="hist-sort-btn"
+                                                class:active=move || history_sort_by.get() == HistorySortKey::Attribute
+                                                on:click=move |_| {
+                                                    if history_sort_by.get() == HistorySortKey::Attribute {
+                                                        history_sort_dir.update(|dir| {
+                                                            *dir = if *dir == HistorySortDir::Desc {
+                                                                HistorySortDir::Asc
+                                                            } else {
+                                                                HistorySortDir::Desc
+                                                            }
+                                                        });
+                                                    } else {
+                                                        history_sort_by.set(HistorySortKey::Attribute);
+                                                        history_sort_dir.set(HistorySortDir::Asc);
+                                                    }
+                                                }
+                                            >
+                                                "Attribute"
+                                            </button>
+                                            <button
+                                                class="hist-sort-btn"
+                                                class:active=move || history_sort_by.get() == HistorySortKey::Value
+                                                on:click=move |_| {
+                                                    if history_sort_by.get() == HistorySortKey::Value {
+                                                        history_sort_dir.update(|dir| {
+                                                            *dir = if *dir == HistorySortDir::Desc {
+                                                                HistorySortDir::Asc
+                                                            } else {
+                                                                HistorySortDir::Desc
+                                                            }
+                                                        });
+                                                    } else {
+                                                        history_sort_by.set(HistorySortKey::Value);
+                                                        history_sort_dir.set(HistorySortDir::Asc);
+                                                    }
+                                                }
+                                            >
+                                                "Value"
+                                            </button>
+                                            <button
+                                                class="hist-sort-btn hist-sort-dir"
+                                                on:click=move |_| {
+                                                    history_sort_dir.update(|dir| {
+                                                        *dir = if *dir == HistorySortDir::Desc {
+                                                            HistorySortDir::Asc
+                                                        } else {
+                                                            HistorySortDir::Desc
+                                                        }
+                                                    });
+                                                }
+                                            >
+                                                {move || if history_sort_dir.get() == HistorySortDir::Desc {
+                                                    "Descending"
+                                                } else {
+                                                    "Ascending"
+                                                }}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="hist-wrap">
+                                        <table class="hist-table">
+                                            <thead><tr>
+                                                <th>"Time"</th><th>"Attribute"</th><th>"Value"</th>
+                                            </tr></thead>
+                                            <tbody>
+                                                <For
+                                                    each=move || sorted_history.get()
+                                                    key=|e| format!("{}{}{}", e.recorded_at, e.attribute, e.value)
+                                                    children=|entry| {
+                                                        let rel  = format_relative(Some(&entry.recorded_at));
+                                                        let abs  = format_abs(Some(&entry.recorded_at));
+                                                        let val  = entry.value_display();
+                                                        let attr = entry.attribute.clone();
+                                                        view! {
+                                                            <tr>
+                                                                <td><div class="cell-primary">
+                                                                    <span>{rel}</span>
+                                                                    <span class="cell-subtle">{abs}</span>
+                                                                </div></td>
+                                                                <td><code class="mono">{attr}</code></td>
+                                                                <td class="hist-val">{val}</td>
+                                                            </tr>
+                                                        }
+                                                    }
+                                                />
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 }.into_any()
                             }
                         }}
                     </div>
 
-                    // ── Edit form ─────────────────────────────────────────────
-                    {move || show_edit.get().then(move || view! {
-                        <div class="detail-card edit-card">
-                            <h2 class="card-title">"Edit Device"</h2>
-                            <div class="edit-grid">
-                                <div class="edit-field">
-                                    <label>"Display Name"</label>
-                                    <Input value=edit_name placeholder="Display name" />
-                                </div>
-                                <div class="edit-field">
-                                    <label>"Area"</label>
-                                    <Input value=edit_area placeholder="e.g. living_room (blank to clear)" />
-                                </div>
-                                <div class="edit-field">
-                                    <label>"Status Icon"</label>
-                                    <Input value=edit_icon placeholder="e.g. power, lock (blank to clear)" />
-                                </div>
-                            </div>
-                            <div class="edit-actions">
-                                <Button
-                                    on_click=move |_| save_trigger.update(|n| *n += 1)
-                                    disabled=Signal::derive(move || busy.get())
-                                    loading=Signal::derive(move || busy.get())
-                                >"Save"</Button>
-                                <Button on_click=move |_| show_edit.set(false)>"Cancel"</Button>
-                            </div>
-                        </div>
-                    })}
                 }
             })}
 

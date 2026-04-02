@@ -142,6 +142,62 @@ pub fn is_timer_device(d: &DeviceState) -> bool {
         || str_attr(d.attributes.get("kind")) == Some("timer")
 }
 
+fn timer_duration_secs(d: &DeviceState) -> Option<u64> {
+    d.attributes
+        .get("duration_secs")
+        .and_then(|v| v.as_u64())
+        .or_else(|| {
+            d.attributes
+                .get("duration_ms")
+                .and_then(|v| v.as_u64())
+                .map(|ms| ms / 1000)
+        })
+}
+
+fn timer_reported_remaining_secs(d: &DeviceState) -> Option<u64> {
+    d.attributes
+        .get("remaining_secs")
+        .and_then(|v| v.as_u64())
+        .or_else(|| {
+            d.attributes
+                .get("remaining_ms")
+                .and_then(|v| v.as_u64())
+                .map(|ms| ms / 1000)
+        })
+}
+
+fn timer_started_at(d: &DeviceState) -> Option<DateTime<Utc>> {
+    str_attr(d.attributes.get("started_at"))
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+pub fn timer_remaining_secs(d: &DeviceState) -> Option<u64> {
+    if !is_timer_device(d) {
+        return None;
+    }
+
+    let timer_state = str_attr(d.attributes.get("state"))
+        .unwrap_or("idle")
+        .trim()
+        .to_lowercase();
+    let reported = timer_reported_remaining_secs(d);
+
+    match timer_state.as_str() {
+        "paused" => reported,
+        "running" => {
+            if let (Some(started_at), Some(duration_secs)) = (timer_started_at(d), timer_duration_secs(d))
+            {
+                let elapsed = (Utc::now() - started_at).num_seconds().max(0) as u64;
+                Some(duration_secs.saturating_sub(elapsed))
+            } else {
+                reported
+            }
+        }
+        _ => reported,
+    }
+}
+
 // ── Display helpers ───────────────────────────────────────────────────────────
 
 pub fn display_name(d: &DeviceState) -> &str {
@@ -435,17 +491,7 @@ pub fn status_text(d: &DeviceState) -> String {
             .unwrap_or("idle")
             .trim()
             .to_lowercase();
-        let remaining_secs = d
-            .attributes
-            .get("remaining_secs")
-            .and_then(|v| v.as_u64())
-            .or_else(|| {
-                d.attributes
-                    .get("remaining_ms")
-                    .and_then(|v| v.as_u64())
-                    .map(|ms| ms / 1000)
-            })
-            .unwrap_or(0);
+        let remaining_secs = timer_remaining_secs(d).unwrap_or(0);
 
         return match timer_state.as_str() {
             "running" | "paused" if remaining_secs > 0 => {
@@ -743,12 +789,6 @@ pub fn format_relative(ts: Option<&DateTime<Utc>>) -> String {
     } else {
         format!("{}d ago", diff / 86400)
     }
-}
-
-/// Format a duration in milliseconds as M:SS or H:MM:SS.
-pub fn format_duration_ms(ms: u64) -> String {
-    let total = ms / 1000;
-    format_duration_secs(total)
 }
 
 pub fn format_duration_secs(total: u64) -> String {

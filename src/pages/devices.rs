@@ -138,6 +138,28 @@ pub fn DevicesPage() -> impl IntoView {
     let density = RwSignal::new(init_density);
     let show_media = RwSignal::new(init_show_media);
     let filter_open = RwSignal::new(false);
+    let timer_tick = RwSignal::new(0u64);
+
+    Effect::new(move |_| {
+        let callback = Closure::<dyn FnMut()>::new({
+            move || timer_tick.update(|tick| *tick += 1)
+        });
+        let handle = web_sys::window().and_then(|window| {
+            window
+                .set_interval_with_callback_and_timeout_and_arguments_0(
+                    callback.as_ref().unchecked_ref(),
+                    1000,
+                )
+                .ok()
+        });
+        callback.forget();
+
+        on_cleanup(move || {
+            if let (Some(window), Some(handle)) = (web_sys::window(), handle) {
+                window.clear_interval_with_handle(handle);
+            }
+        });
+    });
 
     Effect::new(move |_| {
         save_prefs(density.get(), show_media.get());
@@ -285,6 +307,7 @@ pub fn DevicesPage() -> impl IntoView {
     });
 
     let sorted_filtered: Memo<Vec<DeviceState>> = Memo::new(move |_| {
+        let _ = timer_tick.get();
         let all = devices.get();
         let q = search.get().trim().to_lowercase();
         let avail = availability.get();

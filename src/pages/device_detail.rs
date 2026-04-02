@@ -62,6 +62,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
     let edit_icon = RwSignal::new(String::new());
     let delete_confirm = RwSignal::new(String::new());
     let timer_secs = RwSignal::new("60".to_string());
+    let timer_tick = RwSignal::new(0u64);
     let history_sort_by = RwSignal::new(HistorySortKey::Time);
     let history_sort_dir = RwSignal::new(HistorySortDir::Desc);
 
@@ -72,6 +73,27 @@ pub fn DeviceDetailPage() -> impl IntoView {
     let save_trigger = RwSignal::new(0u32);
 
     let auth_token = auth.token; // RwSignal<Option<String>> — Copy
+
+    Effect::new(move |_| {
+        let callback = Closure::<dyn FnMut()>::new({
+            move || timer_tick.update(|tick| *tick += 1)
+        });
+        let handle = web_sys::window().and_then(|window| {
+            window
+                .set_interval_with_callback_and_timeout_and_arguments_0(
+                    callback.as_ref().unchecked_ref(),
+                    1000,
+                )
+                .ok()
+        });
+        callback.forget();
+
+        on_cleanup(move || {
+            if let (Some(window), Some(handle)) = (web_sys::window(), handle) {
+                window.clear_interval_with_handle(handle);
+            }
+        });
+    });
 
     // ── Areas fetch ───────────────────────────────────────────────────────────
     Effect::new(move |_| {
@@ -317,6 +339,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
 
             // Main content
             {move || device.get().map(|d| {
+                let _ = timer_tick.get();
                 let id = d.device_id.clone();
                 let is_timer  = d.plugin_id.starts_with("core.timer");
                 let is_switch = d.plugin_id.starts_with("core.switch");
@@ -332,8 +355,10 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let cur_vol   = d.attributes.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let cur_lock  = bool_attr(d.attributes.get("locked")).unwrap_or(false);
                 let timer_state  = str_attr(d.attributes.get("state")).unwrap_or("idle").to_string();
-                let timer_rem    = d.attributes.get("remaining_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                let timer_dur    = d.attributes.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                let timer_rem    = timer_remaining_secs(&d).unwrap_or(0);
+                let timer_dur    = d.attributes.get("duration_secs").and_then(|v| v.as_u64())
+                    .or_else(|| d.attributes.get("duration_ms").and_then(|v| v.as_u64()).map(|ms| ms / 1000))
+                    .unwrap_or(0);
                 let pb_state     = playback_state(&d);
                 let media_sum    = media_summary(&d);
                 let media_img    = media_image_url(&d).map(str::to_string);
@@ -860,7 +885,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                         <span class="timer-state-label">{ts_label.clone()}</span>
                                         {(is_running || is_paused).then(|| view! {
                                             <span class="timer-remaining">
-                                                {format_duration_ms(timer_rem)}" remaining"
+                                                {format_duration_secs(timer_rem)}" remaining"
                                             </span>
                                         })}
                                     </div>

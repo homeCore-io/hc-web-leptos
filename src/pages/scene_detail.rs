@@ -70,25 +70,12 @@ fn payload_get_f64(text: &str, key: &str) -> Option<f64> {
     payload_obj(text).get(key).and_then(|v| v.as_f64())
 }
 
-fn payload_get_str(text: &str, key: &str) -> Option<String> {
-    payload_obj(text).get(key).and_then(|v| v.as_str()).map(str::to_string)
-}
-
 fn payload_set_key(rows: RwSignal<Vec<SceneMemberDraft>>, idx: usize, key: &'static str, val: Value) {
     rows.update(|items| {
         if let Some(item) = items.get_mut(idx) {
             let mut map = payload_obj(&item.payload_text);
             map.insert(key.to_string(), val);
             item.payload_text = serde_json::to_string_pretty(&Value::Object(map))
-                .unwrap_or_else(|_| "{}".to_string());
-        }
-    });
-}
-
-fn payload_replace(rows: RwSignal<Vec<SceneMemberDraft>>, idx: usize, val: Value) {
-    rows.update(|items| {
-        if let Some(item) = items.get_mut(idx) {
-            item.payload_text = serde_json::to_string_pretty(&val)
                 .unwrap_or_else(|_| "{}".to_string());
         }
     });

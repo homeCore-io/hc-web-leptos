@@ -1633,6 +1633,22 @@ a.cell-link:hover { text-decoration: underline; }
   .danger-zone-controls {
     grid-template-columns: 1fr;
   }
+
+  .mode-solar-grid,
+  .mode-offset-editor,
+  .mode-create-row {
+    grid-template-columns: 1fr;
+  }
+
+  .mode-criteria-topline,
+  .mode-criteria-row {
+    grid-template-columns: 1fr;
+  }
+
+  .mode-criteria-block-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 /* ── Device Cards ────────────────────────────────────────────────────── */
@@ -1702,6 +1718,18 @@ a.cell-link:hover { text-decoration: underline; }
 .device-card--scene-plugin {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--hc-accent-soft) 72%, var(--hc-surface)) 0%, var(--hc-surface) 42%);
+}
+.mode-card--solar {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hc-warn-soft) 85%, var(--hc-surface)) 0%, var(--hc-surface) 42%);
+}
+.mode-card--manual {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hc-accent-soft) 58%, var(--hc-surface)) 0%, var(--hc-surface) 42%);
+}
+.mode-card--criteria {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hc-success-soft) 52%, var(--hc-surface)) 0%, var(--hc-surface) 42%);
 }
 
 /* Card header */
@@ -1816,6 +1844,144 @@ a.cell-link:hover { text-decoration: underline; }
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--hc-text-muted);
+}
+.mode-solar-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+.mode-stat {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.72rem 0.78rem;
+  border-radius: var(--hc-radius-md);
+  border: 1px solid var(--hc-border);
+  background: color-mix(in srgb, var(--hc-surface-soft) 75%, transparent);
+}
+.mode-stat strong {
+  font-size: 0.94rem;
+}
+.mode-stat-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--hc-text-muted);
+}
+.mode-stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+.mode-offset-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  align-items: end;
+}
+.mode-offset-field,
+.mode-create-field {
+  display: grid;
+  gap: 0.3rem;
+}
+.mode-offset-field span,
+.mode-create-field span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--hc-text-muted);
+}
+.mode-offset-field input,
+.mode-create-field input {
+  width: 100%;
+  padding: 0.62rem 0.72rem;
+  border-radius: var(--hc-radius-md);
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+}
+.mode-create-card {
+  display: grid;
+  gap: 0.9rem;
+}
+.mode-inline-editor {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.85rem;
+  border-radius: var(--hc-radius-md);
+  border: 1px solid var(--hc-border);
+  background: color-mix(in srgb, var(--hc-surface-soft) 78%, transparent);
+}
+.mode-create-row {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr 0.85fr;
+  gap: 0.75rem;
+  align-items: end;
+}
+.mode-create-help {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--hc-text-muted);
+  line-height: 1.45;
+}
+.mode-criteria-editor {
+  display: grid;
+  gap: 0.9rem;
+}
+.mode-criteria-topline {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: end;
+}
+.mode-criteria-block {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border-radius: var(--hc-radius-md);
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface-soft);
+}
+.mode-criteria-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+.mode-criteria-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.mode-criteria-list {
+  display: grid;
+  gap: 0.7rem;
+}
+.mode-criteria-row {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr 0.8fr 0.58fr 1fr auto;
+  gap: 0.55rem;
+  align-items: center;
+}
+.mode-criteria-row select,
+.mode-criteria-row input,
+.mode-criteria-inline select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.58rem 0.68rem;
+  border-radius: var(--hc-radius-md);
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+}
+.mode-criteria-summary {
+  display: grid;
+  gap: 0.75rem;
+}
+.mode-criteria-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 .card-state-badge {
   font-size: 0.78rem;

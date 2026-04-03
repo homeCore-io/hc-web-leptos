@@ -1,7 +1,9 @@
 //! HomeCore API client — thin wrappers over gloo-net HTTP requests.
 
 use crate::auth::API_BASE;
-use crate::models::{Area, DeviceState, Scene};
+use crate::models::{
+    Area, CriteriaModeConfig, DeviceState, ModeConfig, ModeDefinition, ModeKind, ModeRecord, Scene,
+};
 use gloo_net::http::Request;
 use serde_json::Value;
 
@@ -73,6 +75,20 @@ async fn post_no_body(path: &str, token: &str) -> Result<(), String> {
     Ok(())
 }
 
+async fn delete_no_body(path: &str, token: &str) -> Result<(), String> {
+    let resp = Request::delete(&format!("{API_BASE}{path}"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.ok() {
+        return Err(format!("{} {}", resp.status(), resp.status_text()));
+    }
+
+    Ok(())
+}
+
 async fn put_json<T: serde::de::DeserializeOwned>(
     path: &str,
     token: &str,
@@ -106,6 +122,51 @@ pub async fn fetch_areas(token: &str) -> Result<Vec<Area>, String> {
 
 pub async fn fetch_scenes(token: &str) -> Result<Vec<Scene>, String> {
     get_json("/scenes", token).await
+}
+
+pub async fn fetch_modes(token: &str) -> Result<Vec<ModeRecord>, String> {
+    get_json("/modes", token).await
+}
+
+pub async fn create_mode(
+    token: &str,
+    id: &str,
+    name: &str,
+    kind: ModeKind,
+    criteria_definition: Option<&CriteriaModeConfig>,
+) -> Result<ModeConfig, String> {
+    post_json(
+        "/modes",
+        token,
+        &serde_json::json!({
+            "id": id,
+            "name": name,
+            "kind": kind,
+            "criteria_definition": criteria_definition,
+        }),
+    )
+    .await
+}
+
+pub async fn delete_mode(token: &str, id: &str) -> Result<(), String> {
+    delete_no_body(&format!("/modes/{id}"), token).await
+}
+
+pub async fn put_mode_definition(
+    token: &str,
+    id: &str,
+    criteria: &CriteriaModeConfig,
+) -> Result<ModeDefinition, String> {
+    put_json(
+        &format!("/modes/{id}/definition"),
+        token,
+        &serde_json::json!(criteria),
+    )
+    .await
+}
+
+pub async fn delete_mode_definition(token: &str, id: &str) -> Result<(), String> {
+    delete_no_body(&format!("/modes/{id}/definition"), token).await
 }
 
 pub async fn fetch_scene(token: &str, id: &str) -> Result<Scene, String> {
@@ -146,17 +207,7 @@ pub async fn update_scene(
 }
 
 pub async fn delete_scene(token: &str, id: &str) -> Result<(), String> {
-    let resp = Request::delete(&format!("{API_BASE}/scenes/{id}"))
-        .header("Authorization", &format!("Bearer {token}"))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
-    }
-
-    Ok(())
+    delete_no_body(&format!("/scenes/{id}"), token).await
 }
 
 pub async fn activate_scene(token: &str, id: &str) -> Result<(), String> {
@@ -189,17 +240,7 @@ pub async fn update_area(token: &str, id: &str, name: &str) -> Result<Area, Stri
 }
 
 pub async fn delete_area(token: &str, id: &str) -> Result<(), String> {
-    let resp = Request::delete(&format!("{API_BASE}/areas/{id}"))
-        .header("Authorization", &format!("Bearer {token}"))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
-    }
-
-    Ok(())
+    delete_no_body(&format!("/areas/{id}"), token).await
 }
 
 pub async fn set_area_devices(

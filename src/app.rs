@@ -1,16 +1,17 @@
 //! Root application component: provides AuthState context, router, auth guard,
 //! and the nav shell wrapper.
 
-use crate::auth::{AuthState, use_auth};
+use crate::auth::{use_auth, AuthState};
 use crate::pages::{
     areas::AreasPage,
     device_cards::DeviceCardsPage,
     device_detail::DeviceDetailPage,
     login::LoginPage,
+    modes::ModesPage,
     scene_detail::{NativeSceneDetailPage, NewScenePage, PluginSceneDetailPage},
     scenes::ScenesPage,
 };
-use crate::ws::{WsContext, mount_ws};
+use crate::ws::{mount_ws, WsContext};
 use leptos::prelude::*;
 use leptos_router::{
     components::{Route, Router, Routes},
@@ -50,6 +51,9 @@ pub fn App() -> impl IntoView {
                 }/>
                 <Route path=path!("/scenes/plugin/:id") view=move || view! {
                     <AuthGuard><PluginSceneDetailPage /></AuthGuard>
+                }/>
+                <Route path=path!("/modes") view=move || view! {
+                    <AuthGuard><ModesPage /></AuthGuard>
                 }/>
             </Routes>
         </Router>

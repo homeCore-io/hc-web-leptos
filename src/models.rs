@@ -30,6 +30,64 @@ pub struct Scene {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum ModeKind {
+    Solar,
+    Manual,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CriteriaOffBehavior {
+    #[default]
+    Inverse,
+    Explicit,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModeConfig {
+    pub id: String,
+    pub name: String,
+    pub kind: ModeKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_event: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub off_event: Option<String>,
+    #[serde(default)]
+    pub on_offset_minutes: i32,
+    #[serde(default)]
+    pub off_offset_minutes: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModeRecord {
+    pub config: ModeConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<DeviceState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<ModeDefinition>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CriteriaModeConfig {
+    pub on_condition: serde_json::Value,
+    #[serde(default)]
+    pub off_behavior: CriteriaOffBehavior,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub off_condition: Option<serde_json::Value>,
+    #[serde(default)]
+    pub reevaluate_every_n_minutes: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModeDefinition {
+    pub mode_id: String,
+    pub criteria: CriteriaModeConfig,
+    #[serde(default)]
+    pub generated_rule_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum DeviceChangeKind {
     Homecore,
     Physical,
@@ -77,13 +135,12 @@ pub struct DeviceState {
 pub fn bool_attr(v: Option<&serde_json::Value>) -> Option<bool> {
     v.and_then(|v| {
         v.as_bool().or_else(|| {
-            v.as_str().and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
-                "true" | "on" | "open" | "active" | "occupied" | "detected" => Some(true),
-                "false" | "off" | "closed" | "inactive" | "clear" | "unoccupied" => {
-                    Some(false)
-                }
-                _ => None,
-            })
+            v.as_str()
+                .and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
+                    "true" | "on" | "open" | "active" | "occupied" | "detected" => Some(true),
+                    "false" | "off" | "closed" | "inactive" | "clear" | "unoccupied" => Some(false),
+                    _ => None,
+                })
         })
     })
 }
@@ -181,10 +238,7 @@ pub fn is_plugin_scene_active(d: &DeviceState) -> bool {
         .unwrap_or(false)
 }
 
-pub fn scene_matches_live_state(
-    scene: &Scene,
-    devices: &HashMap<String, DeviceState>,
-) -> bool {
+pub fn scene_matches_live_state(scene: &Scene, devices: &HashMap<String, DeviceState>) -> bool {
     if scene.states.is_empty() {
         return false;
     }
@@ -201,6 +255,44 @@ pub fn scene_matches_live_state(
             .iter()
             .all(|(key, expected)| device.attributes.get(key) == Some(expected))
     })
+}
+
+pub fn mode_is_on(d: &DeviceState) -> bool {
+    bool_attr(d.attributes.get("on")).unwrap_or(false)
+}
+
+pub fn mode_kind_label(kind: ModeKind) -> &'static str {
+    match kind {
+        ModeKind::Solar => "Solar",
+        ModeKind::Manual => "Manual",
+    }
+}
+
+pub fn criteria_off_behavior_label(value: CriteriaOffBehavior) -> &'static str {
+    match value {
+        CriteriaOffBehavior::Inverse => "Inverse",
+        CriteriaOffBehavior::Explicit => "Explicit",
+    }
+}
+
+pub fn solar_event_label(value: Option<&str>) -> String {
+    value
+        .map(|raw| {
+            raw.split('_')
+                .map(|part| {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        Some(first) => {
+                            first.to_uppercase().collect::<String>()
+                                + &chars.as_str().to_lowercase()
+                        }
+                        None => String::new(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_else(|| "Unknown".to_string())
 }
 
 fn timer_duration_secs(d: &DeviceState) -> Option<u64> {
@@ -247,7 +339,8 @@ pub fn timer_remaining_secs(d: &DeviceState) -> Option<u64> {
     match timer_state.as_str() {
         "paused" => reported,
         "running" => {
-            if let (Some(started_at), Some(duration_secs)) = (timer_started_at(d), timer_duration_secs(d))
+            if let (Some(started_at), Some(duration_secs)) =
+                (timer_started_at(d), timer_duration_secs(d))
             {
                 let elapsed = (Utc::now() - started_at).num_seconds().max(0) as u64;
                 Some(duration_secs.saturating_sub(elapsed))
@@ -310,7 +403,8 @@ pub fn media_summary(d: &DeviceState) -> Option<String> {
 pub fn string_list_attr(v: Option<&serde_json::Value>) -> Vec<String> {
     v.and_then(|value| value.as_array())
         .map(|items| {
-            items.iter()
+            items
+                .iter()
                 .filter_map(|item| item.as_str())
                 .map(str::to_string)
                 .collect()

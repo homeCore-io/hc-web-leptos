@@ -14,11 +14,11 @@ Implemented today:
 - Login flow against homeCore auth
 - Devices list with filters, sorting, column preferences, and live updates
 - Device detail page with metadata editing, device-specific controls, and history
+- Modes page for built-in solar modes and user-defined manual modes
 
 Planned but not yet implemented in this client:
 
 - Scenes
-- Modes
 - Events
 - Automations
 - Dashboards

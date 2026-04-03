@@ -2693,3 +2693,11 @@ a.cell-link:hover { text-decoration: underline; }
   font-size: 0.85rem;
 }
 .rule-select-cb { cursor: pointer; margin: 0; }
+
+/* Nested action lists (block actions) */
+.nested-action-list {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  border-left: 3px solid var(--hc-border); padding-left: 0.6rem; margin-top: 0.25rem;
+}
+.nested-action-row { background: var(--hc-surface-soft); }
+.mode-entry-row { background: var(--hc-surface-soft); }

@@ -2347,13 +2347,454 @@ fn ActionEditor(value: RwSignal<Value>) -> impl IntoView {
                         </div>
                     }.into_any(),
 
-                    // Block actions → JSON fallback
+                    // ── parallel ──────────────────────────────────────
+                    "parallel" => view! {
+                        <div class="trigger-fields">
+                            <p class="msg-muted" style="font-size:0.78rem">"All nested actions run concurrently."</p>
+                            <NestedActionList parent=value key="actions" label="Parallel actions" />
+                        </div>
+                    }.into_any(),
+
+                    // ── conditional ───────────────────────────────────
+                    "conditional" => view! {
+                        <div class="trigger-fields">
+                            <label class="field-label">"Condition (Rhai expression)"</label>
+                            <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                prop:value=move || value.get()["condition"].as_str().unwrap_or("").to_string()
+                                on:input=move |ev| set_str("condition", event_target_value(&ev))
+                            />
+                            <NestedActionList parent=value key="then_actions" label="Then actions (condition true)" />
+                            <NestedActionList parent=value key="else_actions" label="Else actions (condition false)" />
+                        </div>
+                    }.into_any(),
+
+                    // ── repeat_until ──────────────────────────────────
+                    "repeat_until" => view! {
+                        <div class="trigger-fields">
+                            <label class="field-label">"Until condition (Rhai, checked after each iteration)"</label>
+                            <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                prop:value=move || value.get()["condition"].as_str().unwrap_or("").to_string()
+                                on:input=move |ev| set_str("condition", event_target_value(&ev))
+                            />
+                            <div class="trigger-row-2">
+                                <div>
+                                    <label class="field-label">"Max iterations (blank = unlimited)"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:8rem"
+                                        prop:value=move || value.get()["max_iterations"].as_u64().map(|n| n.to_string()).unwrap_or_default()
+                                        on:input=move |ev| set_opt_u64("max_iterations", event_target_value(&ev))
+                                    />
+                                </div>
+                                <div>
+                                    <label class="field-label">"Interval (ms, blank = none)"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:8rem"
+                                        prop:value=move || value.get()["interval_ms"].as_u64().map(|n| n.to_string()).unwrap_or_default()
+                                        on:input=move |ev| set_opt_u64("interval_ms", event_target_value(&ev))
+                                    />
+                                </div>
+                            </div>
+                            <NestedActionList parent=value key="actions" label="Loop body" />
+                        </div>
+                    }.into_any(),
+
+                    // ── repeat_while ──────────────────────────────────
+                    "repeat_while" => view! {
+                        <div class="trigger-fields">
+                            <label class="field-label">"While condition (Rhai, checked before each iteration)"</label>
+                            <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                prop:value=move || value.get()["condition"].as_str().unwrap_or("").to_string()
+                                on:input=move |ev| set_str("condition", event_target_value(&ev))
+                            />
+                            <div class="trigger-row-2">
+                                <div>
+                                    <label class="field-label">"Max iterations (blank = unlimited)"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:8rem"
+                                        prop:value=move || value.get()["max_iterations"].as_u64().map(|n| n.to_string()).unwrap_or_default()
+                                        on:input=move |ev| set_opt_u64("max_iterations", event_target_value(&ev))
+                                    />
+                                </div>
+                                <div>
+                                    <label class="field-label">"Interval (ms, blank = none)"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:8rem"
+                                        prop:value=move || value.get()["interval_ms"].as_u64().map(|n| n.to_string()).unwrap_or_default()
+                                        on:input=move |ev| set_opt_u64("interval_ms", event_target_value(&ev))
+                                    />
+                                </div>
+                            </div>
+                            <NestedActionList parent=value key="actions" label="Loop body" />
+                        </div>
+                    }.into_any(),
+
+                    // ── repeat_count ──────────────────────────────────
+                    "repeat_count" => view! {
+                        <div class="trigger-fields">
+                            <div class="trigger-row-2">
+                                <div>
+                                    <label class="field-label">"Repeat count"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:8rem" min="1"
+                                        prop:value=move || value.get()["count"].as_u64().unwrap_or(3).to_string()
+                                        on:input=move |ev| set_u64("count", event_target_value(&ev))
+                                    />
+                                </div>
+                                <div>
+                                    <label class="field-label">"Interval (ms, blank = none)"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:8rem"
+                                        prop:value=move || value.get()["interval_ms"].as_u64().map(|n| n.to_string()).unwrap_or_default()
+                                        on:input=move |ev| set_opt_u64("interval_ms", event_target_value(&ev))
+                                    />
+                                </div>
+                            </div>
+                            <NestedActionList parent=value key="actions" label="Loop body" />
+                        </div>
+                    }.into_any(),
+
+                    // ── ping_host ─────────────────────────────────────
+                    "ping_host" => view! {
+                        <div class="trigger-fields">
+                            <label class="field-label">"Host"</label>
+                            <input type="text" class="hc-input" placeholder="e.g. 192.168.1.1"
+                                prop:value=move || value.get()["host"].as_str().unwrap_or("").to_string()
+                                on:input=move |ev| set_str("host", event_target_value(&ev))
+                            />
+                            <div class="trigger-row-2">
+                                <div>
+                                    <label class="field-label">"Ping count (blank = 1)"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:6rem"
+                                        prop:value=move || value.get()["count"].as_u64().map(|n| n.to_string()).unwrap_or_default()
+                                        on:input=move |ev| set_opt_u64("count", event_target_value(&ev))
+                                    />
+                                </div>
+                                <div>
+                                    <label class="field-label">"Timeout (ms, blank = 3000)"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:8rem"
+                                        prop:value=move || value.get()["timeout_ms"].as_u64().map(|n| n.to_string()).unwrap_or_default()
+                                        on:input=move |ev| set_opt_u64("timeout_ms", event_target_value(&ev))
+                                    />
+                                </div>
+                            </div>
+                            <label class="field-label">"Response event (optional)"</label>
+                            <input type="text" class="hc-input" placeholder="e.g. router_ping"
+                                prop:value=move || value.get()["response_event"].as_str().unwrap_or("").to_string()
+                                on:input=move |ev| set_opt_str("response_event", event_target_value(&ev))
+                            />
+                            <NestedActionList parent=value key="then_actions" label="Host reachable" />
+                            <NestedActionList parent=value key="else_actions" label="Host unreachable" />
+                        </div>
+                    }.into_any(),
+
+                    // ── set_device_state_per_mode ─────────────────────
+                    "set_device_state_per_mode" => view! {
+                        <div class="trigger-fields">
+                            <label class="field-label">"Device ID"</label>
+                            <input type="text" class="hc-input"
+                                prop:value=move || value.get()["device_id"].as_str().unwrap_or("").to_string()
+                                on:input=move |ev| set_str("device_id", event_target_value(&ev))
+                            />
+                            <ModeEntryList parent=value variant="state" />
+                            <label class="field-label">"Default state (JSON, blank = none)"</label>
+                            <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                prop:value=move || {
+                                    let v = &value.get()["default_state"];
+                                    if v.is_null() { String::new() } else { serde_json::to_string_pretty(v).unwrap_or_default() }
+                                }
+                                on:input=move |ev| {
+                                    let raw = event_target_value(&ev);
+                                    value.update(|v| {
+                                        if raw.trim().is_empty() {
+                                            if let Some(obj) = v.as_object_mut() { obj.remove("default_state"); }
+                                        } else if let Ok(parsed) = serde_json::from_str::<Value>(&raw) {
+                                            v["default_state"] = parsed;
+                                        }
+                                    });
+                                }
+                            />
+                        </div>
+                    }.into_any(),
+
+                    // ── delay_per_mode ────────────────────────────────
+                    "delay_per_mode" => view! {
+                        <div class="trigger-fields">
+                            <ModeEntryList parent=value variant="delay" />
+                            <label class="field-label">"Default delay (seconds, blank = skip)"</label>
+                            <input type="number" class="hc-input hc-input--sm" style="width:8rem"
+                                prop:value=move || value.get()["default_secs"].as_u64().map(|n| n.to_string()).unwrap_or_default()
+                                on:input=move |ev| set_opt_u64("default_secs", event_target_value(&ev))
+                            />
+                        </div>
+                    }.into_any(),
+
+                    // ── activate_scene_per_mode ───────────────────────
+                    "activate_scene_per_mode" => view! {
+                        <div class="trigger-fields">
+                            <ModeEntryList parent=value variant="scene" />
+                            <label class="field-label">"Default scene ID (blank = none)"</label>
+                            <input type="text" class="hc-input hc-textarea--code"
+                                prop:value=move || value.get()["default_scene_id"].as_str().unwrap_or("").to_string()
+                                on:input=move |ev| set_opt_str("default_scene_id", event_target_value(&ev))
+                            />
+                        </div>
+                    }.into_any(),
+
+                    // ── Unknown fallback ──────────────────────────────
                     _ => view! {
                         <div class="trigger-fields">
-                            <p class="msg-muted" style="font-size:0.78rem">"Block action — edit as JSON:"</p>
+                            <p class="msg-muted" style="font-size:0.78rem">"Unknown action type — edit as JSON:"</p>
                             <JsonTextarea value=value label="" rows=8 />
                         </div>
                     }.into_any(),
+                }
+            }}
+        </div>
+    }
+}
+
+// ── NestedActionList ──────────────────────────────────────────────────────────
+//
+// Manages a nested array of actions inside a parent Value signal.
+// Used by block actions (parallel, conditional, repeat, etc.) for recursive editing.
+
+#[component]
+fn NestedActionList(
+    /// The parent action's RwSignal containing the entire block action JSON.
+    parent: RwSignal<Value>,
+    /// JSON key in the parent for this action array (e.g. "actions", "then_actions").
+    key: &'static str,
+    /// Label shown above the list.
+    label: &'static str,
+) -> impl IntoView {
+    // Materialize nested actions from parent into isolated signals.
+    let items: RwSignal<Vec<RwSignal<Value>>> = RwSignal::new(
+        parent
+            .get_untracked()[key]
+            .as_array()
+            .map(|a| a.iter().map(|v| RwSignal::new(v.clone())).collect())
+            .unwrap_or_default(),
+    );
+
+    // Sync nested signals back to parent whenever items change.
+    // We use a version counter bumped on every add/remove/reorder.
+    let version = RwSignal::new(0u32);
+
+    Effect::new(move |_| {
+        version.get(); // subscribe to structural changes
+        let list = items.get();
+        let arr: Vec<Value> = list.iter().map(|s| s.get()).collect();
+        parent.update(|v| {
+            v[key] = json!(arr);
+        });
+    });
+
+    let bump = move || version.update(|v| *v += 1);
+
+    view! {
+        <div class="nested-action-list">
+            <div class="rule-section-header">
+                <label class="field-label" style="margin:0">{label}</label>
+                <button
+                    class="hc-btn hc-btn--sm hc-btn--outline"
+                    on:click=move |_| {
+                        items.update(|list| {
+                            list.push(RwSignal::new(json!({"type":"log_message","message":"","enabled":true})));
+                        });
+                        bump();
+                    }
+                >"+ Add"</button>
+            </div>
+
+            {move || {
+                let list = items.get();
+                if list.is_empty() {
+                    view! {
+                        <p class="msg-muted" style="font-size:0.78rem">"No actions."</p>
+                    }.into_any()
+                } else {
+                    let count = list.len();
+                    #[allow(unused_variables)]
+                    list.into_iter().enumerate().map(|(i, sig)| {
+                        let last = i + 1 >= count;
+                        view! {
+                            <div class="json-row nested-action-row">
+                                <div class="json-row-controls">
+                                    <span class="json-row-index">{i + 1}</span>
+                                    <button
+                                        class="hc-btn hc-btn--sm hc-btn--outline"
+                                        title="Move up"
+                                        disabled=i == 0
+                                        on:click=move |_| {
+                                            items.update(|l| { if i > 0 { l.swap(i - 1, i); } });
+                                            bump();
+                                        }
+                                    >
+                                        <span class="material-icons" style="font-size:14px">"arrow_upward"</span>
+                                    </button>
+                                    <button
+                                        class="hc-btn hc-btn--sm hc-btn--outline"
+                                        title="Move down"
+                                        disabled=last
+                                        on:click=move |_| {
+                                            items.update(|l| { if i + 1 < l.len() { l.swap(i, i + 1); } });
+                                            bump();
+                                        }
+                                    >
+                                        <span class="material-icons" style="font-size:14px">"arrow_downward"</span>
+                                    </button>
+                                    <button
+                                        class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline"
+                                        title="Remove"
+                                        on:click=move |_| {
+                                            items.update(|l| { l.remove(i); });
+                                            bump();
+                                        }
+                                    >
+                                        <span class="material-icons" style="font-size:14px">"close"</span>
+                                    </button>
+                                </div>
+                                <ActionEditor value=sig />
+                            </div>
+                        }
+                    }).collect_view().into_any()
+                }
+            }}
+        </div>
+    }
+}
+
+// ── ModeEntryList ────────────────────────────────────────────────────────────
+//
+// Manages a `modes: [{ mode: "...", ... }]` array inside a parent Value.
+// Used by set_device_state_per_mode, delay_per_mode, activate_scene_per_mode.
+
+#[component]
+fn ModeEntryList(
+    parent: RwSignal<Value>,
+    /// What fields each mode entry has besides "mode".
+    variant: &'static str,
+) -> impl IntoView {
+    // variant: "state" (set_device_state_per_mode), "delay" (delay_per_mode), "scene" (activate_scene_per_mode)
+
+    view! {
+        <div class="nested-action-list">
+            <div class="rule-section-header">
+                <label class="field-label" style="margin:0">"Mode entries"</label>
+                <button
+                    class="hc-btn hc-btn--sm hc-btn--outline"
+                    on:click=move |_| {
+                        let entry = match variant {
+                            "state" => json!({"mode": "", "state": {}}),
+                            "delay" => json!({"mode": "", "duration_secs": 60}),
+                            "scene" => json!({"mode": "", "scene_id": ""}),
+                            _       => json!({"mode": ""}),
+                        };
+                        parent.update(|v| {
+                            let arr = v["modes"].as_array_mut().expect("modes is array");
+                            arr.push(entry);
+                        });
+                    }
+                >"+ Add mode"</button>
+            </div>
+
+            {move || {
+                let modes = parent.get()["modes"].as_array().cloned().unwrap_or_default();
+                if modes.is_empty() {
+                    view! { <p class="msg-muted" style="font-size:0.78rem">"No mode entries."</p> }.into_any()
+                } else {
+                    modes.into_iter().enumerate().map(|(i, entry)| {
+                        let mode_val = entry["mode"].as_str().unwrap_or("").to_string();
+                        view! {
+                            <div class="json-row mode-entry-row">
+                                <div class="json-row-controls">
+                                    <span class="json-row-index">{i + 1}</span>
+                                    <button
+                                        class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline"
+                                        title="Remove"
+                                        on:click=move |_| {
+                                            parent.update(|v| {
+                                                if let Some(arr) = v["modes"].as_array_mut() { arr.remove(i); }
+                                            });
+                                        }
+                                    >
+                                        <span class="material-icons" style="font-size:14px">"close"</span>
+                                    </button>
+                                </div>
+
+                                <div class="trigger-fields">
+                                    <label class="field-label">"Mode ID"</label>
+                                    <input type="text" class="hc-input" placeholder="e.g. mode_night"
+                                        prop:value=mode_val
+                                        on:input=move |ev| {
+                                            let val = event_target_value(&ev);
+                                            parent.update(|v| {
+                                                if let Some(arr) = v["modes"].as_array_mut() {
+                                                    if let Some(entry) = arr.get_mut(i) {
+                                                        entry["mode"] = json!(val);
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    />
+
+                                    {match variant {
+                                        "state" => view! {
+                                            <label class="field-label">"State (JSON)"</label>
+                                            <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                                prop:value=serde_json::to_string_pretty(&entry["state"]).unwrap_or_default()
+                                                on:input=move |ev| {
+                                                    if let Ok(parsed) = serde_json::from_str::<Value>(&event_target_value(&ev)) {
+                                                        parent.update(|v| {
+                                                            if let Some(arr) = v["modes"].as_array_mut() {
+                                                                if let Some(entry) = arr.get_mut(i) {
+                                                                    entry["state"] = parsed;
+                                                                }
+                                                            }
+                                                        });
+                                                    }
+                                                }
+                                            />
+                                        }.into_any(),
+                                        "delay" => {
+                                            let dur = entry["duration_secs"].as_u64().unwrap_or(60).to_string();
+                                            view! {
+                                                <label class="field-label">"Duration (seconds)"</label>
+                                                <input type="number" class="hc-input hc-input--sm" style="width:8rem"
+                                                    prop:value=dur
+                                                    on:input=move |ev| {
+                                                        if let Ok(n) = event_target_value(&ev).trim().parse::<u64>() {
+                                                            parent.update(|v| {
+                                                                if let Some(arr) = v["modes"].as_array_mut() {
+                                                                    if let Some(entry) = arr.get_mut(i) {
+                                                                        entry["duration_secs"] = json!(n);
+                                                                    }
+                                                                }
+                                                            });
+                                                        }
+                                                    }
+                                                />
+                                            }.into_any()
+                                        },
+                                        "scene" => {
+                                            let sid = entry["scene_id"].as_str().unwrap_or("").to_string();
+                                            view! {
+                                                <label class="field-label">"Scene ID"</label>
+                                                <input type="text" class="hc-input hc-textarea--code"
+                                                    prop:value=sid
+                                                    on:input=move |ev| {
+                                                        let val = event_target_value(&ev);
+                                                        parent.update(|v| {
+                                                            if let Some(arr) = v["modes"].as_array_mut() {
+                                                                if let Some(entry) = arr.get_mut(i) {
+                                                                    entry["scene_id"] = json!(val);
+                                                                }
+                                                            }
+                                                        });
+                                                    }
+                                                />
+                                            }.into_any()
+                                        },
+                                        _ => view! { <span /> }.into_any(),
+                                    }}
+                                </div>
+                            </div>
+                        }
+                    }).collect_view().into_any()
                 }
             }}
         </div>

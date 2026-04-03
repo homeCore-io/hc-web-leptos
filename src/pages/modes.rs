@@ -387,6 +387,112 @@ fn parse_value_text(raw: &str) -> Value {
     json!(trimmed)
 }
 
+fn value_to_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Null => "null".to_string(),
+        Value::Bool(boolean) => boolean.to_string(),
+        Value::Number(number) => number.to_string(),
+        _ => compact_json(value),
+    }
+}
+
+fn parse_clause_from_value(value: &Value) -> Result<CriterionDraft, String> {
+    let Some(obj) = value.as_object() else {
+        return Err("Criteria clause must be an object.".to_string());
+    };
+
+    match obj.get("type").and_then(Value::as_str) {
+        Some("device_state") => Ok(CriterionDraft::DeviceState {
+            device_id: obj
+                .get("device_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            attribute: obj
+                .get("attribute")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            op: obj
+                .get("op")
+                .and_then(Value::as_str)
+                .unwrap_or("eq")
+                .to_string(),
+            value_text: obj
+                .get("value")
+                .map(value_to_text)
+                .unwrap_or_default(),
+        }),
+        Some("mode_is") => Ok(CriterionDraft::ModeIs {
+            mode_id: obj
+                .get("mode_id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            on: obj.get("on").and_then(Value::as_bool).unwrap_or(true),
+        }),
+        Some(other) => Err(format!("Unsupported criterion type '{other}' for inline editing.")),
+        None => Err("Criterion type is required.".to_string()),
+    }
+}
+
+fn parse_group_from_value(value: &Value) -> Result<(CriteriaLogic, Vec<CriterionDraft>), String> {
+    let Some(obj) = value.as_object() else {
+        return Err("Criteria group must be an object.".to_string());
+    };
+
+    match obj.get("type").and_then(Value::as_str) {
+        Some("and") | Some("or") => {
+            let logic = if obj.get("type").and_then(Value::as_str) == Some("or") {
+                CriteriaLogic::Any
+            } else {
+                CriteriaLogic::All
+            };
+            let Some(items) = obj.get("conditions").and_then(Value::as_array) else {
+                return Err("Grouped criteria must contain a conditions array.".to_string());
+            };
+            if items.is_empty() {
+                return Err("Criteria group cannot be empty.".to_string());
+            }
+            let clauses = items
+                .iter()
+                .map(parse_clause_from_value)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok((logic, clauses))
+        }
+        Some("device_state") | Some("mode_is") => {
+            Ok((CriteriaLogic::All, vec![parse_clause_from_value(value)?]))
+        }
+        Some(other) => Err(format!(
+            "Unsupported grouped criteria type '{other}' for inline editing."
+        )),
+        None => Err("Criteria type is required.".to_string()),
+    }
+}
+
+fn builder_from_criteria(criteria: &CriteriaModeConfig) -> Result<CriteriaBuilderState, String> {
+    let (on_logic, on_clauses) = parse_group_from_value(&criteria.on_condition)?;
+    let (off_logic, off_clauses) = match criteria.off_behavior {
+        CriteriaOffBehavior::Inverse => (CriteriaLogic::All, vec![CriterionDraft::blank_device_state()]),
+        CriteriaOffBehavior::Explicit => {
+            let Some(off_condition) = criteria.off_condition.as_ref() else {
+                return Err("Explicit off criteria is missing.".to_string());
+            };
+            parse_group_from_value(off_condition)?
+        }
+    };
+
+    Ok(CriteriaBuilderState {
+        on_logic,
+        on_clauses,
+        off_behavior: criteria.off_behavior,
+        off_logic,
+        off_clauses,
+        reevaluate_every_n_minutes: criteria.reevaluate_every_n_minutes.max(1),
+    })
+}
+
 fn build_clause_value(clause: &CriterionDraft) -> Result<Value, String> {
     match clause {
         CriterionDraft::DeviceState {
@@ -995,8 +1101,11 @@ fn ModeCard(
     let busy = RwSignal::new(false);
     let error = RwSignal::new(Option::<String>::None);
     let notice = RwSignal::new(Option::<String>::None);
-    let show_add_criteria = RwSignal::new(false);
+    let show_criteria_editor = RwSignal::new(false);
+    let show_solar_editor = RwSignal::new(false);
     let builder = RwSignal::new(CriteriaBuilderState::default());
+    let solar_on_offset = RwSignal::new(0i32);
+    let solar_off_offset = RwSignal::new(0i32);
 
     let mode_id_for_memo = mode_id.clone();
     let record: Memo<Option<ModeRecord>> = Memo::new(move |_| {
@@ -1070,6 +1179,100 @@ fn ModeCard(
                             .unwrap_or_else(|| "Explicit off criteria missing".to_string())
                     } else {
                         format!("Not ({on_summary})")
+                    }
+                });
+
+                let open_criteria_editor = Callback::new({
+                    let existing_definition = record.definition.clone();
+                    move |_| {
+                        error.set(None);
+                        notice.set(None);
+                        if let Some(definition) = &existing_definition {
+                            match builder_from_criteria(&definition.criteria) {
+                                Ok(existing_builder) => builder.set(existing_builder),
+                                Err(err) => {
+                                    error.set(Some(err));
+                                    return;
+                                }
+                            }
+                        } else {
+                            builder.set(CriteriaBuilderState::default());
+                        }
+                        show_criteria_editor.update(|open| *open = !*open);
+                    }
+                });
+
+                let save_criteria = Callback::new({
+                    let target_mode_id = record.config.id.clone();
+                    move |_| {
+                        let target_mode_id = target_mode_id.clone();
+                        let token = auth.token_str().unwrap_or_default();
+                        let draft = builder.get();
+                        let criteria = match build_criteria_config(&draft) {
+                            Ok(criteria) => criteria,
+                            Err(err) => {
+                                error.set(Some(err));
+                                return;
+                            }
+                        };
+                        busy.set(true);
+                        error.set(None);
+                        notice.set(None);
+                        spawn_local(async move {
+                            match put_mode_definition_request(&token, &target_mode_id, &criteria).await {
+                                Ok(_) => {
+                                    show_criteria_editor.set(false);
+                                    notice.set(Some("Criteria saved.".to_string()));
+                                    on_refresh.run(());
+                                }
+                                Err(err) => error.set(Some(err)),
+                            }
+                            busy.set(false);
+                        });
+                    }
+                });
+
+                let toggle_solar_editor = Callback::new({
+                    let record = record.clone();
+                    move |_| {
+                        solar_on_offset.set(record.config.on_offset_minutes);
+                        solar_off_offset.set(record.config.off_offset_minutes);
+                        error.set(None);
+                        notice.set(None);
+                        show_solar_editor.update(|open| *open = !*open);
+                    }
+                });
+
+                let save_solar_offsets = Callback::new({
+                    let target_mode_id = record.config.id.clone();
+                    move |_| {
+                        let target_mode_id = target_mode_id.clone();
+                        let token = auth.token_str().unwrap_or_default();
+                        let on_offset_minutes = solar_on_offset.get();
+                        let off_offset_minutes = solar_off_offset.get();
+                        busy.set(true);
+                        error.set(None);
+                        notice.set(None);
+                        spawn_local(async move {
+                            match set_device_state(
+                                &token,
+                                &target_mode_id,
+                                &json!({
+                                    "on_offset_minutes": on_offset_minutes,
+                                    "off_offset_minutes": off_offset_minutes,
+                                }),
+                            )
+                            .await
+                            {
+                                Ok(()) => {
+                                    show_solar_editor.set(false);
+                                    notice.set(Some("Solar offsets updated.".to_string()));
+                                    on_refresh.run(());
+                                }
+                                Err(err) => error.set(Some(err)),
+                            }
+                            busy.set(false);
+                        });
                     }
                 });
 
@@ -1197,6 +1400,55 @@ fn ModeCard(
                                     <p class="mode-create-help">
                                         "System-managed solar mode. Use it in automations and criteria, but do not delete it."
                                     </p>
+                                    <div class="card-controls">
+                                        <button
+                                            class="card-ctrl-btn card-ctrl-btn--secondary"
+                                            disabled=move || busy.get()
+                                            on:click=move |_| toggle_solar_editor.run(())
+                                        >
+                                            <span class="material-icons" style="font-size:18px">"schedule"</span>
+                                            {move || if show_solar_editor.get() { "Hide Offsets" } else { "Edit Offsets" }}
+                                        </button>
+                                    </div>
+
+                                    {move || show_solar_editor.get().then(|| view! {
+                                        <div class="mode-inline-editor">
+                                            <div class="mode-offset-editor">
+                                                <label class="mode-offset-field">
+                                                    <span>"On Offset Minutes"</span>
+                                                    <input
+                                                        type="number"
+                                                        prop:value=move || solar_on_offset.get().to_string()
+                                                        on:input=move |ev| {
+                                                            let next = event_target_value(&ev).parse::<i32>().unwrap_or(0);
+                                                            solar_on_offset.set(next);
+                                                        }
+                                                    />
+                                                </label>
+                                                <label class="mode-offset-field">
+                                                    <span>"Off Offset Minutes"</span>
+                                                    <input
+                                                        type="number"
+                                                        prop:value=move || solar_off_offset.get().to_string()
+                                                        on:input=move |ev| {
+                                                            let next = event_target_value(&ev).parse::<i32>().unwrap_or(0);
+                                                            solar_off_offset.set(next);
+                                                        }
+                                                    />
+                                                </label>
+                                            </div>
+                                            <div class="card-controls">
+                                                <button
+                                                    class="card-ctrl-btn card-ctrl-btn--primary"
+                                                    disabled=move || busy.get()
+                                                    on:click=move |_| save_solar_offsets.run(())
+                                                >
+                                                    <span class="material-icons" style="font-size:18px">"save"</span>
+                                                    {move || if busy.get() { "Saving…" } else { "Save Offsets" }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    })}
                                 }.into_any(),
                                 ModeFlavor::Manual => view! {
                                     <>
@@ -1256,10 +1508,10 @@ fn ModeCard(
                                             <button
                                                 class="card-ctrl-btn card-ctrl-btn--secondary"
                                                 disabled=move || busy.get()
-                                                on:click=move |_| show_add_criteria.update(|open| *open = !*open)
+                                                on:click=move |_| open_criteria_editor.run(())
                                             >
                                                 <span class="material-icons" style="font-size:18px">"rule"</span>
-                                                {move || if show_add_criteria.get() { "Hide Criteria" } else { "Add Criteria" }}
+                                                {move || if show_criteria_editor.get() { "Hide Criteria" } else { "Add Criteria" }}
                                             </button>
                                             {(!built_in).then(|| view! {
                                                 <button
@@ -1273,7 +1525,7 @@ fn ModeCard(
                                             })}
                                         </div>
 
-                                        {move || show_add_criteria.get().then(|| view! {
+                                        {move || show_criteria_editor.get().then(|| view! {
                                             <div class="mode-inline-editor">
                                                 <CriteriaBuilder
                                                     builder
@@ -1284,36 +1536,7 @@ fn ModeCard(
                                                     <button
                                                         class="card-ctrl-btn card-ctrl-btn--primary"
                                                         disabled=move || busy.get()
-                                                        on:click={
-                                                            let target_mode_id = record.config.id.clone();
-                                                            move |_| {
-                                                                let target_mode_id = target_mode_id.clone();
-                                                                let token = auth.token_str().unwrap_or_default();
-                                                                let draft = builder.get();
-                                                                let criteria = match build_criteria_config(&draft) {
-                                                                    Ok(criteria) => criteria,
-                                                                    Err(err) => {
-                                                                        error.set(Some(err));
-                                                                        return;
-                                                                    }
-                                                                };
-                                                                busy.set(true);
-                                                                error.set(None);
-                                                                notice.set(None);
-                                                                spawn_local(async move {
-                                                                    match put_mode_definition_request(&token, &target_mode_id, &criteria).await {
-                                                                        Ok(_) => {
-                                                                            builder.set(CriteriaBuilderState::default());
-                                                                            show_add_criteria.set(false);
-                                                                            notice.set(Some("Criteria installed.".to_string()));
-                                                                            on_refresh.run(());
-                                                                        }
-                                                                        Err(err) => error.set(Some(err)),
-                                                                    }
-                                                                    busy.set(false);
-                                                                });
-                                                            }
-                                                        }
+                                                        on:click=move |_| save_criteria.run(())
                                                     >
                                                         <span class="material-icons" style="font-size:18px">"auto_fix_high"</span>
                                                         {move || if busy.get() { "Saving…" } else { "Save Criteria" }}
@@ -1363,6 +1586,14 @@ fn ModeCard(
                                             <button
                                                 class="card-ctrl-btn card-ctrl-btn--secondary"
                                                 disabled=move || busy.get()
+                                                on:click=move |_| open_criteria_editor.run(())
+                                            >
+                                                <span class="material-icons" style="font-size:18px">"edit"</span>
+                                                {move || if show_criteria_editor.get() { "Hide Editor" } else { "Edit Criteria" }}
+                                            </button>
+                                            <button
+                                                class="card-ctrl-btn card-ctrl-btn--secondary"
+                                                disabled=move || busy.get()
                                                 on:click=remove_criteria
                                             >
                                                 <span class="material-icons" style="font-size:18px">"toggle_off"</span>
@@ -1379,6 +1610,26 @@ fn ModeCard(
                                                 </button>
                                             })}
                                         </div>
+
+                                        {move || show_criteria_editor.get().then(|| view! {
+                                            <div class="mode-inline-editor">
+                                                <CriteriaBuilder
+                                                    builder
+                                                    device_options=device_options
+                                                    mode_options=local_mode_options
+                                                />
+                                                <div class="card-controls">
+                                                    <button
+                                                        class="card-ctrl-btn card-ctrl-btn--primary"
+                                                        disabled=move || busy.get()
+                                                        on:click=move |_| save_criteria.run(())
+                                                    >
+                                                        <span class="material-icons" style="font-size:18px">"save"</span>
+                                                        {move || if busy.get() { "Saving…" } else { "Save Criteria" }}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        })}
                                     </>
                                 }.into_any(),
                             }}

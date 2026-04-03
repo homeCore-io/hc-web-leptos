@@ -411,145 +411,239 @@ fn DeviceCard(device_id: String) -> impl IntoView {
                 let timer_st = str_attr(d.attributes.get("state"))
                     .unwrap_or("idle").to_string();
                 let state_text = status_text(&d);
-                let media_title_str = media_title(&d).map(str::to_string);
-                let media_artist_str = media_artist(&d).map(str::to_string);
 
-                // ID clones for closures
-                let send_on    = send.clone();
-                let send_off   = send.clone();
-                let send_play  = send.clone();
-                let send_pause = send.clone();
+                if is_media {
+                    // ── Fancy Media Card ──────────────────────────────────────
+                    let title_str  = media_title(&d).map(str::to_string);
+                    let artist_str = media_artist(&d).map(str::to_string);
+                    let album_str  = media_album(&d).map(str::to_string);
+                    let img_str    = media_image_url(&d).map(str::to_string);
+                    let vol        = d.attributes.get("volume")
+                        .and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
+                    let sup_prev   = supports_action(&d, "previous");
+                    let sup_next   = supports_action(&d, "next");
 
-                view! {
-                    <div
-                        class="device-card"
-                        class:device-card--offline=!avail
-                        class:device-card--scene=is_scene
-                    >
-                        // ── Header ────────────────────────────────────────────
-                        <div class="card-header">
-                            <span class=format!("card-status-icon status-badge-sm {}", tone.css_class())>
-                                <span class="material-icons" style="font-size:18px">{icon}</span>
-                            </span>
-                            <div class="card-header-text">
-                                <p class="card-name" title=name.clone()>{name.clone()}</p>
-                                <p class="card-meta">
+                    let send_play  = send.clone();
+                    let send_pause = send.clone();
+                    let send_prev  = send.clone();
+                    let send_next  = send.clone();
+                    let send_vol   = send.clone();
+
+                    view! {
+                        <div
+                            class="device-card device-card--media"
+                            class:device-card--offline=!avail
+                        >
+                            // ── Art + now-playing overlay ─────────────────────
+                            <div class="card-media-art-wrap">
+                                {if let Some(url) = img_str {
+                                    view! {
+                                        <img src=url class="card-media-art" alt="album art" />
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <div class="card-media-art card-media-art--placeholder">
+                                            <span class="material-icons">"music_note"</span>
+                                        </div>
+                                    }.into_any()
+                                }}
+                                <div class="card-media-overlay">
+                                    <p class="card-media-overlay-title">
+                                        {title_str.unwrap_or_else(|| pb.clone())}
+                                    </p>
+                                    {artist_str.map(|a| view! {
+                                        <p class="card-media-overlay-artist">{a}</p>
+                                    })}
+                                    {album_str.map(|a| view! {
+                                        <p class="card-media-overlay-album">{a}</p>
+                                    })}
+                                </div>
+                            </div>
+
+                            // ── Device name row ───────────────────────────────
+                            <div class="card-media-name-row">
+                                <span class="card-name" title=name.clone()>{name.clone()}</span>
+                                <span
+                                    class="card-avail-dot"
+                                    class:card-avail-dot--on=avail
+                                    class:card-avail-dot--off=!avail
+                                    title=if avail { "Online" } else { "Offline" }
+                                ></span>
+                            </div>
+
+                            // ── Transport controls ────────────────────────────
+                            <div class="card-media-transport">
+                                {sup_prev.then(move || view! {
+                                    <button
+                                        class="card-media-ctrl"
+                                        disabled={move || busy.get() || !avail}
+                                        on:click=move |_| {
+                                            send_prev(serde_json::json!({"action":"previous"}));
+                                        }
+                                    >
+                                        <span class="material-icons">"skip_previous"</span>
+                                    </button>
+                                })}
+                                <button
+                                    class="card-media-ctrl card-media-ctrl--primary"
+                                    disabled={move || busy.get() || !avail}
+                                    on:click=move |_| {
+                                        if is_playing {
+                                            send_pause(serde_json::json!({"action":"pause"}));
+                                        } else {
+                                            send_play(serde_json::json!({"action":"play"}));
+                                        }
+                                    }
+                                >
+                                    <span class="material-icons">
+                                        {if is_playing { "pause" } else { "play_arrow" }}
+                                    </span>
+                                </button>
+                                {sup_next.then(move || view! {
+                                    <button
+                                        class="card-media-ctrl"
+                                        disabled={move || busy.get() || !avail}
+                                        on:click=move |_| {
+                                            send_next(serde_json::json!({"action":"next"}));
+                                        }
+                                    >
+                                        <span class="material-icons">"skip_next"</span>
+                                    </button>
+                                })}
+                            </div>
+
+                            // ── Volume row ────────────────────────────────────
+                            <div class="card-media-vol-row">
+                                <span class="material-icons card-media-vol-icon">"volume_down"</span>
+                                <input
+                                    type="range"
+                                    class="card-media-vol-slider"
+                                    min="0" max="100"
+                                    value=vol.to_string()
+                                    on:change=move |ev| {
+                                        let el = ev.target()
+                                            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok());
+                                        if let Some(el) = el {
+                                            let v: u64 = el.value().parse().unwrap_or(0);
+                                            send_vol(serde_json::json!({"action":"set_volume","volume": v}));
+                                        }
+                                    }
+                                />
+                                <span class="card-media-vol-pct">{format!("{}%", vol)}</span>
+                            </div>
+
+                            // ── Footer ────────────────────────────────────────
+                            <div class="card-footer">
+                                <span class="card-meta">
                                     {area.clone().map(|a| view! {
                                         <span>{a}</span>
                                         <span class="card-meta-sep">" · "</span>
                                     })}
                                     <span>{type_label}</span>
-                                </p>
+                                </span>
+                                <a href=detail_href.clone() class="card-detail-link">
+                                    <span class="material-icons" style="font-size:15px">"open_in_new"</span>
+                                </a>
                             </div>
-                            <span
-                                class="card-avail-dot"
-                                class:card-avail-dot--on=avail
-                                class:card-avail-dot--off=!avail
-                                title=if avail { "Online" } else { "Offline" }
-                            ></span>
                         </div>
+                    }.into_any()
 
-                        // ── Body ──────────────────────────────────────────────
-                        <div class="card-body">
-                            // Timer: live countdown + progress bar
-                            {is_timer.then(|| view! {
-                                <CardTimerCountdown device=device />
-                                <div class="card-timer-state">
-                                    <span class=format!("card-timer-badge timer-badge--{}", timer_st)>
-                                        {timer_st.clone()}
-                                    </span>
+                } else {
+                    // ── Standard Card ─────────────────────────────────────────
+                    let send_on  = send.clone();
+                    let send_off = send.clone();
+
+                    view! {
+                        <div
+                            class="device-card"
+                            class:device-card--offline=!avail
+                            class:device-card--scene=is_scene
+                        >
+                            // ── Header ────────────────────────────────────────
+                            <div class="card-header">
+                                <span class=format!("card-status-icon status-badge-sm {}", tone.css_class())>
+                                    <span class="material-icons" style="font-size:18px">{icon}</span>
+                                </span>
+                                <div class="card-header-text">
+                                    <p class="card-name" title=name.clone()>{name.clone()}</p>
+                                    <p class="card-meta">
+                                        {area.clone().map(|a| view! {
+                                            <span>{a}</span>
+                                            <span class="card-meta-sep">" · "</span>
+                                        })}
+                                        <span>{type_label}</span>
+                                    </p>
                                 </div>
-                            })}
+                                <span
+                                    class="card-avail-dot"
+                                    class:card-avail-dot--on=avail
+                                    class:card-avail-dot--off=!avail
+                                    title=if avail { "Online" } else { "Offline" }
+                                ></span>
+                            </div>
 
-                            // Media: now playing info
-                            {is_media.then(|| {
-                                let title = media_title_str.clone();
-                                let artist = media_artist_str.clone();
-                                view! {
-                                    <div class="card-media-info">
-                                        {match title {
-                                            Some(t) => view! {
-                                                <p class="card-media-title">{t}</p>
-                                                {artist.map(|a| view! {
-                                                    <p class="card-media-artist">{a}</p>
-                                                })}
-                                            }.into_any(),
-                                            None => view! {
-                                                <p class="card-media-stopped">{pb.clone()}</p>
-                                            }.into_any(),
-                                        }}
-                                    </div>
-                                }
-                            })}
-
-                            // Sensor / switch / generic state badge
-                            {(!is_timer && !is_media && !is_scene).then(|| view! {
-                                <div class="card-state-row">
-                                    <span class=format!(
-                                        "card-state-badge card-state-badge--tone-{}",
-                                        tone.css_class()
-                                    )>
-                                        {state_text.clone()}
-                                    </span>
-                                </div>
-                            })}
-
-                            // Controls
-                            <div class="card-controls">
-                                // (timer devices: no card controls — use device detail page)
-
-                                // Media controls
-                                {is_media.then(move || view! {
-                                    <button
-                                        class="card-ctrl-btn card-ctrl-btn--icon"
-                                        disabled={move || busy.get() || !avail}
-                                        on:click=move |_| {
-                                            if is_playing {
-                                                send_pause(serde_json::json!({"action":"pause"}));
-                                            } else {
-                                                send_play(serde_json::json!({"action":"play"}));
-                                            }
-                                        }
-                                    >
-                                        <span class="material-icons" style="font-size:20px">
-                                            {if is_playing { "pause" } else { "play_arrow" }}
+                            // ── Body ──────────────────────────────────────────
+                            <div class="card-body">
+                                // Timer: live countdown + progress bar
+                                {is_timer.then(|| view! {
+                                    <CardTimerCountdown device=device />
+                                    <div class="card-timer-state">
+                                        <span class=format!("card-timer-badge timer-badge--{}", timer_st)>
+                                            {timer_st.clone()}
                                         </span>
-                                    </button>
+                                    </div>
                                 })}
 
-                                // Switch/light toggle
-                                {can_toggle.then(move || view! {
-                                    <button
-                                        class="card-ctrl-btn"
-                                        class:card-ctrl-btn--on=cur_on
-                                        class:card-ctrl-btn--off=!cur_on
-                                        disabled={move || busy.get() || !avail}
-                                        on:click=move |_| {
-                                            if cur_on {
-                                                send_off(serde_json::json!({"on": false}));
-                                            } else {
-                                                send_on(serde_json::json!({"on": true}));
-                                            }
-                                        }
-                                    >
-                                        <span class="material-icons" style="font-size:18px">"power_settings_new"</span>
-                                        {if cur_on { " Turn off" } else { " Turn on" }}
-                                    </button>
+                                // Sensor / switch / generic state badge
+                                {(!is_timer && !is_scene).then(|| view! {
+                                    <div class="card-state-row">
+                                        <span class=format!(
+                                            "card-state-badge card-state-badge--tone-{}",
+                                            tone.css_class()
+                                        )>
+                                            {state_text.clone()}
+                                        </span>
+                                    </div>
                                 })}
+
+                                // Controls
+                                <div class="card-controls">
+                                    // (timer devices: no card controls — use device detail page)
+
+                                    // Switch/light toggle
+                                    {can_toggle.then(move || view! {
+                                        <button
+                                            class="card-ctrl-btn"
+                                            class:card-ctrl-btn--on=cur_on
+                                            class:card-ctrl-btn--off=!cur_on
+                                            disabled={move || busy.get() || !avail}
+                                            on:click=move |_| {
+                                                if cur_on {
+                                                    send_off(serde_json::json!({"on": false}));
+                                                } else {
+                                                    send_on(serde_json::json!({"on": true}));
+                                                }
+                                            }
+                                        >
+                                            <span class="material-icons" style="font-size:18px">"power_settings_new"</span>
+                                            {if cur_on { " Turn off" } else { " Turn on" }}
+                                        </button>
+                                    })}
+                                </div>
+                            </div>
+
+                            // ── Footer ────────────────────────────────────────
+                            <div class="card-footer">
+                                <span class="card-last-changed">
+                                    {format_abs(last.as_ref())}
+                                </span>
+                                <a href=detail_href.clone() class="card-detail-link">
+                                    <span class="material-icons" style="font-size:15px">"open_in_new"</span>
+                                </a>
                             </div>
                         </div>
-
-                        // ── Footer ────────────────────────────────────────────
-                        <div class="card-footer">
-                            <span class="card-last-changed">
-                                {format_abs(last.as_ref())}
-                            </span>
-                            <a href=detail_href.clone() class="card-detail-link">
-                                <span class="material-icons" style="font-size:15px">"open_in_new"</span>
-                            </a>
-                        </div>
-                    </div>
-                }.into_any()
+                    }.into_any()
+                }
             }}
         </div>
     }

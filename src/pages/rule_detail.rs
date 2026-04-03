@@ -457,8 +457,10 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                         </p>
                                     }.into_any()
                                 } else {
-                                    let _len = conds.len();
+                                    let total = conds.len();
                                     conds.into_iter().enumerate().map(|(i, sig)| {
+                                        let is_first = i == 0;
+                                        let is_last = i + 1 >= total;
                                         view! {
                                             <div class="json-row">
                                                 <div class="json-row-controls">
@@ -466,7 +468,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                     <button
                                                         class="hc-btn hc-btn--sm hc-btn--outline"
                                                         title="Move up"
-                                                        disabled=move || i == 0
+                                                        disabled=is_first
                                                         on:click=move |_| state.conditions.update(|l| {
                                                             if i > 0 { l.swap(i - 1, i); }
                                                         })
@@ -476,7 +478,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                     <button
                                                         class="hc-btn hc-btn--sm hc-btn--outline"
                                                         title="Move down"
-                                                        disabled=i + 1 >= len
+                                                        disabled=is_last
                                                         on:click=move |_| state.conditions.update(|l| {
                                                             if i + 1 < l.len() { l.swap(i, i + 1); }
                                                         })
@@ -522,9 +524,11 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                         <p class="msg-muted" style="font-size:0.85rem">"No actions."</p>
                                     }.into_any()
                                 } else {
-                                    let _len = acts.len();
+                                    let total = acts.len();
                                     acts.into_iter().enumerate().map(|(i, sig)| {
                                         let enabled = sig.get_untracked()["enabled"].as_bool().unwrap_or(true);
+                                        let is_first = i == 0;
+                                        let is_last = i + 1 >= total;
                                         view! {
                                             <div class="json-row" class:json-row--disabled=!enabled>
                                                 <div class="json-row-controls">
@@ -532,7 +536,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                     <button
                                                         class="hc-btn hc-btn--sm hc-btn--outline"
                                                         title="Move up"
-                                                        disabled=move || i == 0
+                                                        disabled=is_first
                                                         on:click=move |_| state.actions.update(|l| {
                                                             if i > 0 { l.swap(i - 1, i); }
                                                         })
@@ -542,7 +546,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                     <button
                                                         class="hc-btn hc-btn--sm hc-btn--outline"
                                                         title="Move down"
-                                                        disabled=i + 1 >= len
+                                                        disabled=is_last
                                                         on:click=move |_| state.actions.update(|l| {
                                                             if i + 1 < l.len() { l.swap(i, i + 1); }
                                                         })

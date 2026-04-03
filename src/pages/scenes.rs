@@ -1,6 +1,6 @@
 //! Scenes page — unified cards view for native HomeCore scenes and plugin scenes.
 
-use crate::api::{activate_scene, fetch_devices, fetch_scenes, set_device_state};
+use crate::api::{activate_scene, create_scene, fetch_devices, fetch_scene, fetch_scenes, set_device_state};
 use crate::auth::use_auth;
 use crate::models::*;
 use crate::pages::shared::{
@@ -12,6 +12,7 @@ use crate::pages::shared::{
 use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::hooks::use_navigate;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -291,6 +292,7 @@ fn SceneCard(
 ) -> impl IntoView {
     let auth = use_auth();
     let ws = use_ws();
+    let navigate = use_navigate();
     let busy = RwSignal::new(false);
     let notice = RwSignal::new(Option::<String>::None);
     let error = RwSignal::new(Option::<String>::None);
@@ -386,6 +388,40 @@ fn SceneCard(
                     });
                 };
 
+                let clone_key = card_data.key.clone();
+                let clone_name = card_data.name.clone();
+                let nav = navigate.clone();
+                let clone_scene = move |_| {
+                    let Some((source, id)) = split_key(&clone_key) else { return; };
+                    if source != SceneSource::Native { return; }
+                    let id = id.to_string();
+                    let new_name = format!("Copy of {}", clone_name.trim());
+                    let token = auth.token_str().unwrap_or_default();
+                    let nav = nav.clone();
+                    notice.set(None);
+                    error.set(None);
+                    busy.set(true);
+                    spawn_local(async move {
+                        match fetch_scene(&token, &id).await {
+                            Ok(scene) => {
+                                let states: serde_json::Map<String, serde_json::Value> =
+                                    scene.states.into_iter().collect();
+                                match create_scene(&token, &new_name, &states).await {
+                                    Ok(new_scene) => {
+                                        native_scenes.update(|m| {
+                                            m.insert(new_scene.id.clone(), new_scene.clone());
+                                        });
+                                        nav(&format!("/scenes/native/{}", new_scene.id), Default::default());
+                                    }
+                                    Err(e) => error.set(Some(e)),
+                                }
+                            }
+                            Err(e) => error.set(Some(e)),
+                        }
+                        busy.set(false);
+                    });
+                };
+
                 let source_label = match card_data.source {
                     SceneSource::Native => "HomeCore",
                     SceneSource::Plugin => "Plugin",
@@ -460,6 +496,16 @@ fn SceneCard(
                                     <span class="material-icons" style="font-size:18px">"play_arrow"</span>
                                     {move || if busy.get() { " Activating…" } else { " Activate" }}
                                 </button>
+                                {matches!(card_data.source, SceneSource::Native).then(|| view! {
+                                    <button
+                                        class="card-ctrl-btn"
+                                        disabled=move || busy.get()
+                                        on:click=clone_scene
+                                    >
+                                        <span class="material-icons" style="font-size:18px">"content_copy"</span>
+                                        " Clone"
+                                    </button>
+                                })}
                             </div>
 
                             {move || notice.get().map(|msg| view! {

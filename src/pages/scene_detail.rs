@@ -787,6 +787,31 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
         });
     };
 
+    let navigate_for_clone = navigate.clone();
+    let clone_scene = move |_| {
+        let token = auth.token_str().unwrap_or_default();
+        let clone_name = format!("Copy of {}", name.get().trim());
+        let current_rows = rows.get();
+        let states = match rows_to_states(&current_rows) {
+            Ok(s) => s,
+            Err(e) => {
+                error.set(Some(e));
+                return;
+            }
+        };
+        let nav = navigate_for_clone.clone();
+        busy.set(true);
+        error.set(None);
+        notice.set(None);
+        spawn_local(async move {
+            match create_scene(&token, &clone_name, &states).await {
+                Ok(scene) => nav(&format!("/scenes/native/{}", scene.id), Default::default()),
+                Err(e) => error.set(Some(e)),
+            }
+            busy.set(false);
+        });
+    };
+
     let scene_id_for_activate = scene_id.clone();
     let activate = move |_| {
         let Some(scene_id) = scene_id_for_activate.clone() else {
@@ -883,6 +908,11 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
                         >
                             {move || if busy.get() { "Saving…" } else { "Save" }}
                         </button>
+                        {is_existing.then(|| view! {
+                            <button class="btn-outline" disabled=move || busy.get() on:click=clone_scene>
+                                "Clone"
+                            </button>
+                        })}
                         {is_existing.then(|| view! {
                             <button class="btn-outline" disabled=move || busy.get() on:click=delete_scene_click>
                                 "Delete"

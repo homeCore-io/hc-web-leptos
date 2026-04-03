@@ -1745,19 +1745,20 @@ a.cell-link:hover { text-decoration: underline; }
 }
 .card-media-ctrl .material-icons { font-size: 20px; }
 .card-media-ctrl:hover:not(:disabled) {
-  background: var(--hc-surface-hover, #f1f5f9);
-  border-color: var(--hc-primary);
+  background: var(--hc-surface-soft);
+  border-color: var(--hc-accent);
 }
 .card-media-ctrl--primary {
   width: 2.6rem;
   height: 2.6rem;
-  background: var(--hc-primary);
-  border-color: var(--hc-primary);
+  background: var(--hc-accent);
+  border-color: var(--hc-accent);
   color: #fff;
 }
 .card-media-ctrl--primary .material-icons { font-size: 24px; }
 .card-media-ctrl--primary:hover:not(:disabled) {
-  opacity: 0.88;
+  background: #3f3f46;
+  border-color: #3f3f46;
 }
 .card-media-ctrl:disabled {
   opacity: 0.38;
@@ -1779,7 +1780,7 @@ a.cell-link:hover { text-decoration: underline; }
 .card-media-vol-slider {
   flex: 1;
   min-width: 0;
-  accent-color: var(--hc-primary);
+  accent-color: var(--hc-accent);
   height: 4px;
   cursor: pointer;
 }

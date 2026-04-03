@@ -135,6 +135,7 @@ pub fn RulesPage() -> impl IntoView {
     let search = RwSignal::new(init_search);
     let status_filter = RwSignal::new(init_status);
     let trigger_filter = RwSignal::new(init_trigger);
+    let tag_filter: RwSignal<Option<String>> = RwSignal::new(None);
 
     // Inline confirm-delete: stores the rule id being confirmed.
     let confirm_delete: RwSignal<Option<String>> = RwSignal::new(None);
@@ -142,6 +143,9 @@ pub fn RulesPage() -> impl IntoView {
     let row_busy: RwSignal<Option<String>> = RwSignal::new(None);
     // Stale-ref warnings
     let stale_refs: RwSignal<Vec<Value>> = RwSignal::new(vec![]);
+    // Bulk selection
+    let selected: RwSignal<Vec<String>> = RwSignal::new(vec![]);
+    let bulk_busy = RwSignal::new(false);
 
     // ── Initial fetch ─────────────────────────────────────────────────────────
     Effect::new(move |_| {
@@ -194,13 +198,15 @@ pub fn RulesPage() -> impl IntoView {
         let q = search.get().to_lowercase();
         let st = status_filter.get();
         let tr = trigger_filter.get();
+        let tf = tag_filter.get();
         rules
             .get()
             .into_iter()
             .filter(|r| {
                 let name = r["name"].as_str().unwrap_or("").to_lowercase();
-                let tags = rule_tags(r).join(" ").to_lowercase();
-                if !q.is_empty() && !name.contains(&q) && !tags.contains(&q) {
+                let tags = rule_tags(r);
+                let tags_lower = tags.join(" ").to_lowercase();
+                if !q.is_empty() && !name.contains(&q) && !tags_lower.contains(&q) {
                     return false;
                 }
                 match st.as_str() {
@@ -210,6 +216,11 @@ pub fn RulesPage() -> impl IntoView {
                 }
                 if tr != "all" && trigger_category(trigger_type(r)) != tr.as_str() {
                     return false;
+                }
+                if let Some(ref tag) = tf {
+                    if !tags.iter().any(|t| t == tag) {
+                        return false;
+                    }
                 }
                 true
             })
@@ -261,6 +272,89 @@ pub fn RulesPage() -> impl IntoView {
                     on:click=move |_| nav_new("/rules/new", Default::default())
                 >"+ New Rule"</button>
             </div>
+
+            // ── Active tag filter + count ────────────────────────────────────
+            <div class="rules-sub-toolbar">
+                {move || tag_filter.get().map(|tag| view! {
+                    <span class="filter-chip filter-chip--active">
+                        "tag: " {tag.clone()}
+                        <button class="tag-chip-remove" on:click=move |_| tag_filter.set(None)>"×"</button>
+                    </span>
+                })}
+                <span class="rules-count">
+                    {move || {
+                        let f = filtered.get().len();
+                        let t = rules.get().len();
+                        if f == t { format!("{t} rules") } else { format!("{f} / {t} rules") }
+                    }}
+                </span>
+            </div>
+
+            // ── Bulk action bar ───────────────────────────────────────────────
+            {move || {
+                let sel = selected.get();
+                (!sel.is_empty()).then(|| {
+                    let count = sel.len();
+                    view! {
+                        <div class="rules-bulk-bar">
+                            <span>{format!("{count} selected")}</span>
+                            <button
+                                class="hc-btn hc-btn--sm"
+                                disabled=move || bulk_busy.get()
+                                on:click=move |_| {
+                                    let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+                                    let ids = selected.get_untracked();
+                                    bulk_busy.set(true);
+                                    spawn_local(async move {
+                                        for id in &ids {
+                                            let _ = patch_rule(&token, id, &json!({"enabled": true})).await;
+                                        }
+                                        // Refresh rules list
+                                        if let Ok(mut data) = fetch_rules(&token).await {
+                                            data.sort_by(|a, b| {
+                                                let pa = a["priority"].as_i64().unwrap_or(0);
+                                                let pb = b["priority"].as_i64().unwrap_or(0);
+                                                pb.cmp(&pa).then_with(|| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")))
+                                            });
+                                            rules.set(data);
+                                        }
+                                        selected.set(vec![]);
+                                        bulk_busy.set(false);
+                                    });
+                                }
+                            >"Enable All"</button>
+                            <button
+                                class="hc-btn hc-btn--sm hc-btn--outline"
+                                disabled=move || bulk_busy.get()
+                                on:click=move |_| {
+                                    let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+                                    let ids = selected.get_untracked();
+                                    bulk_busy.set(true);
+                                    spawn_local(async move {
+                                        for id in &ids {
+                                            let _ = patch_rule(&token, id, &json!({"enabled": false})).await;
+                                        }
+                                        if let Ok(mut data) = fetch_rules(&token).await {
+                                            data.sort_by(|a, b| {
+                                                let pa = a["priority"].as_i64().unwrap_or(0);
+                                                let pb = b["priority"].as_i64().unwrap_or(0);
+                                                pb.cmp(&pa).then_with(|| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")))
+                                            });
+                                            rules.set(data);
+                                        }
+                                        selected.set(vec![]);
+                                        bulk_busy.set(false);
+                                    });
+                                }
+                            >"Disable All"</button>
+                            <button
+                                class="hc-btn hc-btn--sm hc-btn--outline"
+                                on:click=move |_| selected.set(vec![])
+                            >"Clear"</button>
+                        </div>
+                    }
+                })
+            }}
 
             // ── Page error ────────────────────────────────────────────────────
             {move || page_error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
@@ -409,14 +503,45 @@ pub fn RulesPage() -> impl IntoView {
                                     })}
 
                                     <div class="rule-row-main">
+                                        {
+                                            let id_check = id.clone();
+                                            let id_change = id.clone();
+                                            view! {
+                                                <input type="checkbox" class="rule-select-cb"
+                                                    prop:checked=move || selected.get().contains(&id_check)
+                                                    on:change=move |ev| {
+                                                        use wasm_bindgen::JsCast;
+                                                        let checked = ev.target()
+                                                            .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                                            .map(|el| el.checked())
+                                                            .unwrap_or(false);
+                                                        let id = id_change.clone();
+                                                        selected.update(|s| {
+                                                            if checked { if !s.contains(&id) { s.push(id); } }
+                                                            else { s.retain(|x| x != &id); }
+                                                        });
+                                                    }
+                                                />
+                                            }
+                                        }
                                         <span class="rule-priority">{prio}</span>
 
                                         <div class="rule-name-col">
                                             <span class="rule-name">{name}</span>
                                             {(!tags.is_empty()).then(|| view! {
                                                 <span class="rule-tags">
-                                                    {tags.into_iter().map(|t| view! {
-                                                        <span class="rule-tag">{t}</span>
+                                                    {tags.into_iter().map(|t| {
+                                                        let t2 = t.clone();
+                                                        view! {
+                                                            <button
+                                                                class="rule-tag rule-tag--clickable"
+                                                                title="Filter by this tag"
+                                                                on:click=move |ev: web_sys::MouseEvent| {
+                                                                    ev.stop_propagation();
+                                                                    tag_filter.set(Some(t2.clone()));
+                                                                }
+                                                            >{t}</button>
+                                                        }
                                                     }).collect_view()}
                                                 </span>
                                             })}

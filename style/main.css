@@ -2667,3 +2667,29 @@ a.cell-link:hover { text-decoration: underline; }
   font-size: 0.82rem; color: var(--hc-text);
 }
 .stale-refs-list code { font-size: 0.78rem; color: var(--hc-danger); }
+
+/* Rules sub-toolbar (tag filter + count) */
+.rules-sub-toolbar {
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.rules-count {
+  margin-left: auto; font-size: 0.82rem; color: var(--hc-text-muted);
+}
+.rule-tag--clickable {
+  cursor: pointer; background: none; border: 1px solid var(--hc-border);
+  border-radius: 1rem; padding: 0.1rem 0.4rem; font-size: 0.72rem;
+  color: var(--hc-text-muted);
+}
+.rule-tag--clickable:hover {
+  background: var(--hc-surface-soft); color: var(--hc-text);
+  border-color: var(--hc-border-strong);
+}
+
+/* Bulk action bar */
+.rules-bulk-bar {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.6rem; background: var(--hc-accent-soft);
+  border: 1px solid var(--hc-border); border-radius: 0.375rem;
+  font-size: 0.85rem;
+}
+.rule-select-cb { cursor: pointer; margin: 0; }

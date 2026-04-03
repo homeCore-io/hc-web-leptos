@@ -1093,11 +1093,12 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                             if let Some(el) = ev.target()
                                                                 .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
                                                             {
-                                                                let val: f64 = el.value().parse().unwrap_or(0.0);
+                                                                let val: u64 = el.value().parse().unwrap_or(0);
                                                                 let token = auth_token.get().unwrap_or_default();
                                                                 let did = id_vol.clone();
                                                                 spawn_local(async move {
-                                                                    let _ = set_device_state(&token, &did, &serde_json::json!({"volume": val})).await;
+                                                                    let _ = set_device_state(&token, &did,
+                                                                        &serde_json::json!({"action":"set_volume","volume": val})).await;
                                                                 });
                                                             }
                                                         }

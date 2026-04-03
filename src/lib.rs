@@ -3,6 +3,7 @@ mod app;
 mod auth;
 mod models;
 mod pages;
+mod ws;
 
 use wasm_bindgen::prelude::wasm_bindgen;
 

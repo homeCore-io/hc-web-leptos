@@ -1,7 +1,7 @@
 //! HomeCore API client — thin wrappers over gloo-net HTTP requests.
 
 use crate::auth::API_BASE;
-use crate::models::{Area, DeviceChange, DeviceState};
+use crate::models::{Area, DeviceState};
 use gloo_net::http::Request;
 use serde_json::Value;
 
@@ -198,32 +198,5 @@ pub async fn delete_device(token: &str, id: &str) -> Result<DeleteDeviceResponse
         .map_err(|e| e.to_string())
 }
 
-// ── WebSocket event types ─────────────────────────────────────────────────────
-//
-// Only the subset needed for live-updating the devices page.
-// The full `hc_types::Event` enum is tagged with `"type"` using
-// snake_case variant names.
-
 use crate::models::HistoryEntry;
 use serde::Deserialize;
-use std::collections::HashMap;
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum StreamEvent {
-    DeviceStateChanged {
-        device_id: String,
-        current: HashMap<String, Value>,
-        #[serde(default)]
-        change: Option<DeviceChange>,
-        #[serde(default)]
-        #[allow(dead_code)]
-        changed: Vec<String>,
-    },
-    DeviceAvailabilityChanged {
-        device_id: String,
-        available: bool,
-    },
-    #[serde(other)]
-    Other,
-}

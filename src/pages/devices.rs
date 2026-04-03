@@ -1,8 +1,16 @@
 //! Devices page — responsive list with live WebSocket updates.
+//!
+//! WS updates arrive via the shared `WsContext` (see `ws.rs`).  This page:
+//!  - Opens no WebSocket of its own.
+//!  - Seeds the shared device HashMap via the initial REST fetch.
+//!  - Derives `sorted_filtered` purely from data signals — no timer tick.
+//!  - Passes `timer_tick` only to `DeviceListRow` for the time-display cell.
+//!  - Uses `<For>` (keyed by device_id) so only changed rows re-render on WS events.
 
-use crate::api::{StreamEvent, fetch_devices, set_device_state};
-use crate::auth::{events_ws_url, use_auth};
+use crate::api::{fetch_devices, set_device_state};
+use crate::auth::use_auth;
 use crate::models::*;
+use crate::ws::{WsStatus, use_ws};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_shadcn_ui::{Button, ButtonVariant, Input};
@@ -59,90 +67,146 @@ fn ls_set(key: &str, val: &str) {
     }
 }
 
-fn load_prefs() -> (Density, bool) {
-    let raw = match ls_get(PREFS_KEY) {
-        Some(s) => s,
-        None => return (Density::Comfortable, false),
-    };
-    let value: serde_json::Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(_) => return (Density::Comfortable, false),
-    };
-    let density = if value["density"] == "compact" {
-        Density::Compact
-    } else {
-        Density::Comfortable
-    };
-    let show_media = value["show_media"].as_bool().unwrap_or(false);
-    (density, show_media)
+const PAGE_SIZES: &[usize] = &[25, 50, 100];
+
+struct Prefs {
+    density: Density,
+    show_media: bool,
+    page_size: usize,
+    search: String,
+    availability: Availability,
+    area_filter: String,
+    type_filter: String,
+    plugin_filter: String,
+    sort_by: SortKey,
+    sort_dir: SortDir,
 }
 
-fn save_prefs(density: Density, show_media: bool) {
+impl Default for Prefs {
+    fn default() -> Self {
+        Prefs {
+            density: Density::Comfortable,
+            show_media: false,
+            page_size: 25,
+            search: String::new(),
+            availability: Availability::All,
+            area_filter: "all".to_string(),
+            type_filter: "all".to_string(),
+            plugin_filter: "all".to_string(),
+            sort_by: SortKey::Name,
+            sort_dir: SortDir::Asc,
+        }
+    }
+}
+
+fn load_prefs() -> Prefs {
+    let raw = match ls_get(PREFS_KEY) {
+        Some(s) => s,
+        None => return Prefs::default(),
+    };
+    let v: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return Prefs::default(),
+    };
+    Prefs {
+        density: if v["density"] == "compact" { Density::Compact } else { Density::Comfortable },
+        show_media: v["show_media"].as_bool().unwrap_or(false),
+        page_size: v["page_size"]
+            .as_u64()
+            .map(|n| n as usize)
+            .filter(|n| PAGE_SIZES.contains(n))
+            .unwrap_or(25),
+        search: v["search"].as_str().unwrap_or("").to_string(),
+        availability: match v["availability"].as_str() {
+            Some("online") => Availability::Online,
+            Some("offline") => Availability::Offline,
+            _ => Availability::All,
+        },
+        area_filter: v["area_filter"].as_str().unwrap_or("all").to_string(),
+        type_filter: v["type_filter"].as_str().unwrap_or("all").to_string(),
+        plugin_filter: v["plugin_filter"].as_str().unwrap_or("all").to_string(),
+        sort_by: match v["sort_by"].as_str() {
+            Some("area") => SortKey::Area,
+            Some("status") => SortKey::Status,
+            Some("type") => SortKey::Type,
+            Some("last_seen") => SortKey::LastSeen,
+            _ => SortKey::Name,
+        },
+        sort_dir: if v["sort_dir"] == "desc" { SortDir::Desc } else { SortDir::Asc },
+    }
+}
+
+fn save_prefs(
+    density: Density,
+    show_media: bool,
+    page_size: usize,
+    search: &str,
+    availability: Availability,
+    area_filter: &str,
+    type_filter: &str,
+    plugin_filter: &str,
+    sort_by: SortKey,
+    sort_dir: SortDir,
+) {
     let value = serde_json::json!({
         "density": if density == Density::Compact { "compact" } else { "comfortable" },
         "show_media": show_media,
+        "page_size": page_size,
+        "search": search,
+        "availability": match availability {
+            Availability::Online => "online",
+            Availability::Offline => "offline",
+            Availability::All => "all",
+        },
+        "area_filter": area_filter,
+        "type_filter": type_filter,
+        "plugin_filter": plugin_filter,
+        "sort_by": match sort_by {
+            SortKey::Name => "name",
+            SortKey::Area => "area",
+            SortKey::Status => "status",
+            SortKey::Type => "type",
+            SortKey::LastSeen => "last_seen",
+        },
+        "sort_dir": if sort_dir == SortDir::Desc { "desc" } else { "asc" },
     });
     ls_set(PREFS_KEY, &value.to_string());
-}
-
-fn apply_command_result(devices: &mut [DeviceState], device_id: &str, intent: CommandIntent) {
-    if let Some(device) = devices.iter_mut().find(|d| d.device_id == device_id) {
-        match intent {
-            CommandIntent::Toggle(on) => {
-                device.attributes.insert("on".into(), serde_json::json!(on));
-            }
-            CommandIntent::Play => {
-                device
-                    .attributes
-                    .insert("state".into(), serde_json::json!("playing"));
-            }
-            CommandIntent::Pause => {
-                device
-                    .attributes
-                    .insert("state".into(), serde_json::json!("paused"));
-            }
-        }
-        let now = chrono::Utc::now();
-        device.last_seen = Some(now);
-        device.last_change = Some(DeviceChange {
-            changed_at: now,
-            kind: DeviceChangeKind::Homecore,
-            source: Some("api".into()),
-            actor_id: None,
-            actor_name: None,
-            correlation_id: None,
-        });
-    }
 }
 
 #[component]
 pub fn DevicesPage() -> impl IntoView {
     let auth = use_auth();
+    let ws = use_ws();
 
-    let devices: RwSignal<Vec<DeviceState>> = RwSignal::new(vec![]);
     let loading = RwSignal::new(true);
     let error = RwSignal::new(Option::<String>::None);
     let notice = RwSignal::new(Option::<String>::None);
     let busy_id = RwSignal::new(Option::<String>::None);
 
-    let search = RwSignal::new(String::new());
-    let availability = RwSignal::new(Availability::All);
-    let area_filter = RwSignal::new("all".to_string());
-    let type_filter = RwSignal::new("all".to_string());
-    let plugin_filter = RwSignal::new("all".to_string());
+    let prefs = load_prefs();
+    let search = RwSignal::new(prefs.search);
+    let availability = RwSignal::new(prefs.availability);
+    let area_filter = RwSignal::new(prefs.area_filter);
+    let type_filter = RwSignal::new(prefs.type_filter);
+    let plugin_filter = RwSignal::new(prefs.plugin_filter);
 
-    let sort_by = RwSignal::new(SortKey::Name);
-    let sort_dir = RwSignal::new(SortDir::Asc);
+    let sort_by = RwSignal::new(prefs.sort_by);
+    let sort_dir = RwSignal::new(prefs.sort_dir);
 
-    let (init_density, init_show_media) = load_prefs();
-    let density = RwSignal::new(init_density);
-    let show_media = RwSignal::new(init_show_media);
+    let density = RwSignal::new(prefs.density);
+    let show_media = RwSignal::new(prefs.show_media);
     let filter_open = RwSignal::new(false);
+    let page = RwSignal::new(0usize);
+    let page_size = RwSignal::new(prefs.page_size);
+
+    // Timer tick — used ONLY for relative timestamp display inside DeviceListRow.
+    // NOT tracked by sorted_filtered so the filter/sort memo doesn't recompute
+    // every second.
     let timer_tick = RwSignal::new(0u64);
 
     Effect::new(move |_| {
-        let callback = Closure::<dyn FnMut()>::new({
-            move || timer_tick.update(|tick| *tick += 1)
+        let callback = Closure::<dyn FnMut()>::new(move || {
+            timer_tick.update(|t| *t += 1);
         });
         let handle = web_sys::window().and_then(|window| {
             window
@@ -153,7 +217,6 @@ pub fn DevicesPage() -> impl IntoView {
                 .ok()
         });
         callback.forget();
-
         on_cleanup(move || {
             if let (Some(window), Some(handle)) = (web_sys::window(), handle) {
                 window.clear_interval_with_handle(handle);
@@ -162,105 +225,76 @@ pub fn DevicesPage() -> impl IntoView {
     });
 
     Effect::new(move |_| {
-        save_prefs(density.get(), show_media.get());
+        save_prefs(
+            density.get(),
+            show_media.get(),
+            page_size.get(),
+            &search.get(),
+            availability.get(),
+            &area_filter.get(),
+            &type_filter.get(),
+            &plugin_filter.get(),
+            sort_by.get(),
+            sort_dir.get(),
+        );
     });
 
-    let refresh = move || {
+    // Reset to page 0 whenever filters, sort order, or page size change.
+    // Skip on first run (prev is None) so the page isn't cleared at mount.
+    Effect::new(move |prev: Option<()>| {
+        let _ = (
+            search.get(), availability.get(), area_filter.get(),
+            type_filter.get(), plugin_filter.get(),
+            sort_by.get(), sort_dir.get(), page_size.get(),
+        );
+        if prev.is_some() {
+            page.set(0);
+        }
+    });
+
+    // Initial REST fetch — seeds the shared device map.
+    // WS events keep it live from here on.
+    Effect::new(move |_| {
         let token = auth.token_str().unwrap_or_default();
         loading.set(true);
         error.set(None);
         spawn_local(async move {
             match fetch_devices(&token).await {
-                Ok(list) => devices.set(list),
+                Ok(list) => {
+                    ws.devices.update(|m| {
+                        for d in list {
+                            m.insert(d.device_id.clone(), d);
+                        }
+                    });
+                }
                 Err(e) => error.set(Some(e)),
             }
             loading.set(false);
         });
-    };
-
-    Effect::new(move |_| {
-        refresh();
     });
 
-    Effect::new(move |_| {
-        let token = match auth.token_str() {
-            Some(t) => t,
-            None => return,
-        };
-
-        let url = events_ws_url(&token);
-        let ws = match web_sys::WebSocket::new(&url) {
-            Ok(ws) => ws,
-            Err(_) => return,
-        };
-
-        let on_msg =
-            Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |ev: web_sys::MessageEvent| {
-                let text = match ev.data().as_string() {
-                    Some(s) => s,
-                    None => return,
-                };
-                let event: StreamEvent = match serde_json::from_str(&text) {
-                    Ok(e) => e,
-                    Err(_) => return,
-                };
-                match event {
-                    StreamEvent::DeviceStateChanged {
-                        device_id,
-                        current,
-                        change,
-                        ..
-                    } => {
-                        devices.update(|list| {
-                            if let Some(d) = list.iter_mut().find(|d| d.device_id == device_id) {
-                                d.attributes = current;
-                                if let Some(change) = change {
-                                    d.last_seen = Some(change.changed_at);
-                                    d.last_change = Some(change);
-                                } else {
-                                    d.last_seen = Some(chrono::Utc::now());
-                                }
-                            }
-                        });
-                    }
-                    StreamEvent::DeviceAvailabilityChanged {
-                        device_id,
-                        available,
-                    } => {
-                        devices.update(|list| {
-                            if let Some(d) = list.iter_mut().find(|d| d.device_id == device_id) {
-                                d.available = available;
-                            }
-                        });
-                    }
-                    StreamEvent::Other => {}
-                }
-            });
-        ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
-        on_msg.forget();
-
-        on_cleanup(move || {
-            let _ = ws.close();
-        });
-    });
+    // ── Derived filter option lists ───────────────────────────────────────────
+    // These read ws.devices and recompute whenever the device map changes.
 
     let area_options: Memo<Vec<String>> = Memo::new(move |_| {
-        let mut areas: Vec<String> = devices
+        let mut areas: Vec<String> = ws
+            .devices
             .get()
-            .iter()
+            .values()
             .filter(|d| !is_scene_like(d))
             .filter_map(|d| d.area.clone())
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
-        areas.sort_by_key(|area| display_area_name(area));
+        areas.sort_by_key(|a| display_area_name(a));
         areas
     });
 
     let type_options: Memo<Vec<String>> = Memo::new(move |_| {
-        let mut types: Vec<String> = devices
+        let mut types: Vec<String> = ws
+            .devices
             .get()
-            .iter()
+            .values()
             .filter(|d| !is_scene_like(d))
             .map(presentation_device_type_label)
             .map(str::to_string)
@@ -272,9 +306,10 @@ pub fn DevicesPage() -> impl IntoView {
     });
 
     let plugin_options: Memo<Vec<String>> = Memo::new(move |_| {
-        let mut plugins: Vec<String> = devices
+        let mut plugins: Vec<String> = ws
+            .devices
             .get()
-            .iter()
+            .values()
             .filter(|d| !is_scene_like(d))
             .map(|d| d.plugin_id.clone())
             .collect::<HashSet<_>>()
@@ -306,9 +341,10 @@ pub fn DevicesPage() -> impl IntoView {
         summary
     });
 
+    // sorted_filtered does NOT subscribe to timer_tick — recomputes only when
+    // the device map or filter/sort signals change.
     let sorted_filtered: Memo<Vec<DeviceState>> = Memo::new(move |_| {
-        let _ = timer_tick.get();
-        let all = devices.get();
+        let all = ws.devices.get();
         let q = search.get().trim().to_lowercase();
         let avail = availability.get();
         let area = area_filter.get();
@@ -318,7 +354,7 @@ pub fn DevicesPage() -> impl IntoView {
         let sd = sort_dir.get();
 
         let mut result: Vec<DeviceState> = all
-            .into_iter()
+            .into_values()
             .filter(|d| !is_scene_like(d))
             .filter(|d| match avail {
                 Availability::All => true,
@@ -375,6 +411,30 @@ pub fn DevicesPage() -> impl IntoView {
         result
     });
 
+    // ── Pagination ────────────────────────────────────────────────────────────
+
+    let total_filtered: Signal<usize> =
+        Signal::derive(move || sorted_filtered.get().len());
+
+    let total_pages: Memo<usize> = Memo::new(move |_| {
+        let n = total_filtered.get();
+        let s = page_size.get();
+        if n == 0 { 1 } else { n.div_ceil(s) }
+    });
+
+    // Clamp page index so stale values don't produce an empty view after
+    // filters narrow the result set.
+    let page_clamped: Memo<usize> = Memo::new(move |_| {
+        page.get().min(total_pages.get().saturating_sub(1))
+    });
+
+    let paged_devices: Memo<Vec<DeviceState>> = Memo::new(move |_| {
+        let all = sorted_filtered.get();
+        let p = page_clamped.get();
+        let s = page_size.get();
+        all.into_iter().skip(p * s).take(s).collect()
+    });
+
     view! {
         <div class="page">
             <div class="heading">
@@ -383,6 +443,19 @@ pub fn DevicesPage() -> impl IntoView {
                     <p>"Responsive inventory list with filters, live updates, and inline controls."</p>
                 </div>
             </div>
+
+            // WS status banner
+            {move || {
+                let status = ws.status.get();
+                (status != WsStatus::Live).then(|| {
+                    let msg = match status {
+                        WsStatus::Connecting => "Connecting to live updates…",
+                        WsStatus::Disconnected => "Live updates lost — reconnecting…",
+                        WsStatus::Live => unreachable!(),
+                    };
+                    view! { <p class="msg-warning">{msg}</p> }
+                })
+            }}
 
             <DeviceFiltersPanel
                 search=search
@@ -406,16 +479,21 @@ pub fn DevicesPage() -> impl IntoView {
             {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
 
             <DevicesListSection
-                devices=sorted_filtered
+                devices=paged_devices
                 loading=loading
-                has_source_devices=Signal::derive(move || !devices.get().is_empty())
+                has_source_devices=Signal::derive(move || !ws.devices.get().is_empty())
                 density=density
                 show_media=show_media
+                timer_tick=timer_tick
                 busy_id=busy_id
                 error=error
                 notice=notice
-                all_devices=devices
                 auth_token=auth.token
+                page=page
+                page_clamped=page_clamped
+                page_size=page_size
+                total_pages=total_pages
+                total_filtered=total_filtered
             />
         </div>
     }
@@ -634,27 +712,36 @@ fn DevicesListSection(
     has_source_devices: Signal<bool>,
     density: RwSignal<Density>,
     show_media: RwSignal<bool>,
+    timer_tick: RwSignal<u64>,
     busy_id: RwSignal<Option<String>>,
     error: RwSignal<Option<String>>,
     notice: RwSignal<Option<String>>,
-    all_devices: RwSignal<Vec<DeviceState>>,
     auth_token: RwSignal<Option<String>>,
+    page: RwSignal<usize>,
+    page_clamped: Memo<usize>,
+    page_size: RwSignal<usize>,
+    total_pages: Memo<usize>,
+    total_filtered: Signal<usize>,
 ) -> impl IntoView {
     view! {
         <div class="device-list panel" class:compact=move || density.get() == Density::Compact>
             {move || {
-                let filtered = devices.get();
-                let count = filtered.len();
                 let is_loading = loading.get();
-
                 if is_loading && !has_source_devices.get() {
                     return view! { <p class="device-list-empty">"Loading devices…"</p> }.into_any();
                 }
-                if count == 0 {
+                if total_filtered.get() == 0 {
                     return view! { <p class="device-list-empty">"No devices match the current filters."</p> }.into_any();
                 }
 
                 view! {
+                    <Pagination
+                        page=page
+                        page_clamped=page_clamped
+                        page_size=page_size
+                        total_pages=total_pages
+                        total_filtered=total_filtered
+                    />
                     <div class="device-list-header">
                         <span>"Device"</span>
                         <span>"State"</span>
@@ -662,28 +749,92 @@ fn DevicesListSection(
                         <span class="device-list-header-action">"Action"</span>
                     </div>
                     <div class="device-list-body">
-                        {move || {
-                            devices
-                                .get()
-                                .into_iter()
-                                .map(|device| {
-                                    view! {
-                                        <DeviceListRow
-                                            device=device
-                                            show_media=show_media
-                                            busy_id=busy_id
-                                            error=error
-                                            notice=notice
-                                            devices=all_devices
-                                            auth_token=auth_token
-                                        />
-                                    }
-                                })
-                                .collect_view()
-                        }}
+                        // Keyed list: only rows whose device data changed are re-rendered.
+                        <For
+                            each=move || devices.get()
+                            key=|d| d.device_id.clone()
+                            children=move |device| view! {
+                                <DeviceListRow
+                                    device=device
+                                    show_media=show_media
+                                    timer_tick=timer_tick
+                                    busy_id=busy_id
+                                    error=error
+                                    notice=notice
+                                    auth_token=auth_token
+                                />
+                            }
+                        />
                     </div>
+                    <Pagination
+                        page=page
+                        page_clamped=page_clamped
+                        page_size=page_size
+                        total_pages=total_pages
+                        total_filtered=total_filtered
+                    />
                 }.into_any()
             }}
+        </div>
+    }
+}
+
+#[component]
+fn Pagination(
+    page: RwSignal<usize>,
+    page_clamped: Memo<usize>,
+    page_size: RwSignal<usize>,
+    total_pages: Memo<usize>,
+    total_filtered: Signal<usize>,
+) -> impl IntoView {
+    view! {
+        <div class="pagination">
+            <span class="pagination-info">
+                {move || {
+                    let p = page_clamped.get();
+                    let s = page_size.get();
+                    let total = total_filtered.get();
+                    if total == 0 {
+                        "No results".to_string()
+                    } else {
+                        let start = p * s + 1;
+                        let end = ((p + 1) * s).min(total);
+                        format!("{start}–{end} of {total}")
+                    }
+                }}
+            </span>
+            <div class="pagination-controls">
+                <select
+                    on:change=move |ev| {
+                        if let Ok(v) = event_target_value(&ev).parse::<usize>() {
+                            page_size.set(v);
+                        }
+                    }
+                >
+                    {PAGE_SIZES.iter().map(|&s| view! {
+                        <option value=s.to_string() selected=move || page_size.get() == s>
+                            {format!("{s} / page")}
+                        </option>
+                    }).collect_view()}
+                </select>
+                <button
+                    class="pag-btn"
+                    disabled={move || page_clamped.get() == 0}
+                    on:click=move |_| { let cur = page.get(); page.set(cur.saturating_sub(1)); }
+                >
+                    "‹ Prev"
+                </button>
+                <span class="pag-pages">
+                    {move || format!("{} / {}", page_clamped.get() + 1, total_pages.get())}
+                </span>
+                <button
+                    class="pag-btn"
+                    disabled={move || page_clamped.get() + 1 >= total_pages.get()}
+                    on:click=move |_| { let cur = page.get(); page.set(cur + 1); }
+                >
+                    "Next ›"
+                </button>
+            </div>
         </div>
     }
 }
@@ -692,38 +843,24 @@ fn DevicesListSection(
 fn DeviceListRow(
     device: DeviceState,
     show_media: RwSignal<bool>,
+    /// Shared 1-second tick — used ONLY for relative-time display.
+    /// Does NOT cause the rest of the row to re-render.
+    timer_tick: RwSignal<u64>,
     busy_id: RwSignal<Option<String>>,
     error: RwSignal<Option<String>>,
     notice: RwSignal<Option<String>>,
-    devices: RwSignal<Vec<DeviceState>>,
     auth_token: RwSignal<Option<String>>,
 ) -> impl IntoView {
-    let on_cmd =
-        move |did: String, body: serde_json::Value, label: String, intent: CommandIntent| {
-            let token = auth_token.get().unwrap_or_default();
-            busy_id.set(Some(did.clone()));
-            error.set(None);
-            notice.set(None);
-            spawn_local(async move {
-                match set_device_state(&token, &did, &body).await {
-                    Ok(_) => {
-                        devices.update(|list| apply_command_result(list, &did, intent));
-                        notice.set(Some(format!("{label} sent")));
-                    }
-                    Err(e) => error.set(Some(e)),
-                }
-                busy_id.set(None);
-            });
-        };
+    let ws = use_ws();
 
+    // Capture the data we need from `device` at creation time.
+    // The <For> parent re-creates this row whenever the device's data changes,
+    // so these values are always fresh.
     let id = device.device_id.clone();
     let name = display_name(&device).to_string();
     let tone = status_tone(&device);
     let icon = status_icon_name(&device);
     let status = status_text(&device);
-    let rel_time = format_relative(last_change_time(&device));
-    let abs_time = format_abs(last_change_time(&device));
-    let change_text = change_summary(&device);
     let available = device.available;
     let area = display_area_value(device.area.as_deref());
     let device_type = presentation_device_type_label(&device).to_string();
@@ -733,6 +870,61 @@ fn DeviceListRow(
     } else {
         None
     };
+    // Copy the timestamp out of the reference before `device` is moved into
+    // DevicePrimaryAction.  The reactive closure captures the owned Copy value.
+    let change_time: Option<chrono::DateTime<chrono::Utc>> =
+        last_change_time(&device).copied();
+    let change_text = change_summary(&device);
+    let abs_time = format_abs(change_time.as_ref());
+
+    let on_cmd =
+        move |did: String, body: serde_json::Value, label: String, intent: CommandIntent| {
+            let token = auth_token.get().unwrap_or_default();
+            busy_id.set(Some(did.clone()));
+            error.set(None);
+            notice.set(None);
+            spawn_local(async move {
+                match set_device_state(&token, &did, &body).await {
+                    Ok(_) => {
+                        // Optimistic patch — update shared device map directly.
+                        ws.devices.update(|m| {
+                            if let Some(d) = m.get_mut(&did) {
+                                match intent {
+                                    CommandIntent::Toggle(on) => {
+                                        d.attributes.insert("on".into(), serde_json::json!(on));
+                                    }
+                                    CommandIntent::Play => {
+                                        d.attributes.insert(
+                                            "state".into(),
+                                            serde_json::json!("playing"),
+                                        );
+                                    }
+                                    CommandIntent::Pause => {
+                                        d.attributes.insert(
+                                            "state".into(),
+                                            serde_json::json!("paused"),
+                                        );
+                                    }
+                                }
+                                let now = chrono::Utc::now();
+                                d.last_seen = Some(now);
+                                d.last_change = Some(DeviceChange {
+                                    changed_at: now,
+                                    kind: DeviceChangeKind::Homecore,
+                                    source: Some("api".into()),
+                                    actor_id: None,
+                                    actor_name: None,
+                                    correlation_id: None,
+                                });
+                            }
+                        });
+                        notice.set(Some(format!("{label} sent")));
+                    }
+                    Err(e) => error.set(Some(e)),
+                }
+                busy_id.set(None);
+            });
+        };
 
     let on_row_click = {
         let id = id.clone();
@@ -791,7 +983,8 @@ fn DeviceListRow(
             <div class="device-row-seen">
                 <span class="device-row-label">"Last changed"</span>
                 <div class="cell-primary">
-                    <span>{rel_time.clone()}</span>
+                    // Reactive relative time — only this span re-renders on each tick.
+                    <span>{move || { let _ = timer_tick.get(); format_relative(change_time.as_ref()) }}</span>
                     <span class="cell-subtle">{change_text.clone()}</span>
                     <span class="cell-subtle">{abs_time.clone()}</span>
                 </div>

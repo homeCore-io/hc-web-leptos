@@ -397,9 +397,6 @@ pub fn AreasPage() -> impl IntoView {
                                                     let selected_device_id = device_id.clone();
                                                     let toggled_device_id = device_id.clone();
                                                     let name = display_name(&device).to_string();
-                                                    let type_label = presentation_device_type_label(&device).to_string();
-                                                    let plugin = device.plugin_id.clone();
-                                                    let current_area = display_area_value(device.area.as_deref());
                                                     view! {
                                                         <button
                                                             class="area-device-row transfer-row"
@@ -415,12 +412,7 @@ pub fn AreasPage() -> impl IntoView {
                                                                 });
                                                             }
                                                         >
-                                                            <div class="area-device-copy">
-                                                                <span class="area-device-name">{name}</span>
-                                                                <span class="cell-subtle">
-                                                                    {format!("{} · {} · {}", current_area, type_label, plugin)}
-                                                                </span>
-                                                            </div>
+                                                            <span class="area-device-name">{name}</span>
                                                         </button>
                                                     }
                                                 }
@@ -478,8 +470,6 @@ pub fn AreasPage() -> impl IntoView {
                                                     let selected_device_id = device_id.clone();
                                                     let toggled_device_id = device_id.clone();
                                                     let name = display_name(&device).to_string();
-                                                    let type_label = presentation_device_type_label(&device).to_string();
-                                                    let plugin = device.plugin_id.clone();
                                                     view! {
                                                         <button
                                                             class="area-device-row transfer-row"
@@ -495,12 +485,7 @@ pub fn AreasPage() -> impl IntoView {
                                                                 });
                                                             }
                                                         >
-                                                            <div class="area-device-copy">
-                                                                <span class="area-device-name">{name}</span>
-                                                                <span class="cell-subtle">
-                                                                    {format!("{} · {}", type_label, plugin)}
-                                                                </span>
-                                                            </div>
+                                                            <span class="area-device-name">{name}</span>
                                                         </button>
                                                     }
                                                 }

@@ -3,8 +3,12 @@
 
 use crate::auth::{AuthState, use_auth};
 use crate::pages::{
-    areas::AreasPage, device_detail::DeviceDetailPage, devices::DevicesPage, login::LoginPage,
+    areas::AreasPage,
+    device_cards::DeviceCardsPage,
+    device_detail::DeviceDetailPage,
+    login::LoginPage,
 };
+use crate::ws::{WsContext, mount_ws};
 use leptos::prelude::*;
 use leptos_router::{
     components::{Route, Router, Routes},
@@ -28,7 +32,7 @@ pub fn App() -> impl IntoView {
                     <AuthGuard><AreasPage /></AuthGuard>
                 }/>
                 <Route path=path!("/devices") view=move || view! {
-                    <AuthGuard><DevicesPage /></AuthGuard>
+                    <AuthGuard><DeviceCardsPage /></AuthGuard>
                 }/>
                 <Route path=path!("/devices/:id") view=move || view! {
                     <AuthGuard><DeviceDetailPage /></AuthGuard>
@@ -74,6 +78,12 @@ fn AuthGuard(children: Children) -> impl IntoView {
 #[component]
 fn NavShell(children: Children) -> impl IntoView {
     let auth = use_auth();
+
+    // Provide the shared WS context for all child pages.
+    let ws_ctx = WsContext::new();
+    provide_context(ws_ctx);
+    mount_ws(ws_ctx, auth.token);
+
     let location = use_location();
 
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
@@ -100,7 +110,7 @@ fn NavShell(children: Children) -> impl IntoView {
                 </div>
                 <nav>
                     <a href="/devices" class=active("/devices")>
-                        <span class="material-icons" style="font-size:18px">"devices"</span>
+                        <span class="material-icons" style="font-size:18px">"dashboard"</span>
                         "Devices"
                     </a>
                     <a href="/areas" class=active("/areas")>

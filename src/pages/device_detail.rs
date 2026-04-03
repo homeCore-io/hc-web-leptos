@@ -1,10 +1,11 @@
 //! Device detail page — `/devices/:id`
 
 use crate::api::{
-    StreamEvent, delete_device as delete_device_request, fetch_areas, fetch_device,
-    fetch_device_history, set_device_state, update_device_meta,
+    delete_device as delete_device_request, fetch_areas, fetch_device, fetch_device_history,
+    set_device_state, update_device_meta,
 };
-use crate::auth::{events_ws_url, use_auth};
+use crate::auth::use_auth;
+use crate::ws::{WsStatus, use_ws};
 use crate::models::*;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -12,6 +13,110 @@ use leptos_router::hooks::use_params_map;
 use leptos_shadcn_ui::{Button, ButtonVariant, Input};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
+
+// ── TimerDisplay component ────────────────────────────────────────────────────
+//
+// Owns its own 1-second tick signal so only the countdown text node and
+// progress bar re-render every second.  The rest of the page (edit form,
+// controls, attributes table) is completely unaffected.
+#[component]
+fn TimerDisplay(
+    /// Shared device signal — same one the rest of the page reads.
+    device: RwSignal<Option<DeviceState>>,
+) -> impl IntoView {
+    // Private tick — never read outside this component.
+    let tick = RwSignal::new(0u64);
+
+    // Set up the 1-second interval once on mount; clean up on unmount.
+    Effect::new(move |_| {
+        let callback = Closure::<dyn FnMut()>::new(move || {
+            tick.update(|t| *t += 1);
+        });
+        let handle = web_sys::window().and_then(|w| {
+            w.set_interval_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                1000,
+            )
+            .ok()
+        });
+        callback.forget();
+        on_cleanup(move || {
+            if let (Some(w), Some(h)) = (web_sys::window(), handle) {
+                w.clear_interval_with_handle(h);
+            }
+        });
+    });
+
+    // Remaining seconds — recomputes on every tick AND on every WS update.
+    // timer_remaining_secs() derives the value from started_at + duration - now(),
+    // so it's always accurate without needing a separate server push.
+    let remaining: Memo<Option<u64>> = Memo::new(move |_| {
+        let _ = tick.get(); // subscribe to tick
+        device.get().as_ref().and_then(|d| timer_remaining_secs(d))
+    });
+
+    // Duration (static unless config changes — no need to tick).
+    let dur: Memo<u64> = Memo::new(move |_| {
+        device
+            .get()
+            .as_ref()
+            .and_then(|d| {
+                d.attributes
+                    .get("duration_secs")
+                    .and_then(|v| v.as_u64())
+                    .or_else(|| {
+                        d.attributes
+                            .get("duration_ms")
+                            .and_then(|v| v.as_u64())
+                            .map(|ms| ms / 1000)
+                    })
+            })
+            .unwrap_or(0)
+    });
+
+    // Progress percentage — updates every tick while running.
+    let pct: Signal<u32> = Signal::derive(move || {
+        let d = dur.get();
+        let r = remaining.get().unwrap_or(0);
+        if d == 0 {
+            0u32
+        } else {
+            ((d.saturating_sub(r)) as f64 / d as f64 * 100.0).min(100.0) as u32
+        }
+    });
+
+    // Show the countdown only when the timer is running or paused.
+    // This Memo does NOT subscribe to tick — it only reacts to device state changes.
+    let is_active: Memo<bool> = Memo::new(move |_| {
+        device
+            .get()
+            .as_ref()
+            .and_then(|d| str_attr(d.attributes.get("state")))
+            .map(|s| s == "running" || s == "paused")
+            .unwrap_or(false)
+    });
+
+    view! {
+        {move || is_active.get().then(|| view! {
+            // Only this span re-renders every second — nothing else on the page.
+            <span class="timer-remaining">
+                {move || {
+                    remaining
+                        .get()
+                        .map(|r| format!("{} remaining", format_duration_secs(r)))
+                        .unwrap_or_default()
+                }}
+            </span>
+            // Progress bar width also updates every second via pct.
+            <div class="timer-progress-track">
+                <div
+                    class="timer-progress-fill"
+                    style=move || format!("width:{}%", pct.get())
+                ></div>
+            </div>
+        })}
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HistorySortKey {
@@ -64,7 +169,6 @@ pub fn DeviceDetailPage() -> impl IntoView {
     let timer_secs = RwSignal::new("60".to_string());
     let selected_favorite = RwSignal::new(String::new());
     let selected_playlist = RwSignal::new(String::new());
-    let timer_tick = RwSignal::new(0u64);
     let history_sort_by = RwSignal::new(HistorySortKey::Time);
     let history_sort_dir = RwSignal::new(HistorySortDir::Desc);
 
@@ -75,27 +179,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
     let save_trigger = RwSignal::new(0u32);
 
     let auth_token = auth.token; // RwSignal<Option<String>> — Copy
-
-    Effect::new(move |_| {
-        let callback = Closure::<dyn FnMut()>::new({
-            move || timer_tick.update(|tick| *tick += 1)
-        });
-        let handle = web_sys::window().and_then(|window| {
-            window
-                .set_interval_with_callback_and_timeout_and_arguments_0(
-                    callback.as_ref().unchecked_ref(),
-                    1000,
-                )
-                .ok()
-        });
-        callback.forget();
-
-        on_cleanup(move || {
-            if let (Some(window), Some(handle)) = (web_sys::window(), handle) {
-                window.clear_interval_with_handle(handle);
-            }
-        });
-    });
+    let ws = use_ws();
 
     Effect::new(move |_| {
         let Some(d) = device.get() else { return };
@@ -131,6 +215,8 @@ pub fn DeviceDetailPage() -> impl IntoView {
     });
 
     // ── Device fetch ──────────────────────────────────────────────────────────
+    // Also seeds the shared WsContext map so subsequent WS events update this
+    // device even if the devices list page was never visited.
     let did1 = device_id.clone();
     Effect::new(move |_| {
         let _ = refresh_trigger.get();
@@ -141,6 +227,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
         spawn_local(async move {
             match fetch_device(&token, &id).await {
                 Ok(d) => {
+                    ws.devices.update(|m| { m.insert(d.device_id.clone(), d.clone()); });
                     if device.get_untracked().is_none() || !show_edit.get_untracked() {
                         sync_edit_fields(&d, edit_name, edit_area, edit_canonical, edit_icon);
                     }
@@ -149,6 +236,22 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 Err(e) => error.set(Some(format!("Failed to load device: {e}"))),
             }
             loading.set(false);
+        });
+    });
+
+    // ── Live updates from shared WsContext ────────────────────────────────────
+    // Replaces the per-page WebSocket.  Reacts whenever WsContext.devices
+    // changes for this device_id.  Does not touch edit fields while editing.
+    let did_live = device_id.clone();
+    Effect::new(move |_| {
+        let Some(d) = ws.devices.get().get(&did_live).cloned() else { return };
+        device.update(|existing| {
+            if let Some(existing) = existing {
+                existing.attributes = d.attributes.clone();
+                existing.available = d.available;
+                existing.last_seen = d.last_seen;
+                existing.last_change = d.last_change.clone();
+            }
         });
     });
 
@@ -236,68 +339,6 @@ pub fn DeviceDetailPage() -> impl IntoView {
         entries
     });
 
-    // ── WebSocket live updates ────────────────────────────────────────────────
-    let did_ws = device_id.clone();
-    Effect::new(move |_| {
-        let token = match auth_token.get() {
-            Some(t) => t,
-            None => return,
-        };
-        let url = events_ws_url(&token);
-        let ws = match web_sys::WebSocket::new(&url) {
-            Ok(ws) => ws,
-            Err(_) => return,
-        };
-        let id_ws = did_ws.clone();
-        let cb =
-            Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |ev: web_sys::MessageEvent| {
-                let text = match ev.data().as_string() {
-                    Some(s) => s,
-                    None => return,
-                };
-                let event: StreamEvent = match serde_json::from_str(&text) {
-                    Ok(e) => e,
-                    Err(_) => return,
-                };
-                match event {
-                    StreamEvent::DeviceStateChanged {
-                        device_id: eid,
-                        current,
-                        change,
-                        ..
-                    } if eid == id_ws => {
-                        device.update(|d| {
-                            if let Some(d) = d {
-                                d.attributes = current;
-                                if let Some(change) = change {
-                                    d.last_seen = Some(change.changed_at);
-                                    d.last_change = Some(change);
-                                } else {
-                                    d.last_seen = Some(chrono::Utc::now());
-                                }
-                            }
-                        });
-                        hist_trigger.update(|n| *n += 1);
-                    }
-                    StreamEvent::DeviceAvailabilityChanged {
-                        device_id: eid,
-                        available,
-                    } if eid == id_ws => {
-                        device.update(|d| {
-                            if let Some(d) = d {
-                                d.available = available;
-                            }
-                        });
-                    }
-                    _ => {}
-                }
-            });
-        ws.set_onmessage(Some(cb.as_ref().unchecked_ref()));
-        cb.forget();
-        on_cleanup(move || {
-            let _ = ws.close();
-        });
-    });
 
     // ── View ──────────────────────────────────────────────────────────────────
     view! {
@@ -351,12 +392,22 @@ pub fn DeviceDetailPage() -> impl IntoView {
             })}
 
             // Feedback
+            {move || {
+                let status = ws.status.get();
+                (status != WsStatus::Live).then(|| {
+                    let msg = match status {
+                        WsStatus::Connecting => "Connecting to live updates…",
+                        WsStatus::Disconnected => "Live updates lost — reconnecting…",
+                        WsStatus::Live => unreachable!(),
+                    };
+                    view! { <p class="msg-warning">{msg}</p> }
+                })
+            }}
             {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
             {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
 
             // Main content
             {move || device.get().map(|d| {
-                let _ = timer_tick.get();
                 let id = d.device_id.clone();
                 let is_timer  = d.plugin_id.starts_with("core.timer");
                 let is_switch = d.plugin_id.starts_with("core.switch");
@@ -381,10 +432,6 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let cur_vol   = d.attributes.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let cur_lock  = bool_attr(d.attributes.get("locked")).unwrap_or(false);
                 let timer_state  = str_attr(d.attributes.get("state")).unwrap_or("idle").to_string();
-                let timer_rem    = timer_remaining_secs(&d).unwrap_or(0);
-                let timer_dur    = d.attributes.get("duration_secs").and_then(|v| v.as_u64())
-                    .or_else(|| d.attributes.get("duration_ms").and_then(|v| v.as_u64()).map(|ms| ms / 1000))
-                    .unwrap_or(0);
                 let pb_state     = playback_state(&d);
                 let media_title_text = media_title(&d).map(str::to_string);
                 let media_artist_text = media_artist(&d).map(str::to_string);
@@ -415,12 +462,6 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 }).collect();
                 attr_pairs.sort_by(|a, b| a.0.cmp(&b.0));
 
-                let is_running = timer_state == "running";
-                let is_paused  = timer_state == "paused";
-                let is_idle    = !is_running && !is_paused;
-                let pct = if timer_dur > 0 {
-                    ((timer_dur.saturating_sub(timer_rem)) as f64 / timer_dur as f64 * 100.0).min(100.0) as u32
-                } else { 0 };
                 let no_controls = !has_on && !is_switch && !has_bri && !has_ct
                     && !has_lock && !is_media && !is_timer;
 
@@ -448,7 +489,6 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let id_tpaus = id.clone();
                 let id_tcanc = id.clone();
                 let id_tresu = id.clone();
-                let id_tcanc2= id.clone();
                 let id_start = id.clone();
                 let ts_label = timer_state.clone();
                 let delete_confirm_label = d.device_id.clone();
@@ -799,7 +839,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                     busy.set(false);
                                                 });
                                             }>
-                                            <span class="material-icons" style="font-size:16px;vertical-align:middle">"lock_open_right"</span>" Unlock"
+                                            <span class="material-icons" style="font-size:16px;vertical-align:middle">"lock_open"</span>" Unlock"
                                         </button>
                                     </div>
                                 </div>
@@ -1229,82 +1269,86 @@ pub fn DeviceDetailPage() -> impl IntoView {
                             // Timer controls
                             {is_timer.then(|| view! {
                                 <div class="control-section">
+                                    // Status + live countdown (reactive — TimerDisplay owns its tick)
                                     <div class="timer-status">
                                         <span class="timer-state-label">{ts_label.clone()}</span>
-                                        {(is_running || is_paused).then(|| view! {
-                                            <span class="timer-remaining">
-                                                {format_duration_secs(timer_rem)}" remaining"
-                                            </span>
-                                        })}
+                                        <TimerDisplay device=device />
                                     </div>
-                                    {(is_running || is_paused).then(|| view! {
-                                        <div class="timer-progress-track">
-                                            <div class="timer-progress-fill" style=format!("width:{}%", pct)></div>
-                                        </div>
-                                    })}
-                                    {is_running.then(|| view! {
-                                        <div class="btn-group">
+
+                                    // Pause / Resume — reactive closure so it updates when WS changes state
+                                    <div class="btn-group">
+                                        {move || {
+                                            let state = str_attr(device.get().as_ref()
+                                                .and_then(|d| d.attributes.get("state")))
+                                                .unwrap_or("idle")
+                                                .to_string();
+                                            if state == "running" {
+                                                // Clone per-run so the reactive closure stays FnMut
+                                                let did_pause = id_tpaus.clone();
+                                                view! {
+                                                    <button disabled=move || busy.get()
+                                                        on:click=move |_| {
+                                                            let token = auth_token.get().unwrap_or_default();
+                                                            let did = did_pause.clone();
+                                                            spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"command":"pause"})).await; });
+                                                        }>
+                                                        <span class="material-icons">"pause"</span>" Pause"
+                                                    </button>
+                                                }.into_any()
+                                            } else if state == "paused" {
+                                                let did_resume = id_tresu.clone();
+                                                view! {
+                                                    <button disabled=move || busy.get()
+                                                        on:click=move |_| {
+                                                            let token = auth_token.get().unwrap_or_default();
+                                                            let did = did_resume.clone();
+                                                            spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"command":"resume"})).await; });
+                                                        }>
+                                                        <span class="material-icons">"play_arrow"</span>" Resume"
+                                                    </button>
+                                                }.into_any()
+                                            } else {
+                                                view! { <span></span> }.into_any()
+                                            }
+                                        }}
+
+                                        // Cancel — always visible; valid from any timer state
+                                        <button class="danger" disabled=move || busy.get()
+                                            on:click=move |_| {
+                                                let token = auth_token.get().unwrap_or_default();
+                                                let did = id_tcanc.clone();
+                                                spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"command":"cancel"})).await; });
+                                            }>
+                                            <span class="material-icons">"cancel"</span>" Cancel"
+                                        </button>
+                                    </div>
+
+                                    // Duration input + Start — always visible
+                                    <div class="control-row">
+                                        <span class="control-label">"Duration (seconds)"</span>
+                                        <div class="timer-start-row">
+                                            <Input
+                                                value=Signal::derive(move || timer_secs.get())
+                                                on_change=Callback::new(move |value| timer_secs.set(value))
+                                                input_type="number"
+                                                placeholder="60"
+                                            />
                                             <button disabled=move || busy.get()
                                                 on:click=move |_| {
+                                                    let secs: u64 = timer_secs.get().trim().parse().unwrap_or(60);
                                                     let token = auth_token.get().unwrap_or_default();
-                                                    let did = id_tpaus.clone();
-                                                    spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"command":"pause"})).await; });
+                                                    let did = id_start.clone();
+                                                    busy.set(true); error.set(None);
+                                                    spawn_local(async move {
+                                                        let _ = set_device_state(&token, &did,
+                                                            &serde_json::json!({"command":"start","duration_secs": secs})).await;
+                                                        busy.set(false);
+                                                    });
                                                 }>
-                                                <span class="material-icons">"pause"</span>" Pause"
+                                                <span class="material-icons">"timer"</span>" Start"
                                             </button>
-                                            <button class="danger" disabled=move || busy.get()
-                                                on:click=move |_| {
-                                                    let token = auth_token.get().unwrap_or_default();
-                                                    let did = id_tcanc.clone();
-                                                    spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"command":"cancel"})).await; });
-                                                }>"Cancel"</button>
                                         </div>
-                                    })}
-                                    {is_paused.then(|| view! {
-                                        <div class="btn-group">
-                                            <button disabled=move || busy.get()
-                                                on:click=move |_| {
-                                                    let token = auth_token.get().unwrap_or_default();
-                                                    let did = id_tresu.clone();
-                                                    spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"command":"resume"})).await; });
-                                                }>
-                                                <span class="material-icons">"play_arrow"</span>" Resume"
-                                            </button>
-                                            <button class="danger" disabled=move || busy.get()
-                                                on:click=move |_| {
-                                                    let token = auth_token.get().unwrap_or_default();
-                                                    let did = id_tcanc2.clone();
-                                                    spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"command":"cancel"})).await; });
-                                                }>"Cancel"</button>
-                                        </div>
-                                    })}
-                                    {is_idle.then(|| view! {
-                                        <div class="control-row">
-                                            <span class="control-label">"Start"</span>
-                                            <div class="timer-start-row">
-                                                <Input
-                                                    value=Signal::derive(move || timer_secs.get())
-                                                    on_change=Callback::new(move |value| timer_secs.set(value))
-                                                    input_type="text"
-                                                    placeholder="Seconds"
-                                                />
-                                                <button disabled=move || busy.get()
-                                                    on:click=move |_| {
-                                                        let secs: u64 = timer_secs.get().trim().parse().unwrap_or(60);
-                                                        let token = auth_token.get().unwrap_or_default();
-                                                        let did = id_start.clone();
-                                                        busy.set(true); error.set(None);
-                                                        spawn_local(async move {
-                                                            let _ = set_device_state(&token, &did,
-                                                                &serde_json::json!({"command":"start","duration_ms": secs * 1000})).await;
-                                                            busy.set(false);
-                                                        });
-                                                    }>
-                                                    <span class="material-icons">"timer"</span>" Start"
-                                                </button>
-                                            </div>
-                                        </div>
-                                    })}
+                                    </div>
                                 </div>
                             })}
 

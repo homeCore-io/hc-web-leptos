@@ -751,7 +751,7 @@ pub fn status_icon_name(d: &DeviceState) -> &'static str {
         return if on { "power" } else { "power_off" };
     }
     if let Some(locked) = bool_attr(d.attributes.get("locked")) {
-        return if locked { "lock" } else { "lock_open_right" };
+        return if locked { "lock" } else { "lock_open" };
     }
     if let Some(motion) = bool_attr(d.attributes.get("motion")) {
         return if motion {
@@ -784,7 +784,7 @@ fn map_icon_name(s: &str) -> Option<&'static str> {
         "power" => "power",
         "power_off" => "power_off",
         "lock" => "lock",
-        "lock_open" => "lock_open_right",
+        "lock_open" => "lock_open",
         "motion" => "motion_sensor_active",
         "occupied" => "person",
         "unoccupied" => "person_off",

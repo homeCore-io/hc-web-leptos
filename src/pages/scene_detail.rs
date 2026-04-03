@@ -53,6 +53,584 @@ fn payload_error(payload_text: &str) -> Option<String> {
         .map(|e| e.to_string())
 }
 
+// ── Scene payload helpers ─────────────────────────────────────────────────────
+
+fn payload_obj(text: &str) -> Map<String, Value> {
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|v| if let Value::Object(m) = v { Some(m) } else { None })
+        .unwrap_or_default()
+}
+
+fn payload_get_bool(text: &str, key: &str) -> Option<bool> {
+    payload_obj(text).get(key).and_then(|v| v.as_bool())
+}
+
+fn payload_get_f64(text: &str, key: &str) -> Option<f64> {
+    payload_obj(text).get(key).and_then(|v| v.as_f64())
+}
+
+fn payload_get_str(text: &str, key: &str) -> Option<String> {
+    payload_obj(text).get(key).and_then(|v| v.as_str()).map(str::to_string)
+}
+
+fn payload_set_key(rows: RwSignal<Vec<SceneMemberDraft>>, idx: usize, key: &'static str, val: Value) {
+    rows.update(|items| {
+        if let Some(item) = items.get_mut(idx) {
+            let mut map = payload_obj(&item.payload_text);
+            map.insert(key.to_string(), val);
+            item.payload_text = serde_json::to_string_pretty(&Value::Object(map))
+                .unwrap_or_else(|_| "{}".to_string());
+        }
+    });
+}
+
+fn payload_replace(rows: RwSignal<Vec<SceneMemberDraft>>, idx: usize, val: Value) {
+    rows.update(|items| {
+        if let Some(item) = items.get_mut(idx) {
+            item.payload_text = serde_json::to_string_pretty(&val)
+                .unwrap_or_else(|_| "{}".to_string());
+        }
+    });
+}
+
+fn payload_text_for(rows: RwSignal<Vec<SceneMemberDraft>>, idx: usize) -> String {
+    rows.get().get(idx).map(|r| r.payload_text.clone()).unwrap_or_else(|| "{}".to_string())
+}
+
+// ── Media action list helpers ─────────────────────────────────────────────────
+//
+// A media scene member payload is encoded as:
+//   • 0 actions  → {}
+//   • 1 action   → {"action":"play_media", ...}   (plain object, backward-compat)
+//   • 2+ actions → {"actions":[{...},{...},...]}
+//
+// The backend `activate_scene` expands the "actions" array and publishes each
+// item to the device cmd topic in order.
+
+fn decode_media_actions(text: &str) -> Vec<Value> {
+    let v: Value = serde_json::from_str(text).unwrap_or(Value::Object(Map::new()));
+    if let Some(arr) = v.get("actions").and_then(|a| a.as_array()) {
+        arr.clone()
+    } else if v.is_object() && !v.as_object().map(|m| m.is_empty()).unwrap_or(true) {
+        vec![v]
+    } else {
+        vec![]
+    }
+}
+
+fn encode_media_actions(actions: &[Value]) -> String {
+    let v = match actions {
+        [] => Value::Object(Map::new()),
+        [single] => single.clone(),
+        multiple => serde_json::json!({ "actions": multiple }),
+    };
+    serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn media_action_get_str(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize, key: &str) -> Option<String> {
+    let list = decode_media_actions(&payload_text_for(rows, row_idx));
+    list.get(aidx)?.get(key)?.as_str().map(str::to_string)
+}
+
+fn media_action_get_f64(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize, key: &str) -> Option<f64> {
+    let list = decode_media_actions(&payload_text_for(rows, row_idx));
+    list.get(aidx)?.get(key)?.as_f64()
+}
+
+fn media_action_get_bool(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize, key: &str) -> Option<bool> {
+    let list = decode_media_actions(&payload_text_for(rows, row_idx));
+    list.get(aidx)?.get(key)?.as_bool()
+}
+
+fn media_action_set_key(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize, key: &'static str, val: Value) {
+    rows.update(|items| {
+        if let Some(item) = items.get_mut(row_idx) {
+            let mut list = decode_media_actions(&item.payload_text);
+            if let Some(Value::Object(m)) = list.get_mut(aidx) {
+                m.insert(key.to_string(), val);
+            }
+            item.payload_text = encode_media_actions(&list);
+        }
+    });
+}
+
+fn media_action_replace_one(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize, new_action: Value) {
+    rows.update(|items| {
+        if let Some(item) = items.get_mut(row_idx) {
+            let mut list = decode_media_actions(&item.payload_text);
+            if let Some(entry) = list.get_mut(aidx) {
+                *entry = new_action;
+            }
+            item.payload_text = encode_media_actions(&list);
+        }
+    });
+}
+
+fn media_actions_push(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize) {
+    rows.update(|items| {
+        if let Some(item) = items.get_mut(row_idx) {
+            let mut list = decode_media_actions(&item.payload_text);
+            list.push(Value::Object(Map::new()));
+            item.payload_text = encode_media_actions(&list);
+        }
+    });
+}
+
+fn media_actions_remove(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize) {
+    rows.update(|items| {
+        if let Some(item) = items.get_mut(row_idx) {
+            let mut list = decode_media_actions(&item.payload_text);
+            if aidx < list.len() {
+                list.remove(aidx);
+            }
+            item.payload_text = encode_media_actions(&list);
+        }
+    });
+}
+
+// ── MediaActionRow component ──────────────────────────────────────────────────
+
+#[component]
+fn MediaActionRow(
+    rows: RwSignal<Vec<SceneMemberDraft>>,
+    row_idx: usize,
+    aidx: usize,
+    has_vol: bool,
+    has_favs: bool,
+    has_pls: bool,
+    sup_stop: bool,
+    has_mute: bool,
+    has_shuffle: bool,
+    has_bass: bool,
+    has_treble: bool,
+    favorites: Vec<String>,
+    playlists: Vec<String>,
+) -> impl IntoView {
+    let cur_act   = Memo::new(move |_| media_action_get_str(rows, row_idx, aidx, "action").unwrap_or_default());
+    let cur_name  = Memo::new(move |_| media_action_get_str(rows, row_idx, aidx, "name").unwrap_or_default());
+    let cur_vol   = Memo::new(move |_| media_action_get_f64(rows, row_idx, aidx, "volume").unwrap_or(0.0));
+    let cur_muted = Memo::new(move |_| media_action_get_bool(rows, row_idx, aidx, "muted").unwrap_or(false));
+    let cur_shuf  = Memo::new(move |_| media_action_get_bool(rows, row_idx, aidx, "shuffle").unwrap_or(false));
+    let cur_bass  = Memo::new(move |_| media_action_get_f64(rows, row_idx, aidx, "bass").map(|v| v as i64).unwrap_or(0));
+    let cur_treb  = Memo::new(move |_| media_action_get_f64(rows, row_idx, aidx, "treble").map(|v| v as i64).unwrap_or(0));
+
+    view! {
+        <div class="media-action-row">
+            <div class="media-action-row-header">
+                <span class="control-label">"Action"</span>
+                <select on:change=move |ev| {
+                    let new_action = match event_target_value(&ev).as_str() {
+                        "play"          => serde_json::json!({"action":"play"}),
+                        "pause"         => serde_json::json!({"action":"pause"}),
+                        "stop"          => serde_json::json!({"action":"stop"}),
+                        "play_favorite" => serde_json::json!({"action":"play_media","media_type":"favorite","name":""}),
+                        "play_playlist" => serde_json::json!({"action":"play_media","media_type":"playlist","name":""}),
+                        "set_volume"    => serde_json::json!({"action":"set_volume","volume":0}),
+                        "set_mute"      => serde_json::json!({"action":"set_mute","muted":false}),
+                        "set_shuffle"   => serde_json::json!({"action":"set_shuffle","shuffle":false}),
+                        "set_bass"      => serde_json::json!({"action":"set_bass","bass":0}),
+                        "set_treble"    => serde_json::json!({"action":"set_treble","treble":0}),
+                        _               => Value::Object(Map::new()),
+                    };
+                    media_action_replace_one(rows, row_idx, aidx, new_action);
+                }>
+                    <option value="" selected=move || cur_act.get().is_empty()>"— select —"</option>
+                    <option value="play" selected=move || cur_act.get() == "play">"Play"</option>
+                    <option value="pause" selected=move || cur_act.get() == "pause">"Pause"</option>
+                    {sup_stop.then(|| view! {
+                        <option value="stop" selected=move || cur_act.get() == "stop">"Stop"</option>
+                    })}
+                    {has_favs.then(|| view! {
+                        <option value="play_favorite" selected=move || {
+                            cur_act.get() == "play_media" &&
+                            media_action_get_str(rows, row_idx, aidx, "media_type").as_deref() == Some("favorite")
+                        }>"Play Favorite"</option>
+                    })}
+                    {has_pls.then(|| view! {
+                        <option value="play_playlist" selected=move || {
+                            cur_act.get() == "play_media" &&
+                            media_action_get_str(rows, row_idx, aidx, "media_type").as_deref() == Some("playlist")
+                        }>"Play Playlist"</option>
+                    })}
+                    {has_vol.then(|| view! {
+                        <option value="set_volume" selected=move || cur_act.get() == "set_volume">"Set Volume"</option>
+                    })}
+                    {has_mute.then(|| view! {
+                        <option value="set_mute" selected=move || cur_act.get() == "set_mute">"Set Mute"</option>
+                    })}
+                    {has_shuffle.then(|| view! {
+                        <option value="set_shuffle" selected=move || cur_act.get() == "set_shuffle">"Set Shuffle"</option>
+                    })}
+                    {has_bass.then(|| view! {
+                        <option value="set_bass" selected=move || cur_act.get() == "set_bass">"Set Bass"</option>
+                    })}
+                    {has_treble.then(|| view! {
+                        <option value="set_treble" selected=move || cur_act.get() == "set_treble">"Set Treble"</option>
+                    })}
+                </select>
+                <button class="media-action-remove"
+                    on:click=move |_| media_actions_remove(rows, row_idx, aidx)>
+                    <span class="material-icons" style="font-size:16px">"close"</span>
+                </button>
+            </div>
+
+            {move || match cur_act.get().as_str() {
+                "play_media" => {
+                    let mt = media_action_get_str(rows, row_idx, aidx, "media_type").unwrap_or_default();
+                    if mt == "favorite" {
+                        let favs = favorites.clone();
+                        view! {
+                            <div class="control-row">
+                                <span class="control-label">"Favorite"</span>
+                                <select on:change=move |ev| {
+                                    media_action_set_key(rows, row_idx, aidx, "name",
+                                        Value::String(event_target_value(&ev)));
+                                }>
+                                    <option value="" selected=move || cur_name.get().is_empty()>"— select —"</option>
+                                    {favs.into_iter().map(|fav| {
+                                        let f = fav.clone();
+                                        let label = fav.clone();
+                                        view! {
+                                            <option value=fav selected=move || cur_name.get() == f>{label}</option>
+                                        }
+                                    }).collect_view()}
+                                </select>
+                            </div>
+                        }.into_any()
+                    } else {
+                        let pls = playlists.clone();
+                        view! {
+                            <div class="control-row">
+                                <span class="control-label">"Playlist"</span>
+                                <select on:change=move |ev| {
+                                    media_action_set_key(rows, row_idx, aidx, "name",
+                                        Value::String(event_target_value(&ev)));
+                                }>
+                                    <option value="" selected=move || cur_name.get().is_empty()>"— select —"</option>
+                                    {pls.into_iter().map(|pl| {
+                                        let p = pl.clone();
+                                        let label = pl.clone();
+                                        view! {
+                                            <option value=pl selected=move || cur_name.get() == p>{label}</option>
+                                        }
+                                    }).collect_view()}
+                                </select>
+                            </div>
+                        }.into_any()
+                    }
+                }
+                "set_volume" => view! {
+                    <div class="control-row">
+                        <span class="control-label">"Volume"</span>
+                        <div class="slider-row">
+                            <span class="material-icons" style="font-size:18px;color:var(--hc-text-muted)">"volume_down"</span>
+                            <input type="range" min="0" max="100" step="1"
+                                prop:value=move || cur_vol.get() as i64
+                                on:change=move |ev| {
+                                    if let Ok(val) = event_target_value(&ev).parse::<f64>() {
+                                        media_action_set_key(rows, row_idx, aidx, "volume", serde_json::json!(val));
+                                    }
+                                }
+                            />
+                            <span class="material-icons" style="font-size:18px;color:var(--hc-text-muted)">"volume_up"</span>
+                            <span class="slider-value">{move || format!("{:.0}%", cur_vol.get())}</span>
+                        </div>
+                    </div>
+                }.into_any(),
+                "set_mute" => view! {
+                    <div class="control-row">
+                        <span class="control-label">"Mute"</span>
+                        <div class="toggle-group">
+                            <button class:active=move || cur_muted.get()
+                                on:click=move |_| media_action_set_key(rows, row_idx, aidx, "muted", Value::Bool(true))>
+                                <span class="material-icons" style="font-size:16px;vertical-align:middle">"volume_off"</span>
+                                " Mute"
+                            </button>
+                            <button class:active=move || !cur_muted.get()
+                                on:click=move |_| media_action_set_key(rows, row_idx, aidx, "muted", Value::Bool(false))>
+                                <span class="material-icons" style="font-size:16px;vertical-align:middle">"volume_up"</span>
+                                " Unmute"
+                            </button>
+                        </div>
+                    </div>
+                }.into_any(),
+                "set_shuffle" => view! {
+                    <div class="control-row">
+                        <span class="control-label">"Shuffle"</span>
+                        <div class="toggle-group">
+                            <button class:active=move || cur_shuf.get()
+                                on:click=move |_| media_action_set_key(rows, row_idx, aidx, "shuffle", Value::Bool(true))>
+                                <span class="material-icons" style="font-size:16px;vertical-align:middle">"shuffle"</span>
+                                " On"
+                            </button>
+                            <button class:active=move || !cur_shuf.get()
+                                on:click=move |_| media_action_set_key(rows, row_idx, aidx, "shuffle", Value::Bool(false))>
+                                " Off"
+                            </button>
+                        </div>
+                    </div>
+                }.into_any(),
+                "set_bass" => view! {
+                    <div class="control-row">
+                        <span class="control-label">"Bass"</span>
+                        <div class="slider-row">
+                            <input type="range" min="-10" max="10" step="1"
+                                prop:value=move || cur_bass.get()
+                                on:change=move |ev| {
+                                    if let Ok(val) = event_target_value(&ev).parse::<i64>() {
+                                        media_action_set_key(rows, row_idx, aidx, "bass", serde_json::json!(val));
+                                    }
+                                }
+                            />
+                            <span class="slider-value">{move || cur_bass.get()}</span>
+                        </div>
+                    </div>
+                }.into_any(),
+                "set_treble" => view! {
+                    <div class="control-row">
+                        <span class="control-label">"Treble"</span>
+                        <div class="slider-row">
+                            <input type="range" min="-10" max="10" step="1"
+                                prop:value=move || cur_treb.get()
+                                on:change=move |ev| {
+                                    if let Ok(val) = event_target_value(&ev).parse::<i64>() {
+                                        media_action_set_key(rows, row_idx, aidx, "treble", serde_json::json!(val));
+                                    }
+                                }
+                            />
+                            <span class="slider-value">{move || cur_treb.get()}</span>
+                        </div>
+                    </div>
+                }.into_any(),
+                _ => view! { <span></span> }.into_any(),
+            }}
+        </div>
+    }
+}
+
+// ── SceneDeviceEditor component ───────────────────────────────────────────────
+
+#[component]
+fn SceneDeviceEditor(
+    device: Option<DeviceState>,
+    idx: usize,
+    rows: RwSignal<Vec<SceneMemberDraft>>,
+    show_json_set: RwSignal<HashSet<usize>>,
+) -> impl IntoView {
+    let dtype = device.as_ref().map(|d| presentation_device_type_key(d)).unwrap_or("unknown");
+
+    // Static capability flags — derived once from live device
+    let has_on       = device.as_ref().map(|d| bool_attr(d.attributes.get("on")).is_some()).unwrap_or(false);
+    let has_bri      = device.as_ref().map(|d| d.attributes.get("brightness_pct").and_then(|v| v.as_f64()).is_some()).unwrap_or(false);
+    let has_ct       = device.as_ref().map(|d| d.attributes.get("color_temp").and_then(|v| v.as_f64()).is_some()).unwrap_or(false);
+    let has_position = device.as_ref().map(|d| d.attributes.get("position").and_then(|v| v.as_f64()).is_some()).unwrap_or(false);
+    let has_lock     = device.as_ref().map(|d| bool_attr(d.attributes.get("locked")).is_some()).unwrap_or(false);
+    let is_media     = device.as_ref().map(|d| is_media_player(d)).unwrap_or(false);
+
+    // Media player capabilities
+    let has_vol     = device.as_ref().map(|d| d.attributes.get("volume").and_then(|v| v.as_f64()).is_some()).unwrap_or(false);
+    let has_bass    = device.as_ref().map(|d| supports_action(d, "set_bass") && d.attributes.get("bass").and_then(|v| v.as_i64()).is_some()).unwrap_or(false);
+    let has_treble  = device.as_ref().map(|d| supports_action(d, "set_treble") && d.attributes.get("treble").and_then(|v| v.as_i64()).is_some()).unwrap_or(false);
+    let has_mute    = device.as_ref().map(|d| supports_action(d, "set_mute") && bool_attr(d.attributes.get("muted")).is_some()).unwrap_or(false);
+    let has_shuffle = device.as_ref().map(|d| supports_action(d, "set_shuffle") && bool_attr(d.attributes.get("shuffle")).is_some()).unwrap_or(false);
+    let sup_stop    = device.as_ref().map(|d| supports_action(d, "stop")).unwrap_or(false);
+    let favorites   = device.as_ref().map(|d| media_available_favorites(d)).unwrap_or_default();
+    let playlists   = device.as_ref().map(|d| media_available_playlists(d)).unwrap_or_default();
+    let has_favs    = !favorites.is_empty();
+    let has_pls     = !playlists.is_empty();
+
+    let is_sensor = matches!(dtype,
+        "motion_sensor" | "occupancy_sensor" | "contact_sensor" |
+        "leak_sensor"   | "vibration_sensor" | "environment_sensor" |
+        "temperature_sensor" | "humidity_sensor");
+
+    let has_controls = !is_sensor && (has_on || has_bri || has_position || has_lock || is_media);
+
+    // Reactive reads from payload
+    let cur_on    = Memo::new(move |_| payload_get_bool(&payload_text_for(rows, idx), "on").unwrap_or(false));
+    let cur_bri   = Memo::new(move |_| payload_get_f64(&payload_text_for(rows, idx), "brightness_pct").unwrap_or(0.0));
+    let cur_ct    = Memo::new(move |_| payload_get_f64(&payload_text_for(rows, idx), "color_temp").unwrap_or(2700.0));
+    let cur_pos   = Memo::new(move |_| payload_get_f64(&payload_text_for(rows, idx), "position").unwrap_or(50.0));
+    let cur_lock  = Memo::new(move |_| payload_get_bool(&payload_text_for(rows, idx), "locked").unwrap_or(false));
+    let show_json = Signal::derive(move || show_json_set.get().contains(&idx));
+
+    view! {
+        <div class="scene-member-controls">
+
+            // ── Switch / Light (no brightness) ────────────────────────────
+            {(has_controls && has_on && !has_bri && !is_media && !has_position && !has_lock).then(|| view! {
+                <div class="control-row">
+                    <span class="control-label">"Power"</span>
+                    <div class="toggle-group">
+                        <button class:active=move || cur_on.get()
+                            on:click=move |_| payload_set_key(rows, idx, "on", Value::Bool(true))>
+                            "On"
+                        </button>
+                        <button class:active=move || !cur_on.get()
+                            on:click=move |_| payload_set_key(rows, idx, "on", Value::Bool(false))>
+                            "Off"
+                        </button>
+                    </div>
+                </div>
+            })}
+
+            // ── Dimmer — On/Off + Brightness + optional Color Temp ─────────
+            {(has_controls && has_bri).then(|| view! {
+                <div class="control-row">
+                    <span class="control-label">"Power"</span>
+                    <div class="toggle-group">
+                        <button class:active=move || cur_on.get()
+                            on:click=move |_| payload_set_key(rows, idx, "on", Value::Bool(true))>
+                            "On"
+                        </button>
+                        <button class:active=move || !cur_on.get()
+                            on:click=move |_| payload_set_key(rows, idx, "on", Value::Bool(false))>
+                            "Off"
+                        </button>
+                    </div>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">"Brightness"</span>
+                    <div class="slider-row">
+                        <input type="range" min="0" max="100" step="1"
+                            prop:value=move || cur_bri.get() as i64
+                            on:change=move |ev| {
+                                if let Ok(val) = event_target_value(&ev).parse::<f64>() {
+                                    payload_set_key(rows, idx, "brightness_pct", serde_json::json!(val));
+                                }
+                            }
+                        />
+                        <span class="slider-value">{move || format!("{:.0}%", cur_bri.get())}</span>
+                    </div>
+                </div>
+                {has_ct.then(|| view! {
+                    <div class="control-row">
+                        <span class="control-label">"Color Temp"</span>
+                        <div class="slider-row">
+                            <input type="range" min="2700" max="6500" step="50"
+                                prop:value=move || cur_ct.get() as i64
+                                on:change=move |ev| {
+                                    if let Ok(val) = event_target_value(&ev).parse::<f64>() {
+                                        payload_set_key(rows, idx, "color_temp", serde_json::json!(val));
+                                    }
+                                }
+                            />
+                            <span class="slider-value">{move || format!("{:.0}K", cur_ct.get())}</span>
+                        </div>
+                    </div>
+                })}
+            })}
+
+            // ── Shade — Position slider + Open/Close shortcuts ─────────────
+            {(has_controls && has_position).then(|| view! {
+                <div class="control-row">
+                    <span class="control-label">"Position"</span>
+                    <div class="slider-row">
+                        <input type="range" min="0" max="100" step="1"
+                            prop:value=move || cur_pos.get() as i64
+                            on:change=move |ev| {
+                                if let Ok(val) = event_target_value(&ev).parse::<f64>() {
+                                    payload_set_key(rows, idx, "position", serde_json::json!(val));
+                                }
+                            }
+                        />
+                        <span class="slider-value">{move || format!("{:.0}%", cur_pos.get())}</span>
+                    </div>
+                </div>
+                <div class="control-row">
+                    <span class="control-label"></span>
+                    <div class="btn-group">
+                        <button on:click=move |_| payload_set_key(rows, idx, "position", serde_json::json!(100.0))>
+                            "Open"
+                        </button>
+                        <button on:click=move |_| payload_set_key(rows, idx, "position", serde_json::json!(0.0))>
+                            "Close"
+                        </button>
+                    </div>
+                </div>
+            })}
+
+            // ── Lock ───────────────────────────────────────────────────────
+            {(has_controls && has_lock).then(|| view! {
+                <div class="control-row">
+                    <span class="control-label">"Lock"</span>
+                    <div class="toggle-group">
+                        <button class:active=move || cur_lock.get()
+                            on:click=move |_| payload_set_key(rows, idx, "locked", Value::Bool(true))>
+                            <span class="material-icons" style="font-size:16px;vertical-align:middle">"lock"</span>
+                            " Lock"
+                        </button>
+                        <button class:active=move || !cur_lock.get()
+                            on:click=move |_| payload_set_key(rows, idx, "locked", Value::Bool(false))>
+                            <span class="material-icons" style="font-size:16px;vertical-align:middle">"lock_open"</span>
+                            " Unlock"
+                        </button>
+                    </div>
+                </div>
+            })}
+
+            // ── Media player — multi-action list ──────────────────────────
+            {(has_controls && is_media).then(move || {
+                let favorites_for_rows = favorites.clone();
+                let playlists_for_rows = playlists.clone();
+                let action_count = Memo::new(move |_| decode_media_actions(&payload_text_for(rows, idx)).len());
+                view! {
+                    <div class="media-action-list">
+                        {move || (0..action_count.get()).map(|aidx| {
+                            let favs = favorites_for_rows.clone();
+                            let pls  = playlists_for_rows.clone();
+                            view! {
+                                <MediaActionRow rows=rows row_idx=idx aidx=aidx
+                                    has_vol=has_vol has_favs=has_favs has_pls=has_pls
+                                    sup_stop=sup_stop has_mute=has_mute has_shuffle=has_shuffle
+                                    has_bass=has_bass has_treble=has_treble
+                                    favorites=favs playlists=pls
+                                />
+                            }
+                        }).collect_view()}
+                    </div>
+                    <button class="btn-outline scene-add-action"
+                        on:click=move |_| media_actions_push(rows, idx)>
+                        <span class="material-icons" style="font-size:16px;vertical-align:middle">"add"</span>
+                        " Add Action"
+                    </button>
+                }
+            })}
+
+        </div>
+
+        // Show/Hide JSON toggle — only when visual controls are present
+        {has_controls.then(|| view! {
+            <button class="scene-json-toggle"
+                on:click=move |_| show_json_set.update(|s| {
+                    if s.contains(&idx) { s.remove(&idx); } else { s.insert(idx); }
+                })>
+                {move || if show_json.get() { "Hide JSON" } else { "Show JSON" }}
+            </button>
+        })}
+
+        // Raw JSON textarea — always visible when no controls, toggled when controls present
+        {move || (!has_controls || show_json.get()).then(|| view! {
+            <textarea
+                class="search-input scene-json-editor"
+                prop:value=move || payload_text_for(rows, idx)
+                on:input=move |ev| {
+                    let next = event_target_value(&ev);
+                    rows.update(|items| {
+                        if let Some(item) = items.get_mut(idx) {
+                            item.payload_text = next;
+                        }
+                    });
+                }
+            />
+            {move || payload_error(&payload_text_for(rows, idx))
+                .map(|msg| view! { <p class="msg-error">{format!("Invalid JSON: {msg}")}</p> })
+            }
+        })}
+    }
+}
+
 #[component]
 pub fn NewScenePage() -> impl IntoView {
     view! { <NativeSceneEditorPage scene_id=None /> }
@@ -82,6 +660,7 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
     let original_rows: RwSignal<Vec<SceneMemberDraft>> = RwSignal::new(vec![]);
     let add_device_id = RwSignal::new(String::new());
     let add_device_search = RwSignal::new(String::new());
+    let show_json_set: RwSignal<HashSet<usize>> = RwSignal::new(HashSet::new());
 
     let scene_id_for_load = scene_id.clone();
     Effect::new(move |_| {
@@ -423,6 +1002,7 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
                                 {rows.get().into_iter().enumerate().map(|(idx, row)| {
                                     let current_device_id = row.device_id.clone();
                                     let display_label = device_display(&device_list, &current_device_id);
+                                    let device_for_editor = device_list.iter().find(|d| d.device_id == current_device_id).cloned();
                                     let device_list_for_snapshot = device_list.clone();
                                     let device_meta = device_list.iter().find(|device| device.device_id == current_device_id);
                                     let area_label = device_meta
@@ -431,7 +1011,6 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
                                     let plugin_label = device_meta
                                         .map(|device| device.plugin_id.clone())
                                         .unwrap_or_else(|| "Unknown plugin".to_string());
-                                    let row_error = payload_error(&row.payload_text);
                                     view! {
                                         <div class="scene-member-card">
                                             <div class="scene-member-card-head">
@@ -440,8 +1019,18 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
                                                     <div class="detail-meta-chips">
                                                         <span class="chip-neutral">{area_label}</span>
                                                         <span class="chip-neutral">{plugin_label}</span>
-                                                        <span class=if row_error.is_some() { "chip-offline" } else { "chip-online" }>
-                                                            {if row_error.is_some() { "Invalid JSON" } else { "Valid JSON" }}
+                                                        <span class=move || {
+                                                            if payload_error(&payload_text_for(rows, idx)).is_some() {
+                                                                "chip-offline"
+                                                            } else {
+                                                                "chip-online"
+                                                            }
+                                                        }>
+                                                            {move || if payload_error(&payload_text_for(rows, idx)).is_some() {
+                                                                "Invalid JSON"
+                                                            } else {
+                                                                "Valid JSON"
+                                                            }}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -479,21 +1068,12 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
                                                     </button>
                                                 </div>
                                             </div>
-                                            <textarea
-                                                class="search-input scene-json-editor"
-                                                prop:value=row.payload_text.clone()
-                                                on:input=move |ev| {
-                                                    let next = event_target_value(&ev);
-                                                    rows.update(|items| {
-                                                        if let Some(item) = items.get_mut(idx) {
-                                                            item.payload_text = next.clone();
-                                                        }
-                                                    });
-                                                }
+                                            <SceneDeviceEditor
+                                                device=device_for_editor
+                                                idx=idx
+                                                rows=rows
+                                                show_json_set=show_json_set
                                             />
-                                            {row_error.map(|msg| view! {
-                                                <p class="msg-error">{format!("Invalid JSON: {msg}")}</p>
-                                            })}
                                         </div>
                                     }
                                 }).collect_view()}

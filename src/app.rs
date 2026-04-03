@@ -7,6 +7,8 @@ use crate::pages::{
     device_cards::DeviceCardsPage,
     device_detail::DeviceDetailPage,
     login::LoginPage,
+    scene_detail::{NativeSceneDetailPage, NewScenePage, PluginSceneDetailPage},
+    scenes::ScenesPage,
 };
 use crate::ws::{WsContext, mount_ws};
 use leptos::prelude::*;
@@ -36,6 +38,18 @@ pub fn App() -> impl IntoView {
                 }/>
                 <Route path=path!("/devices/:id") view=move || view! {
                     <AuthGuard><DeviceDetailPage /></AuthGuard>
+                }/>
+                <Route path=path!("/scenes") view=move || view! {
+                    <AuthGuard><ScenesPage /></AuthGuard>
+                }/>
+                <Route path=path!("/scenes/new") view=move || view! {
+                    <AuthGuard><NewScenePage /></AuthGuard>
+                }/>
+                <Route path=path!("/scenes/native/:id") view=move || view! {
+                    <AuthGuard><NativeSceneDetailPage /></AuthGuard>
+                }/>
+                <Route path=path!("/scenes/plugin/:id") view=move || view! {
+                    <AuthGuard><PluginSceneDetailPage /></AuthGuard>
                 }/>
             </Routes>
         </Router>
@@ -91,8 +105,8 @@ fn NavShell(children: Children) -> impl IntoView {
 
     // Active class helper — reacts to route changes
     let active = move |prefix: &'static str| {
-        let pathname = location.pathname.get();
         move || {
+            let pathname = location.pathname.get();
             if pathname.starts_with(prefix) {
                 "active"
             } else {

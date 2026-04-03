@@ -1,7 +1,7 @@
 //! HomeCore API client — thin wrappers over gloo-net HTTP requests.
 
 use crate::auth::API_BASE;
-use crate::models::{Area, DeviceState};
+use crate::models::{Area, DeviceState, Scene};
 use gloo_net::http::Request;
 use serde_json::Value;
 
@@ -59,6 +59,20 @@ async fn post_json<T: serde::de::DeserializeOwned>(
     resp.json::<T>().await.map_err(|e| e.to_string())
 }
 
+async fn post_no_body(path: &str, token: &str) -> Result<(), String> {
+    let resp = Request::post(&format!("{API_BASE}{path}"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.ok() {
+        return Err(format!("{} {}", resp.status(), resp.status_text()));
+    }
+
+    Ok(())
+}
+
 async fn put_json<T: serde::de::DeserializeOwned>(
     path: &str,
     token: &str,
@@ -88,6 +102,65 @@ pub async fn fetch_devices(token: &str) -> Result<Vec<DeviceState>, String> {
 
 pub async fn fetch_areas(token: &str) -> Result<Vec<Area>, String> {
     get_json("/areas", token).await
+}
+
+pub async fn fetch_scenes(token: &str) -> Result<Vec<Scene>, String> {
+    get_json("/scenes", token).await
+}
+
+pub async fn fetch_scene(token: &str, id: &str) -> Result<Scene, String> {
+    get_json(&format!("/scenes/{id}"), token).await
+}
+
+pub async fn create_scene(
+    token: &str,
+    name: &str,
+    states: &serde_json::Map<String, Value>,
+) -> Result<Scene, String> {
+    post_json(
+        "/scenes",
+        token,
+        &serde_json::json!({
+            "name": name,
+            "states": states,
+        }),
+    )
+    .await
+}
+
+pub async fn update_scene(
+    token: &str,
+    id: &str,
+    name: &str,
+    states: &serde_json::Map<String, Value>,
+) -> Result<Scene, String> {
+    put_json(
+        &format!("/scenes/{id}"),
+        token,
+        &serde_json::json!({
+            "name": name,
+            "states": states,
+        }),
+    )
+    .await
+}
+
+pub async fn delete_scene(token: &str, id: &str) -> Result<(), String> {
+    let resp = Request::delete(&format!("{API_BASE}/scenes/{id}"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.ok() {
+        return Err(format!("{} {}", resp.status(), resp.status_text()));
+    }
+
+    Ok(())
+}
+
+pub async fn activate_scene(token: &str, id: &str) -> Result<(), String> {
+    post_no_body(&format!("/scenes/{id}/activate"), token).await
 }
 
 pub async fn fetch_device(token: &str, id: &str) -> Result<DeviceState, String> {

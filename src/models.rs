@@ -21,6 +21,13 @@ pub struct Area {
     pub device_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Scene {
+    pub id: String,
+    pub name: String,
+    pub states: HashMap<String, serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceChangeKind {
@@ -164,6 +171,36 @@ pub fn is_timer_device(d: &DeviceState) -> bool {
     d.plugin_id.starts_with("core.timer")
         || d.device_type.as_deref() == Some("timer")
         || str_attr(d.attributes.get("kind")) == Some("timer")
+}
+
+pub fn is_plugin_scene_active(d: &DeviceState) -> bool {
+    bool_attr(d.attributes.get("on"))
+        .or_else(|| bool_attr(d.attributes.get("active")))
+        .or_else(|| bool_attr(d.attributes.get("activate")))
+        .or_else(|| bool_attr(d.attributes.get("state")))
+        .unwrap_or(false)
+}
+
+pub fn scene_matches_live_state(
+    scene: &Scene,
+    devices: &HashMap<String, DeviceState>,
+) -> bool {
+    if scene.states.is_empty() {
+        return false;
+    }
+
+    scene.states.iter().all(|(device_id, desired)| {
+        let Some(device) = devices.get(device_id) else {
+            return false;
+        };
+        let Some(expected_attrs) = desired.as_object() else {
+            return false;
+        };
+
+        expected_attrs
+            .iter()
+            .all(|(key, expected)| device.attributes.get(key) == Some(expected))
+    })
 }
 
 fn timer_duration_secs(d: &DeviceState) -> Option<u64> {

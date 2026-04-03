@@ -16,120 +16,22 @@
 use crate::api::{fetch_devices, set_device_state};
 use crate::auth::use_auth;
 use crate::models::*;
-use crate::ws::{WsStatus, use_ws};
+use crate::pages::shared::{
+    CardSize, CardSizeSelect, CommonCardPrefs, FilterToggleButton, LiveStatusBanner,
+    MultiSelectDropdown, ResetFiltersButton, SearchField, SortDir, SortDirToggle, SortSelect,
+    card_size_canvas_class, common_card_prefs_map, json_str_set, load_common_card_prefs,
+    load_pref_json, ls_set, set_to_json_array,
+};
+use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use std::collections::HashSet;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
-// ── MultiSelectDropdown ───────────────────────────────────────────────────────
-//
-// Generic multi-select dropdown.  `options` is (value, display_label).
-// Empty `selected` set means "no filter / show all".
-
-#[component]
-fn MultiSelectDropdown(
-    /// Short category label shown in summary when items are selected, e.g. "Areas"
-    label: &'static str,
-    /// Text shown when nothing is selected
-    placeholder: &'static str,
-    #[prop(into)] options: Signal<Vec<(String, String)>>,
-    selected: RwSignal<HashSet<String>>,
-) -> impl IntoView {
-    let open = RwSignal::new(false);
-
-    let summary = move || {
-        let sel = selected.get();
-        if sel.is_empty() {
-            placeholder.to_string()
-        } else if sel.len() == 1 {
-            sel.iter().next().unwrap().clone()
-        } else {
-            format!("{} {} selected", sel.len(), label)
-        }
-    };
-
-    view! {
-        <div class="multisel">
-            <button
-                class="multisel-trigger"
-                class:multisel-trigger--active=move || !selected.get().is_empty()
-                on:click=move |ev| {
-                    ev.stop_propagation();
-                    open.update(|v| *v = !*v);
-                }
-            >
-                <span class="multisel-summary">{summary}</span>
-                <span class="material-icons" style="font-size:14px">
-                    {move || if open.get() { "expand_less" } else { "expand_more" }}
-                </span>
-            </button>
-            {move || open.get().then(|| {
-                let opts = options.get();
-                view! {
-                    // Full-screen backdrop — clicking outside the dropdown closes it
-                    <div
-                        class="multisel-backdrop"
-                        on:mousedown=move |_| open.set(false)
-                    ></div>
-                    <div class="multisel-dropdown">
-                        {opts.into_iter().map(|(val, lbl)| {
-                            let v_check = val.clone();
-                            let v_toggle = val.clone();
-                            view! {
-                                <label class="multisel-option">
-                                    <input
-                                        type="checkbox"
-                                        prop:checked=move || selected.get().contains(&v_check)
-                                        on:change=move |_| {
-                                            let v = v_toggle.clone();
-                                            selected.update(|s| {
-                                                if s.contains(&v) { s.remove(&v); } else { s.insert(v); }
-                                            });
-                                        }
-                                    />
-                                    {lbl}
-                                </label>
-                            }
-                        }).collect_view()}
-                        {move || (!selected.get().is_empty()).then(|| view! {
-                            <button
-                                class="multisel-clear"
-                                on:click=move |_| selected.set(HashSet::new())
-                            >"Clear"</button>
-                        })}
-                    </div>
-                }
-            })}
-        </div>
-    }
-}
-
-// ── Card size ─────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CardSize {
-    Small,
-    Medium,
-    Large,
-}
-
 // ── Prefs ─────────────────────────────────────────────────────────────────────
 
 const CARDS_PREFS_KEY: &str = "hc-leptos:cards:prefs";
-
-fn ls_get(key: &str) -> Option<String> {
-    web_sys::window()
-        .and_then(|w| w.local_storage().ok().flatten())
-        .and_then(|s| s.get_item(key).ok().flatten())
-}
-
-fn ls_set(key: &str, val: &str) {
-    if let Some(s) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-        let _ = s.set_item(key, val);
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SortKey {
@@ -140,10 +42,24 @@ enum SortKey {
     LastSeen,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SortDir {
-    Asc,
-    Desc,
+fn sort_key_from_str(value: Option<&str>) -> SortKey {
+    match value {
+        Some("area") => SortKey::Area,
+        Some("status") => SortKey::Status,
+        Some("type") => SortKey::Type,
+        Some("last_seen") => SortKey::LastSeen,
+        _ => SortKey::Name,
+    }
+}
+
+fn sort_key_to_str(value: SortKey) -> &'static str {
+    match value {
+        SortKey::Name => "name",
+        SortKey::Area => "area",
+        SortKey::Status => "status",
+        SortKey::Type => "type",
+        SortKey::LastSeen => "last_seen",
+    }
 }
 
 struct CardsPrefs {
@@ -172,46 +88,22 @@ impl Default for CardsPrefs {
     }
 }
 
-fn json_str_set(v: &serde_json::Value, key: &str) -> HashSet<String> {
-    v[key]
-        .as_array()
-        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
-        .unwrap_or_default()
-}
-
 fn load_prefs() -> CardsPrefs {
-    let raw = match ls_get(CARDS_PREFS_KEY) {
-        Some(s) => s,
-        None => return CardsPrefs::default(),
+    let Some(v) = load_pref_json(CARDS_PREFS_KEY) else {
+        return CardsPrefs::default();
     };
-    let v: serde_json::Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(_) => return CardsPrefs::default(),
-    };
+    let common = load_common_card_prefs(&v, sort_key_from_str);
+
     CardsPrefs {
-        card_size: match v["card_size"].as_str() {
-            Some("small") => CardSize::Small,
-            Some("large") => CardSize::Large,
-            _ => CardSize::Medium,
-        },
-        search: v["search"].as_str().unwrap_or("").to_string(),
+        card_size: common.card_size,
+        search: common.search,
         avail_filter:  json_str_set(&v, "avail_filter"),
         area_filter:   json_str_set(&v, "area_filter"),
         type_filter:   json_str_set(&v, "type_filter"),
         plugin_filter: json_str_set(&v, "plugin_filter"),
-        sort_by: match v["sort_by"].as_str() {
-            Some("area") => SortKey::Area,
-            Some("status") => SortKey::Status,
-            Some("type") => SortKey::Type,
-            Some("last_seen") => SortKey::LastSeen,
-            _ => SortKey::Name,
-        },
-        sort_dir: if v["sort_dir"] == "desc" { SortDir::Desc } else { SortDir::Asc },
+        sort_by: common.sort_by,
+        sort_dir: common.sort_dir,
     }
-}
-
-fn set_to_json_array(s: &HashSet<String>) -> serde_json::Value {
-    serde_json::Value::Array(s.iter().map(|v| serde_json::Value::String(v.clone())).collect())
 }
 
 fn save_prefs(
@@ -224,27 +116,21 @@ fn save_prefs(
     sort_by: SortKey,
     sort_dir: SortDir,
 ) {
-    let value = serde_json::json!({
-        "card_size": match card_size {
-            CardSize::Small => "small",
-            CardSize::Medium => "medium",
-            CardSize::Large => "large",
-        },
-        "search": search,
-        "avail_filter":  set_to_json_array(avail_filter),
-        "area_filter":   set_to_json_array(area_filter),
-        "type_filter":   set_to_json_array(type_filter),
-        "plugin_filter": set_to_json_array(plugin_filter),
-        "sort_by": match sort_by {
-            SortKey::Name => "name",
-            SortKey::Area => "area",
-            SortKey::Status => "status",
-            SortKey::Type => "type",
-            SortKey::LastSeen => "last_seen",
-        },
-        "sort_dir": if sort_dir == SortDir::Desc { "desc" } else { "asc" },
-    });
-    ls_set(CARDS_PREFS_KEY, &value.to_string());
+    let common = CommonCardPrefs {
+        card_size,
+        search: search.to_string(),
+        sort_by,
+        sort_dir,
+    };
+    let mut value = common_card_prefs_map(&common, sort_key_to_str);
+    value.insert("avail_filter".to_string(), set_to_json_array(avail_filter));
+    value.insert("area_filter".to_string(), set_to_json_array(area_filter));
+    value.insert("type_filter".to_string(), set_to_json_array(type_filter));
+    value.insert("plugin_filter".to_string(), set_to_json_array(plugin_filter));
+    ls_set(
+        CARDS_PREFS_KEY,
+        &serde_json::Value::Object(value).to_string(),
+    );
 }
 
 // ── CardTimerCountdown ────────────────────────────────────────────────────────
@@ -704,6 +590,16 @@ pub fn DeviceCardsPage() -> impl IntoView {
         ("offline".to_string(), "Offline".to_string()),
     ]);
 
+    let sort_options: Signal<Vec<(String, String)>> = Signal::derive(|| {
+        vec![
+            ("name".to_string(), "Sort: Name".to_string()),
+            ("area".to_string(), "Sort: Area".to_string()),
+            ("status".to_string(), "Sort: Status".to_string()),
+            ("type".to_string(), "Sort: Type".to_string()),
+            ("last_seen".to_string(), "Sort: Last Changed".to_string()),
+        ]
+    });
+
     let area_options: Memo<Vec<(String, String)>> = Memo::new(move |_| {
         let mut areas: Vec<String> = ws
             .devices.get().values()
@@ -806,11 +702,7 @@ pub fn DeviceCardsPage() -> impl IntoView {
             .count()
     });
 
-    let canvas_class = move || match card_size.get() {
-        CardSize::Small  => "cards-canvas cards-canvas--sm",
-        CardSize::Medium => "cards-canvas cards-canvas--md",
-        CardSize::Large  => "cards-canvas cards-canvas--lg",
-    };
+    let canvas_class = move || card_size_canvas_class(card_size.get());
 
     view! {
         <div class="page">
@@ -825,85 +717,28 @@ pub fn DeviceCardsPage() -> impl IntoView {
                 </div>
             </div>
 
-            // WS status banner
-            {move || {
-                let status = ws.status.get();
-                (status != WsStatus::Live).then(|| {
-                    let msg = match status {
-                        WsStatus::Connecting => "Connecting to live updates…",
-                        WsStatus::Disconnected => "Live updates lost — reconnecting…",
-                        WsStatus::Live => unreachable!(),
-                    };
-                    view! { <p class="msg-warning">{msg}</p> }
-                })
-            }}
+            <LiveStatusBanner status=Signal::derive(move || ws.status.get()) />
 
             // ── Filter/sort toolbar ───────────────────────────────────────────
             <div class="filter-panel panel">
                 <div class="filter-bar">
-                    <input
-                        type="search"
-                        class="search-input"
-                        placeholder="Search name, area, type, plugin…"
-                        prop:value=move || search.get()
-                        on:input=move |ev| search.set(event_target_value(&ev))
-                    />
+                    <SearchField search placeholder="Search name, area, type, plugin…" />
 
                     // Card size
-                    <select
-                        on:change=move |ev| {
-                            card_size.set(match event_target_value(&ev).as_str() {
-                                "small" => CardSize::Small,
-                                "large" => CardSize::Large,
-                                _ => CardSize::Medium,
-                            });
-                        }
-                    >
-                        <option value="small" selected={move || card_size.get() == CardSize::Small}>"Small"</option>
-                        <option value="medium" selected={move || card_size.get() == CardSize::Medium}>"Medium"</option>
-                        <option value="large" selected={move || card_size.get() == CardSize::Large}>"Large"</option>
-                    </select>
+                    <CardSizeSelect card_size />
 
                     // Sort
-                    <select
-                        on:change=move |ev| {
-                            sort_by.set(match event_target_value(&ev).as_str() {
-                                "area"      => SortKey::Area,
-                                "status"    => SortKey::Status,
-                                "type"      => SortKey::Type,
-                                "last_seen" => SortKey::LastSeen,
-                                _           => SortKey::Name,
-                            });
-                        }
-                    >
-                        <option value="name"     selected={move || sort_by.get() == SortKey::Name}>"Sort: Name"</option>
-                        <option value="area"     selected={move || sort_by.get() == SortKey::Area}>"Sort: Area"</option>
-                        <option value="status"   selected={move || sort_by.get() == SortKey::Status}>"Sort: Status"</option>
-                        <option value="type"     selected={move || sort_by.get() == SortKey::Type}>"Sort: Type"</option>
-                        <option value="last_seen" selected={move || sort_by.get() == SortKey::LastSeen}>"Sort: Last Changed"</option>
-                    </select>
+                    <SortSelect
+                        current_value=Signal::derive(move || sort_key_to_str(sort_by.get()).to_string())
+                        options=sort_options
+                        on_change=Callback::new(move |value: String| {
+                            sort_by.set(sort_key_from_str(Some(&value)));
+                        })
+                    />
 
-                    <button
-                        class="filter-toggle"
-                        class:filter-toggle--active=move || sort_dir.get() == SortDir::Desc
-                        on:click=move |_| {
-                            sort_dir.update(|d| *d = if *d == SortDir::Asc { SortDir::Desc } else { SortDir::Asc });
-                        }
-                    >
-                        {move || if sort_dir.get() == SortDir::Asc {
-                            view! { <span class="material-icons" style="font-size:16px">"arrow_upward"</span> }
-                        } else {
-                            view! { <span class="material-icons" style="font-size:16px">"arrow_downward"</span> }
-                        }}
-                    </button>
+                    <SortDirToggle sort_dir />
 
-                    <button
-                        class="filter-toggle"
-                        on:click=move |_| filter_open.update(|v| *v = !*v)
-                    >
-                        <span class="material-icons" style="font-size:16px;vertical-align:middle">"tune"</span>
-                        {move || if filter_open.get() { " Less" } else { " Filters" }}
-                    </button>
+                    <FilterToggleButton filter_open />
                 </div>
 
                 // Expanded filters
@@ -934,18 +769,15 @@ pub fn DeviceCardsPage() -> impl IntoView {
                                 options=Signal::derive(move || plugin_options.get())
                                 selected=plugin_filter
                             />
-                            <button
-                                class="btn-outline"
-                                on:click=move |_| {
-                                    search.set(String::new());
-                                    avail_filter.set(HashSet::new());
-                                    area_filter.set(HashSet::new());
-                                    type_filter.set(HashSet::new());
-                                    plugin_filter.set(HashSet::new());
-                                    sort_by.set(SortKey::Name);
-                                    sort_dir.set(SortDir::Asc);
-                                }
-                            >"Reset"</button>
+                            <ResetFiltersButton on_reset=Callback::new(move |_| {
+                                search.set(String::new());
+                                avail_filter.set(HashSet::new());
+                                area_filter.set(HashSet::new());
+                                type_filter.set(HashSet::new());
+                                plugin_filter.set(HashSet::new());
+                                sort_by.set(SortKey::Name);
+                                sort_dir.set(SortDir::Asc);
+                            }) />
                         </div>
                     </div>
                 })}

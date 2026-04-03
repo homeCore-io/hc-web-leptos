@@ -23,6 +23,7 @@
 
 use crate::auth::events_ws_url;
 use crate::models::{DeviceChange, DeviceState};
+use chrono::{DateTime, Utc};
 use leptos::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
@@ -47,6 +48,7 @@ pub struct WsContext {
     /// Live device map keyed by `device_id` — O(1) lookup on WS events.
     /// Pages seed it via the REST snapshot; WS events keep it current.
     pub devices: RwSignal<HashMap<String, DeviceState>>,
+    pub scene_activations: RwSignal<HashMap<String, DateTime<Utc>>>,
     pub status: RwSignal<WsStatus>,
 }
 
@@ -54,6 +56,7 @@ impl WsContext {
     pub fn new() -> Self {
         Self {
             devices: RwSignal::new(HashMap::new()),
+            scene_activations: RwSignal::new(HashMap::new()),
             status: RwSignal::new(WsStatus::Connecting),
         }
     }
@@ -79,6 +82,12 @@ enum WsEvent {
     DeviceAvailabilityChanged {
         device_id: String,
         available: bool,
+    },
+    SceneActivated {
+        timestamp: DateTime<Utc>,
+        scene_id: String,
+        #[allow(dead_code)]
+        scene_name: String,
     },
     #[serde(other)]
     Other,
@@ -136,7 +145,8 @@ pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
         // Append server-side event-type filter — reduces fanout to only what
         // the client actually handles.
         let base = events_ws_url(&token);
-        let url = format!("{base}&type=device_state_changed,device_availability_changed");
+        let url =
+            format!("{base}&type=device_state_changed,device_availability_changed,scene_activated");
 
         let ws = match web_sys::WebSocket::new(&url) {
             Ok(ws) => ws,
@@ -191,6 +201,15 @@ pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
                             if let Some(d) = m.get_mut(&device_id) {
                                 d.available = available;
                             }
+                        });
+                    }
+                    WsEvent::SceneActivated {
+                        timestamp,
+                        scene_id,
+                        ..
+                    } => {
+                        ctx.scene_activations.update(|m| {
+                            m.insert(scene_id, timestamp);
                         });
                     }
                     WsEvent::Other => {}

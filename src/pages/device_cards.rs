@@ -17,17 +17,17 @@ use crate::api::{fetch_devices, set_device_state};
 use crate::auth::use_auth;
 use crate::models::*;
 use crate::pages::shared::{
-    CardSize, CardSizeSelect, CommonCardPrefs, FilterToggleButton, LiveStatusBanner,
-    MultiSelectDropdown, ResetFiltersButton, SearchField, SortDir, SortDirToggle, SortSelect,
     card_size_canvas_class, common_card_prefs_map, json_str_set, load_common_card_prefs,
-    load_pref_json, ls_set, set_to_json_array,
+    load_pref_json, ls_set, set_to_json_array, CardSize, CardSizeSelect, CommonCardPrefs,
+    FilterToggleButton, LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField,
+    SortDir, SortDirToggle, SortSelect,
 };
 use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use std::collections::HashSet;
-use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 // ── Prefs ─────────────────────────────────────────────────────────────────────
 
@@ -97,9 +97,9 @@ fn load_prefs() -> CardsPrefs {
     CardsPrefs {
         card_size: common.card_size,
         search: common.search,
-        avail_filter:  json_str_set(&v, "avail_filter"),
-        area_filter:   json_str_set(&v, "area_filter"),
-        type_filter:   json_str_set(&v, "type_filter"),
+        avail_filter: json_str_set(&v, "avail_filter"),
+        area_filter: json_str_set(&v, "area_filter"),
+        type_filter: json_str_set(&v, "type_filter"),
         plugin_filter: json_str_set(&v, "plugin_filter"),
         sort_by: common.sort_by,
         sort_dir: common.sort_dir,
@@ -126,7 +126,10 @@ fn save_prefs(
     value.insert("avail_filter".to_string(), set_to_json_array(avail_filter));
     value.insert("area_filter".to_string(), set_to_json_array(area_filter));
     value.insert("type_filter".to_string(), set_to_json_array(type_filter));
-    value.insert("plugin_filter".to_string(), set_to_json_array(plugin_filter));
+    value.insert(
+        "plugin_filter".to_string(),
+        set_to_json_array(plugin_filter),
+    );
     ls_set(
         CARDS_PREFS_KEY,
         &serde_json::Value::Object(value).to_string(),
@@ -250,9 +253,7 @@ fn DeviceCard(device_id: String) -> impl IntoView {
     //   - Result: only THIS card's view closure re-runs when its device changes.
     //     Other cards' views are never invoked.
     let did = device_id.clone();
-    let device: Memo<Option<DeviceState>> = Memo::new(move |_| {
-        ws.devices.get().get(&did).cloned()
-    });
+    let device: Memo<Option<DeviceState>> = Memo::new(move |_| ws.devices.get().get(&did).cloned());
 
     let busy = RwSignal::new(false);
 
@@ -557,15 +558,15 @@ pub fn DeviceCardsPage() -> impl IntoView {
     });
 
     let prefs = load_prefs();
-    let card_size     = RwSignal::new(prefs.card_size);
-    let search        = RwSignal::new(prefs.search);
-    let avail_filter  = RwSignal::new(prefs.avail_filter);
-    let area_filter   = RwSignal::new(prefs.area_filter);
-    let type_filter   = RwSignal::new(prefs.type_filter);
+    let card_size = RwSignal::new(prefs.card_size);
+    let search = RwSignal::new(prefs.search);
+    let avail_filter = RwSignal::new(prefs.avail_filter);
+    let area_filter = RwSignal::new(prefs.area_filter);
+    let type_filter = RwSignal::new(prefs.type_filter);
     let plugin_filter = RwSignal::new(prefs.plugin_filter);
-    let sort_by       = RwSignal::new(prefs.sort_by);
-    let sort_dir      = RwSignal::new(prefs.sort_dir);
-    let filter_open   = RwSignal::new(false);
+    let sort_by = RwSignal::new(prefs.sort_by);
+    let sort_dir = RwSignal::new(prefs.sort_dir);
+    let filter_open = RwSignal::new(false);
 
     // Persist preferences
     Effect::new(move |_| {
@@ -585,10 +586,12 @@ pub fn DeviceCardsPage() -> impl IntoView {
 
     // Filter option lists — each returns (value, display_label) pairs
 
-    let avail_options: Signal<Vec<(String, String)>> = Signal::derive(|| vec![
-        ("online".to_string(),  "Online".to_string()),
-        ("offline".to_string(), "Offline".to_string()),
-    ]);
+    let avail_options: Signal<Vec<(String, String)>> = Signal::derive(|| {
+        vec![
+            ("online".to_string(), "Online".to_string()),
+            ("offline".to_string(), "Offline".to_string()),
+        ]
+    });
 
     let sort_options: Signal<Vec<(String, String)>> = Signal::derive(|| {
         vec![
@@ -602,32 +605,48 @@ pub fn DeviceCardsPage() -> impl IntoView {
 
     let area_options: Memo<Vec<(String, String)>> = Memo::new(move |_| {
         let mut areas: Vec<String> = ws
-            .devices.get().values()
+            .devices
+            .get()
+            .values()
             .filter(|d| !is_scene_like(d))
             .filter_map(|d| d.area.clone())
-            .collect::<HashSet<_>>().into_iter().collect();
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
         areas.sort_by_key(|a| display_area_name(a));
-        areas.into_iter()
-            .map(|a| { let lbl = display_area_name(&a); (a, lbl) })
+        areas
+            .into_iter()
+            .map(|a| {
+                let lbl = display_area_name(&a);
+                (a, lbl)
+            })
             .collect()
     });
 
     let type_options: Memo<Vec<(String, String)>> = Memo::new(move |_| {
         let mut types: Vec<String> = ws
-            .devices.get().values()
+            .devices
+            .get()
+            .values()
             .filter(|d| !is_scene_like(d))
             .map(|d| presentation_device_type_label(d).to_string())
-            .collect::<HashSet<_>>().into_iter().collect();
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
         types.sort();
         types.into_iter().map(|t| (t.clone(), t)).collect()
     });
 
     let plugin_options: Memo<Vec<(String, String)>> = Memo::new(move |_| {
         let mut plugins: Vec<String> = ws
-            .devices.get().values()
+            .devices
+            .get()
+            .values()
             .filter(|d| !is_scene_like(d))
             .map(|d| d.plugin_id.clone())
-            .collect::<HashSet<_>>().into_iter().collect();
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
         plugins.sort();
         plugins.into_iter().map(|p| (p.clone(), p)).collect()
     });
@@ -639,9 +658,9 @@ pub fn DeviceCardsPage() -> impl IntoView {
     let card_ids: Memo<Vec<String>> = Memo::new(move |_| {
         let all = ws.devices.get();
         let q = search.get().trim().to_lowercase();
-        let avail_f  = avail_filter.get();
-        let area_f   = area_filter.get();
-        let type_f   = type_filter.get();
+        let avail_f = avail_filter.get();
+        let area_f = area_filter.get();
+        let type_f = type_filter.get();
         let plugin_f = plugin_filter.get();
         let sb = sort_by.get();
         let sd = sort_dir.get();
@@ -649,13 +668,17 @@ pub fn DeviceCardsPage() -> impl IntoView {
         let mut result: Vec<&DeviceState> = all
             .values()
             .filter(|d| !is_scene_like(d))
-            .filter(|d| avail_f.is_empty() || {
-                let key = if d.available { "online" } else { "offline" };
-                avail_f.contains(key)
+            .filter(|d| {
+                avail_f.is_empty() || {
+                    let key = if d.available { "online" } else { "offline" };
+                    avail_f.contains(key)
+                }
             })
-            .filter(|d| area_f.is_empty() || {
-                let a = d.area.as_deref().unwrap_or("Unassigned");
-                area_f.contains(a)
+            .filter(|d| {
+                area_f.is_empty() || {
+                    let a = d.area.as_deref().unwrap_or("Unassigned");
+                    area_f.contains(a)
+                }
             })
             .filter(|d| type_f.is_empty() || type_f.contains(presentation_device_type_label(d)))
             .filter(|d| plugin_f.is_empty() || plugin_f.contains(&d.plugin_id))
@@ -680,16 +703,18 @@ pub fn DeviceCardsPage() -> impl IntoView {
         result.sort_by(|a, b| {
             let cmp = match sb {
                 SortKey::Name => sort_key_str(display_name(a)).cmp(&sort_key_str(display_name(b))),
-                SortKey::Area => {
-                    sort_key_str(&display_area_value(a.area.as_deref()))
-                        .cmp(&sort_key_str(&display_area_value(b.area.as_deref())))
-                }
+                SortKey::Area => sort_key_str(&display_area_value(a.area.as_deref()))
+                    .cmp(&sort_key_str(&display_area_value(b.area.as_deref()))),
                 SortKey::Status => cmp_status(a, b),
                 SortKey::Type => sort_key_str(presentation_device_type_label(a))
                     .cmp(&sort_key_str(presentation_device_type_label(b))),
                 SortKey::LastSeen => last_change_time(a).cmp(&last_change_time(b)),
             };
-            if sd == SortDir::Desc { cmp.reverse() } else { cmp }
+            if sd == SortDir::Desc {
+                cmp.reverse()
+            } else {
+                cmp
+            }
         });
 
         result.iter().map(|d| d.device_id.clone()).collect()
@@ -697,7 +722,9 @@ pub fn DeviceCardsPage() -> impl IntoView {
 
     let total = Signal::derive(move || card_ids.get().len());
     let online_count = Signal::derive(move || {
-        ws.devices.get().values()
+        ws.devices
+            .get()
+            .values()
             .filter(|d| d.available && !is_scene_like(d))
             .count()
     });

@@ -112,11 +112,8 @@ fn schedule_reconnect(trigger: RwSignal<u32>, attempt: u32) {
         trigger.update(|n| *n = attempt.saturating_add(1));
     });
     let _ = web_sys::window().and_then(|w| {
-        w.set_timeout_with_callback_and_timeout_and_arguments_0(
-            cb.as_ref().unchecked_ref(),
-            delay,
-        )
-        .ok()
+        w.set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), delay)
+            .ok()
     });
     cb.forget();
 }

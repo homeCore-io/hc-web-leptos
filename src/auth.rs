@@ -24,7 +24,7 @@ pub struct HcUser {
 #[derive(Clone, Copy)]
 pub struct AuthState {
     pub token: RwSignal<Option<String>>,
-    pub user:  RwSignal<Option<HcUser>>,
+    pub user: RwSignal<Option<HcUser>>,
     #[allow(dead_code)]
     pub ready: RwSignal<bool>,
 }
@@ -32,7 +32,7 @@ pub struct AuthState {
 impl AuthState {
     pub fn new() -> Self {
         let token = RwSignal::new(ls_get(TOKEN_KEY));
-        let user  = RwSignal::new(None::<HcUser>);
+        let user = RwSignal::new(None::<HcUser>);
         let ready = RwSignal::new(true); // token read synchronously; user loaded lazily
         Self { token, user, ready }
     }
@@ -121,7 +121,11 @@ pub fn events_ws_url(token: &str) -> String {
         .and_then(|w| w.location().href().ok())
         .unwrap_or_default();
 
-    let protocol = if location.starts_with("https") { "wss" } else { "ws" };
+    let protocol = if location.starts_with("https") {
+        "wss"
+    } else {
+        "ws"
+    };
 
     // When running through Trunk proxy, the host is localhost
     let host = web_sys::window()

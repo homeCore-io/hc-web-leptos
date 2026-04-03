@@ -5,14 +5,14 @@ use crate::api::{
     set_device_state, update_device_meta,
 };
 use crate::auth::use_auth;
-use crate::ws::{WsStatus, use_ws};
 use crate::models::*;
+use crate::ws::{use_ws, WsStatus};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
 use leptos_shadcn_ui::{Button, ButtonVariant, Input};
-use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 // ── TimerDisplay component ────────────────────────────────────────────────────
 //
@@ -227,7 +227,9 @@ pub fn DeviceDetailPage() -> impl IntoView {
         spawn_local(async move {
             match fetch_device(&token, &id).await {
                 Ok(d) => {
-                    ws.devices.update(|m| { m.insert(d.device_id.clone(), d.clone()); });
+                    ws.devices.update(|m| {
+                        m.insert(d.device_id.clone(), d.clone());
+                    });
                     if device.get_untracked().is_none() || !show_edit.get_untracked() {
                         sync_edit_fields(&d, edit_name, edit_area, edit_canonical, edit_icon);
                     }
@@ -244,7 +246,9 @@ pub fn DeviceDetailPage() -> impl IntoView {
     // changes for this device_id.  Does not touch edit fields while editing.
     let did_live = device_id.clone();
     Effect::new(move |_| {
-        let Some(d) = ws.devices.get().get(&did_live).cloned() else { return };
+        let Some(d) = ws.devices.get().get(&did_live).cloned() else {
+            return;
+        };
         device.update(|existing| {
             if let Some(existing) = existing {
                 existing.attributes = d.attributes.clone();
@@ -338,7 +342,6 @@ pub fn DeviceDetailPage() -> impl IntoView {
 
         entries
     });
-
 
     // ── View ──────────────────────────────────────────────────────────────────
     view! {

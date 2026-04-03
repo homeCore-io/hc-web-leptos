@@ -314,3 +314,59 @@ pub async fn delete_device(token: &str, id: &str) -> Result<DeleteDeviceResponse
 
 use crate::models::HistoryEntry;
 use serde::Deserialize;
+
+// ── Rules API ─────────────────────────────────────────────────────────────────
+// UI terminology: "rule". Wire path: /api/v1/automations.
+
+pub async fn fetch_rules(token: &str) -> Result<Vec<Value>, String> {
+    get_json("/automations", token).await
+}
+
+pub async fn fetch_rule(token: &str, id: &str) -> Result<Value, String> {
+    get_json(&format!("/automations/{id}"), token).await
+}
+
+pub async fn create_rule(token: &str, body: &Value) -> Result<Value, String> {
+    post_json("/automations", token, body).await
+}
+
+pub async fn update_rule(token: &str, id: &str, body: &Value) -> Result<Value, String> {
+    put_json(&format!("/automations/{id}"), token, body).await
+}
+
+pub async fn patch_rule(token: &str, id: &str, body: &Value) -> Result<Value, String> {
+    let resp = Request::patch(&format!("{API_BASE}/automations/{id}"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.ok() {
+        return Err(format!("{} {}", resp.status(), resp.status_text()));
+    }
+
+    resp.json::<Value>().await.map_err(|e| e.to_string())
+}
+
+pub async fn delete_rule(token: &str, id: &str) -> Result<(), String> {
+    delete_no_body(&format!("/automations/{id}"), token).await
+}
+
+pub async fn clone_rule(token: &str, id: &str) -> Result<Value, String> {
+    post_json(&format!("/automations/{id}/clone"), token, &Value::Null).await
+}
+
+pub async fn test_rule(token: &str, id: &str) -> Result<Value, String> {
+    post_json(&format!("/automations/{id}/test"), token, &Value::Null).await
+}
+
+pub async fn rule_fire_history(token: &str, id: &str) -> Result<Value, String> {
+    get_json(&format!("/automations/{id}/history"), token).await
+}
+
+pub async fn rule_stale_refs(token: &str) -> Result<Value, String> {
+    get_json("/automations/stale-refs", token).await
+}

@@ -129,9 +129,7 @@ pub fn AreasPage() -> impl IntoView {
             })
             .collect();
 
-        list.sort_by(|a, b| {
-            sort_key_str(display_name(a)).cmp(&sort_key_str(display_name(b)))
-        });
+        list.sort_by(|a, b| sort_key_str(display_name(a)).cmp(&sort_key_str(display_name(b))));
 
         list
     });
@@ -162,9 +160,7 @@ pub fn AreasPage() -> impl IntoView {
             })
             .collect();
 
-        list.sort_by(|a, b| {
-            sort_key_str(display_name(a)).cmp(&sort_key_str(display_name(b)))
-        });
+        list.sort_by(|a, b| sort_key_str(display_name(a)).cmp(&sort_key_str(display_name(b))));
 
         list
     });

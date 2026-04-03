@@ -82,12 +82,20 @@ pub fn load_pref_json(key: &str) -> Option<Value> {
 pub fn json_str_set(v: &serde_json::Value, key: &str) -> HashSet<String> {
     v[key]
         .as_array()
-        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 pub fn set_to_json_array(s: &HashSet<String>) -> serde_json::Value {
-    serde_json::Value::Array(s.iter().map(|v| serde_json::Value::String(v.clone())).collect())
+    serde_json::Value::Array(
+        s.iter()
+            .map(|v| serde_json::Value::String(v.clone()))
+            .collect(),
+    )
 }
 
 #[derive(Debug, Clone)]

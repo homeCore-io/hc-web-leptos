@@ -1,13 +1,15 @@
 //! Scenes page — unified cards view for native HomeCore scenes and plugin scenes.
 
-use crate::api::{activate_scene, create_scene, fetch_devices, fetch_scene, fetch_scenes, set_device_state};
+use crate::api::{
+    activate_scene, create_scene, fetch_devices, fetch_scene, fetch_scenes, set_device_state,
+};
 use crate::auth::use_auth;
 use crate::models::*;
 use crate::pages::shared::{
-    CardSize, CardSizeSelect, CommonCardPrefs, FilterToggleButton, LiveStatusBanner,
-    MultiSelectDropdown, ResetFiltersButton, SearchField, SortDir, SortDirToggle, SortSelect,
     card_size_canvas_class, common_card_prefs_map, json_str_set, load_common_card_prefs,
-    load_pref_json, ls_set, set_to_json_array,
+    load_pref_json, ls_set, set_to_json_array, CardSize, CardSizeSelect, CommonCardPrefs,
+    FilterToggleButton, LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField,
+    SortDir, SortDirToggle, SortSelect,
 };
 use crate::ws::use_ws;
 use leptos::prelude::*;
@@ -127,10 +129,16 @@ fn save_prefs(
         sort_dir,
     };
     let mut value = common_card_prefs_map(&common, sort_key_to_str);
-    value.insert("status_filter".to_string(), set_to_json_array(status_filter));
+    value.insert(
+        "status_filter".to_string(),
+        set_to_json_array(status_filter),
+    );
     value.insert("area_filter".to_string(), set_to_json_array(area_filter));
     value.insert("type_filter".to_string(), set_to_json_array(type_filter));
-    value.insert("plugin_filter".to_string(), set_to_json_array(plugin_filter));
+    value.insert(
+        "plugin_filter".to_string(),
+        set_to_json_array(plugin_filter),
+    );
     ls_set(
         SCENES_PREFS_KEY,
         &serde_json::Value::Object(value).to_string(),
@@ -251,7 +259,11 @@ fn sort_summary_label(sort_by: SortKey, sort_dir: SortDir) -> String {
         SortKey::Type => "Type",
         SortKey::LastSeen => "Last Activity",
     };
-    let direction = if sort_dir == SortDir::Desc { "↓" } else { "↑" };
+    let direction = if sort_dir == SortDir::Desc {
+        "↓"
+    } else {
+        "↑"
+    };
     format!("Sort: {label} {direction}")
 }
 
@@ -268,7 +280,9 @@ fn cmp_scene_status(a: &SceneRow, b: &SceneRow) -> std::cmp::Ordering {
 }
 
 fn cmp_scene_last_seen(a: &SceneRow, b: &SceneRow) -> std::cmp::Ordering {
-    a.last_seen.cmp(&b.last_seen).then_with(|| cmp_scene_name(a, b))
+    a.last_seen
+        .cmp(&b.last_seen)
+        .then_with(|| cmp_scene_name(a, b))
 }
 
 fn cmp_scene_rows(a: &SceneRow, b: &SceneRow, sort_by: SortKey) -> std::cmp::Ordering {
@@ -286,10 +300,7 @@ fn cmp_scene_rows(a: &SceneRow, b: &SceneRow, sort_by: SortKey) -> std::cmp::Ord
 }
 
 #[component]
-fn SceneCard(
-    scene_key: String,
-    native_scenes: RwSignal<HashMap<String, Scene>>,
-) -> impl IntoView {
+fn SceneCard(scene_key: String, native_scenes: RwSignal<HashMap<String, Scene>>) -> impl IntoView {
     let auth = use_auth();
     let ws = use_ws();
     let navigate = use_navigate();
@@ -663,7 +674,10 @@ pub fn ScenesPage() -> impl IntoView {
             .into_iter()
             .collect();
         areas.sort();
-        areas.into_iter().map(|value| (value.clone(), value)).collect()
+        areas
+            .into_iter()
+            .map(|value| (value.clone(), value))
+            .collect()
     });
 
     let type_options: Signal<Vec<(String, String)>> = Signal::derive(|| {
@@ -692,7 +706,10 @@ pub fn ScenesPage() -> impl IntoView {
             .into_iter()
             .collect();
         plugins.sort();
-        plugins.into_iter().map(|value| (value.clone(), value)).collect()
+        plugins
+            .into_iter()
+            .map(|value| (value.clone(), value))
+            .collect()
     });
 
     let active_filter_summary: Signal<Vec<String>> = Signal::derive(move || {
@@ -753,7 +770,11 @@ pub fn ScenesPage() -> impl IntoView {
 
     let total = Signal::derive(move || card_keys.get().len());
     let active_count = Signal::derive(move || {
-        scene_rows.get().into_iter().filter(|row| row.status_on).count()
+        scene_rows
+            .get()
+            .into_iter()
+            .filter(|row| row.status_on)
+            .count()
     });
     let native_count = Signal::derive(move || {
         scene_rows

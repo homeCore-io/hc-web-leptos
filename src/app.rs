@@ -8,6 +8,8 @@ use crate::pages::{
     device_detail::DeviceDetailPage,
     login::LoginPage,
     modes::ModesPage,
+    rule_detail::{EditRulePage, NewRulePage},
+    rules::RulesPage,
     scene_detail::{NativeSceneDetailPage, NewScenePage, PluginSceneDetailPage},
     scenes::ScenesPage,
 };
@@ -54,6 +56,15 @@ pub fn App() -> impl IntoView {
                 }/>
                 <Route path=path!("/modes") view=move || view! {
                     <AuthGuard><ModesPage /></AuthGuard>
+                }/>
+                <Route path=path!("/rules") view=move || view! {
+                    <AuthGuard><RulesPage /></AuthGuard>
+                }/>
+                <Route path=path!("/rules/new") view=move || view! {
+                    <AuthGuard><NewRulePage /></AuthGuard>
+                }/>
+                <Route path=path!("/rules/:id") view=move || view! {
+                    <AuthGuard><EditRulePage /></AuthGuard>
                 }/>
             </Routes>
         </Router>
@@ -147,9 +158,9 @@ fn NavShell(children: Children) -> impl IntoView {
                         <span class="material-icons" style="font-size:18px">"bolt"</span>
                         "Events"
                     </a>
-                    <a href="/automations" class=active("/automations")>
+                    <a href="/rules" class=active("/rules")>
                         <span class="material-icons" style="font-size:18px">"smart_toy"</span>
-                        "Automations"
+                        "Rules"
                     </a>
                     <a href="/dashboards" class=active("/dashboards")>
                         <span class="material-icons" style="font-size:18px">"dashboard"</span>

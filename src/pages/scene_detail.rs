@@ -28,7 +28,8 @@ fn device_display(devices: &[DeviceState], device_id: &str) -> String {
 }
 
 fn scene_to_rows(scene: &Scene) -> Vec<SceneMemberDraft> {
-    scene.states
+    scene
+        .states
         .iter()
         .map(|(device_id, value)| SceneMemberDraft {
             device_id: device_id.clone(),
@@ -58,7 +59,13 @@ fn payload_error(payload_text: &str) -> Option<String> {
 fn payload_obj(text: &str) -> Map<String, Value> {
     serde_json::from_str::<Value>(text)
         .ok()
-        .and_then(|v| if let Value::Object(m) = v { Some(m) } else { None })
+        .and_then(|v| {
+            if let Value::Object(m) = v {
+                Some(m)
+            } else {
+                None
+            }
+        })
         .unwrap_or_default()
 }
 
@@ -70,7 +77,12 @@ fn payload_get_f64(text: &str, key: &str) -> Option<f64> {
     payload_obj(text).get(key).and_then(|v| v.as_f64())
 }
 
-fn payload_set_key(rows: RwSignal<Vec<SceneMemberDraft>>, idx: usize, key: &'static str, val: Value) {
+fn payload_set_key(
+    rows: RwSignal<Vec<SceneMemberDraft>>,
+    idx: usize,
+    key: &'static str,
+    val: Value,
+) {
     rows.update(|items| {
         if let Some(item) = items.get_mut(idx) {
             let mut map = payload_obj(&item.payload_text);
@@ -82,7 +94,10 @@ fn payload_set_key(rows: RwSignal<Vec<SceneMemberDraft>>, idx: usize, key: &'sta
 }
 
 fn payload_text_for(rows: RwSignal<Vec<SceneMemberDraft>>, idx: usize) -> String {
-    rows.get().get(idx).map(|r| r.payload_text.clone()).unwrap_or_else(|| "{}".to_string())
+    rows.get()
+        .get(idx)
+        .map(|r| r.payload_text.clone())
+        .unwrap_or_else(|| "{}".to_string())
 }
 
 // ── Media action list helpers ─────────────────────────────────────────────────
@@ -115,22 +130,43 @@ fn encode_media_actions(actions: &[Value]) -> String {
     serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
 }
 
-fn media_action_get_str(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize, key: &str) -> Option<String> {
+fn media_action_get_str(
+    rows: RwSignal<Vec<SceneMemberDraft>>,
+    row_idx: usize,
+    aidx: usize,
+    key: &str,
+) -> Option<String> {
     let list = decode_media_actions(&payload_text_for(rows, row_idx));
     list.get(aidx)?.get(key)?.as_str().map(str::to_string)
 }
 
-fn media_action_get_f64(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize, key: &str) -> Option<f64> {
+fn media_action_get_f64(
+    rows: RwSignal<Vec<SceneMemberDraft>>,
+    row_idx: usize,
+    aidx: usize,
+    key: &str,
+) -> Option<f64> {
     let list = decode_media_actions(&payload_text_for(rows, row_idx));
     list.get(aidx)?.get(key)?.as_f64()
 }
 
-fn media_action_get_bool(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize, key: &str) -> Option<bool> {
+fn media_action_get_bool(
+    rows: RwSignal<Vec<SceneMemberDraft>>,
+    row_idx: usize,
+    aidx: usize,
+    key: &str,
+) -> Option<bool> {
     let list = decode_media_actions(&payload_text_for(rows, row_idx));
     list.get(aidx)?.get(key)?.as_bool()
 }
 
-fn media_action_set_key(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize, key: &'static str, val: Value) {
+fn media_action_set_key(
+    rows: RwSignal<Vec<SceneMemberDraft>>,
+    row_idx: usize,
+    aidx: usize,
+    key: &'static str,
+    val: Value,
+) {
     rows.update(|items| {
         if let Some(item) = items.get_mut(row_idx) {
             let mut list = decode_media_actions(&item.payload_text);
@@ -142,7 +178,12 @@ fn media_action_set_key(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, a
     });
 }
 
-fn media_action_replace_one(rows: RwSignal<Vec<SceneMemberDraft>>, row_idx: usize, aidx: usize, new_action: Value) {
+fn media_action_replace_one(
+    rows: RwSignal<Vec<SceneMemberDraft>>,
+    row_idx: usize,
+    aidx: usize,
+    new_action: Value,
+) {
     rows.update(|items| {
         if let Some(item) = items.get_mut(row_idx) {
             let mut list = decode_media_actions(&item.payload_text);
@@ -194,13 +235,26 @@ fn MediaActionRow(
     favorites: Vec<String>,
     playlists: Vec<String>,
 ) -> impl IntoView {
-    let cur_act   = Memo::new(move |_| media_action_get_str(rows, row_idx, aidx, "action").unwrap_or_default());
-    let cur_name  = Memo::new(move |_| media_action_get_str(rows, row_idx, aidx, "name").unwrap_or_default());
-    let cur_vol   = Memo::new(move |_| media_action_get_f64(rows, row_idx, aidx, "volume").unwrap_or(0.0));
-    let cur_muted = Memo::new(move |_| media_action_get_bool(rows, row_idx, aidx, "muted").unwrap_or(false));
-    let cur_shuf  = Memo::new(move |_| media_action_get_bool(rows, row_idx, aidx, "shuffle").unwrap_or(false));
-    let cur_bass  = Memo::new(move |_| media_action_get_f64(rows, row_idx, aidx, "bass").map(|v| v as i64).unwrap_or(0));
-    let cur_treb  = Memo::new(move |_| media_action_get_f64(rows, row_idx, aidx, "treble").map(|v| v as i64).unwrap_or(0));
+    let cur_act =
+        Memo::new(move |_| media_action_get_str(rows, row_idx, aidx, "action").unwrap_or_default());
+    let cur_name =
+        Memo::new(move |_| media_action_get_str(rows, row_idx, aidx, "name").unwrap_or_default());
+    let cur_vol =
+        Memo::new(move |_| media_action_get_f64(rows, row_idx, aidx, "volume").unwrap_or(0.0));
+    let cur_muted =
+        Memo::new(move |_| media_action_get_bool(rows, row_idx, aidx, "muted").unwrap_or(false));
+    let cur_shuf =
+        Memo::new(move |_| media_action_get_bool(rows, row_idx, aidx, "shuffle").unwrap_or(false));
+    let cur_bass = Memo::new(move |_| {
+        media_action_get_f64(rows, row_idx, aidx, "bass")
+            .map(|v| v as i64)
+            .unwrap_or(0)
+    });
+    let cur_treb = Memo::new(move |_| {
+        media_action_get_f64(rows, row_idx, aidx, "treble")
+            .map(|v| v as i64)
+            .unwrap_or(0)
+    });
 
     view! {
         <div class="media-action-row">
@@ -405,41 +459,130 @@ fn SceneDeviceEditor(
     rows: RwSignal<Vec<SceneMemberDraft>>,
     show_json_set: RwSignal<HashSet<usize>>,
 ) -> impl IntoView {
-    let dtype = device.as_ref().map(|d| presentation_device_type_key(d)).unwrap_or("unknown");
+    let dtype = device
+        .as_ref()
+        .map(|d| presentation_device_type_key(d))
+        .unwrap_or("unknown");
 
     // Static capability flags — derived once from live device
-    let has_on       = device.as_ref().map(|d| bool_attr(d.attributes.get("on")).is_some()).unwrap_or(false);
-    let has_bri      = device.as_ref().map(|d| d.attributes.get("brightness_pct").and_then(|v| v.as_f64()).is_some()).unwrap_or(false);
-    let has_ct       = device.as_ref().map(|d| d.attributes.get("color_temp").and_then(|v| v.as_f64()).is_some()).unwrap_or(false);
-    let has_position = device.as_ref().map(|d| d.attributes.get("position").and_then(|v| v.as_f64()).is_some()).unwrap_or(false);
-    let has_lock     = device.as_ref().map(|d| bool_attr(d.attributes.get("locked")).is_some()).unwrap_or(false);
-    let is_media     = device.as_ref().map(|d| is_media_player(d)).unwrap_or(false);
+    let has_on = device
+        .as_ref()
+        .map(|d| bool_attr(d.attributes.get("on")).is_some())
+        .unwrap_or(false);
+    let has_bri = device
+        .as_ref()
+        .map(|d| {
+            d.attributes
+                .get("brightness_pct")
+                .and_then(|v| v.as_f64())
+                .is_some()
+        })
+        .unwrap_or(false);
+    let has_ct = device
+        .as_ref()
+        .map(|d| {
+            d.attributes
+                .get("color_temp")
+                .and_then(|v| v.as_f64())
+                .is_some()
+        })
+        .unwrap_or(false);
+    let has_position = device
+        .as_ref()
+        .map(|d| {
+            d.attributes
+                .get("position")
+                .and_then(|v| v.as_f64())
+                .is_some()
+        })
+        .unwrap_or(false);
+    let has_lock = device
+        .as_ref()
+        .map(|d| bool_attr(d.attributes.get("locked")).is_some())
+        .unwrap_or(false);
+    let is_media = device.as_ref().map(|d| is_media_player(d)).unwrap_or(false);
 
     // Media player capabilities
-    let has_vol     = device.as_ref().map(|d| d.attributes.get("volume").and_then(|v| v.as_f64()).is_some()).unwrap_or(false);
-    let has_bass    = device.as_ref().map(|d| supports_action(d, "set_bass") && d.attributes.get("bass").and_then(|v| v.as_i64()).is_some()).unwrap_or(false);
-    let has_treble  = device.as_ref().map(|d| supports_action(d, "set_treble") && d.attributes.get("treble").and_then(|v| v.as_i64()).is_some()).unwrap_or(false);
-    let has_mute    = device.as_ref().map(|d| supports_action(d, "set_mute") && bool_attr(d.attributes.get("muted")).is_some()).unwrap_or(false);
-    let has_shuffle = device.as_ref().map(|d| supports_action(d, "set_shuffle") && bool_attr(d.attributes.get("shuffle")).is_some()).unwrap_or(false);
-    let sup_stop    = device.as_ref().map(|d| supports_action(d, "stop")).unwrap_or(false);
-    let favorites   = device.as_ref().map(|d| media_available_favorites(d)).unwrap_or_default();
-    let playlists   = device.as_ref().map(|d| media_available_playlists(d)).unwrap_or_default();
-    let has_favs    = !favorites.is_empty();
-    let has_pls     = !playlists.is_empty();
+    let has_vol = device
+        .as_ref()
+        .map(|d| {
+            d.attributes
+                .get("volume")
+                .and_then(|v| v.as_f64())
+                .is_some()
+        })
+        .unwrap_or(false);
+    let has_bass = device
+        .as_ref()
+        .map(|d| {
+            supports_action(d, "set_bass")
+                && d.attributes.get("bass").and_then(|v| v.as_i64()).is_some()
+        })
+        .unwrap_or(false);
+    let has_treble = device
+        .as_ref()
+        .map(|d| {
+            supports_action(d, "set_treble")
+                && d.attributes
+                    .get("treble")
+                    .and_then(|v| v.as_i64())
+                    .is_some()
+        })
+        .unwrap_or(false);
+    let has_mute = device
+        .as_ref()
+        .map(|d| supports_action(d, "set_mute") && bool_attr(d.attributes.get("muted")).is_some())
+        .unwrap_or(false);
+    let has_shuffle = device
+        .as_ref()
+        .map(|d| {
+            supports_action(d, "set_shuffle") && bool_attr(d.attributes.get("shuffle")).is_some()
+        })
+        .unwrap_or(false);
+    let sup_stop = device
+        .as_ref()
+        .map(|d| supports_action(d, "stop"))
+        .unwrap_or(false);
+    let favorites = device
+        .as_ref()
+        .map(|d| media_available_favorites(d))
+        .unwrap_or_default();
+    let playlists = device
+        .as_ref()
+        .map(|d| media_available_playlists(d))
+        .unwrap_or_default();
+    let has_favs = !favorites.is_empty();
+    let has_pls = !playlists.is_empty();
 
-    let is_sensor = matches!(dtype,
-        "motion_sensor" | "occupancy_sensor" | "contact_sensor" |
-        "leak_sensor"   | "vibration_sensor" | "environment_sensor" |
-        "temperature_sensor" | "humidity_sensor");
+    let is_sensor = matches!(
+        dtype,
+        "motion_sensor"
+            | "occupancy_sensor"
+            | "contact_sensor"
+            | "leak_sensor"
+            | "vibration_sensor"
+            | "environment_sensor"
+            | "temperature_sensor"
+            | "humidity_sensor"
+    );
 
     let has_controls = !is_sensor && (has_on || has_bri || has_position || has_lock || is_media);
 
     // Reactive reads from payload
-    let cur_on    = Memo::new(move |_| payload_get_bool(&payload_text_for(rows, idx), "on").unwrap_or(false));
-    let cur_bri   = Memo::new(move |_| payload_get_f64(&payload_text_for(rows, idx), "brightness_pct").unwrap_or(0.0));
-    let cur_ct    = Memo::new(move |_| payload_get_f64(&payload_text_for(rows, idx), "color_temp").unwrap_or(2700.0));
-    let cur_pos   = Memo::new(move |_| payload_get_f64(&payload_text_for(rows, idx), "position").unwrap_or(50.0));
-    let cur_lock  = Memo::new(move |_| payload_get_bool(&payload_text_for(rows, idx), "locked").unwrap_or(false));
+    let cur_on =
+        Memo::new(move |_| payload_get_bool(&payload_text_for(rows, idx), "on").unwrap_or(false));
+    let cur_bri = Memo::new(move |_| {
+        payload_get_f64(&payload_text_for(rows, idx), "brightness_pct").unwrap_or(0.0)
+    });
+    let cur_ct = Memo::new(move |_| {
+        payload_get_f64(&payload_text_for(rows, idx), "color_temp").unwrap_or(2700.0)
+    });
+    let cur_pos = Memo::new(move |_| {
+        payload_get_f64(&payload_text_for(rows, idx), "position").unwrap_or(50.0)
+    });
+    let cur_lock = Memo::new(move |_| {
+        payload_get_bool(&payload_text_for(rows, idx), "locked").unwrap_or(false)
+    });
     let show_json = Signal::derive(move || show_json_set.get().contains(&idx));
 
     view! {
@@ -687,7 +830,8 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
 
     let addable_devices: Memo<Vec<DeviceState>> = Memo::new(move |_| {
         let query = add_device_search.get().trim().to_lowercase();
-        let selected_ids: HashSet<String> = rows.get().into_iter().map(|row| row.device_id).collect();
+        let selected_ids: HashSet<String> =
+            rows.get().into_iter().map(|row| row.device_id).collect();
         let mut list: Vec<DeviceState> = devices
             .get()
             .into_iter()
@@ -1108,7 +1252,8 @@ pub fn PluginSceneDetailPage() -> impl IntoView {
     let auth = use_auth();
     let ws = use_ws();
     let params = use_params_map();
-    let device_id = params.with_untracked(|p| p.get("id").map(|s| s.to_string()).unwrap_or_default());
+    let device_id =
+        params.with_untracked(|p| p.get("id").map(|s| s.to_string()).unwrap_or_default());
     let activate_device_id = device_id.clone();
 
     let loading = RwSignal::new(true);
@@ -1135,7 +1280,8 @@ pub fn PluginSceneDetailPage() -> impl IntoView {
         });
     });
 
-    let device: Memo<Option<DeviceState>> = Memo::new(move |_| ws.devices.get().get(&device_id).cloned());
+    let device: Memo<Option<DeviceState>> =
+        Memo::new(move |_| ws.devices.get().get(&device_id).cloned());
 
     view! {
         <div class="page device-detail-page scene-detail-page">

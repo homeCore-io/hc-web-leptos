@@ -73,6 +73,10 @@ fn default_condition(t: &str) -> Value {
         "private_boolean_is" => json!({"type":"private_boolean_is","name":"","value":true}),
         "hub_variable" => json!({"type":"hub_variable","name":"","op":"eq","value":""}),
         "mode_is" => json!({"type":"mode_is","mode_id":"","on":true}),
+        "or"  => json!({"type":"or","conditions":[]}),
+        "and" => json!({"type":"and","conditions":[]}),
+        "not" => json!({"type":"not","condition":{"type":"device_state","device_id":"","attribute":"on","op":"eq","value":true}}),
+        "xor" => json!({"type":"xor","conditions":[]}),
         _ => json!({"type": t}),
     }
 }
@@ -1179,19 +1183,50 @@ fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
 // ── ConditionEditor ──────────────────────────────────────────────────────────
 
 #[component]
-fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
-    let cg = move || rule.get()["conditions"][index].clone();
+fn ConditionEditor(
+    rule: RwSignal<Value>,
+    index: usize,
+    /// For nested conditions inside or/and/xor groups.
+    #[prop(optional)] nested_path: Option<Vec<usize>>,
+) -> impl IntoView {
+    let np = nested_path.unwrap_or_default();
+    let np_stored = StoredValue::new(np);
+
+    // Helper: navigate to the right condition in the JSON tree.
+    fn walk<'a>(v: &'a mut Value, index: usize, np: &[usize]) -> &'a mut Value {
+        let mut target = &mut v["conditions"][index];
+        for &ni in np { target = &mut target["conditions"][ni]; }
+        target
+    }
+
+    // Read the condition value at the right depth.
+    let cg = move || -> Value {
+        let np = np_stored.get_value();
+        let mut v = rule.get()["conditions"][index].clone();
+        for &ni in np.iter() { v = v["conditions"][ni].clone(); }
+        v
+    };
+    // Write helpers — use StoredValue to make them accessible from reactive closures.
+    // StoredValue is non-reactive (doesn't trigger re-renders) but is Copy.
     let cset = move |key: &'static str, val: Value| {
-        rule.update(|v| { v["conditions"][index][key] = val; });
+        let np = np_stored.get_value();
+        rule.update(move |v| { walk(v, index, &np)[key] = val; });
     };
     let cset_opt = move |key: &'static str, raw: &str| {
-        rule.update(|v| {
-            if raw.trim().is_empty() { if let Some(o) = v["conditions"][index].as_object_mut() { o.remove(key); } }
+        let np = np_stored.get_value();
+        let raw = raw.to_string();
+        rule.update(move |v| {
+            let target = walk(v, index, &np);
+            if raw.trim().is_empty() { if let Some(o) = target.as_object_mut() { o.remove(key); } }
             else {
                 let parsed = serde_json::from_str::<Value>(raw.trim()).unwrap_or_else(|_| json!(raw.trim()));
-                v["conditions"][index][key] = parsed;
+                target[key] = parsed;
             }
         });
+    };
+    let cset_whole = move |val: Value| {
+        let np = np_stored.get_value();
+        rule.update(move |v| { *walk(v, index, &np) = val; });
     };
 
     view! {
@@ -1200,7 +1235,7 @@ fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
             <select class="hc-select"
                 on:change=move |ev| {
                     let t = event_target_value(&ev);
-                    rule.update(|v| { v["conditions"][index] = default_condition(&t); });
+                    cset_whole(default_condition(&t));
                 }
             >
                 {[("device_state","Device state"),("time_window","Time window"),("script_expression","Script (Rhai)"),
@@ -1347,10 +1382,202 @@ fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
                         </div>
                     }.into_any(),
 
-                    // Nested types → JSON fallback
+                    // ── OR / AND / XOR — nested condition list ─────────
+                    "or" | "and" | "xor" => {
+                        let label = match t.as_str() {
+                            "or"  => "ANY of these must be true (OR)",
+                            "and" => "ALL of these must be true (AND)",
+                            "xor" => "EXACTLY ONE must be true (XOR)",
+                            _     => "",
+                        };
+                        let border_class = match t.as_str() {
+                            "or"  => "cond-group cond-group--or",
+                            "and" => "cond-group cond-group--and",
+                            _     => "cond-group cond-group--xor",
+                        };
+                        let np_list_sv = np_stored; // StoredValue is Copy
+                        view! {
+                            <div class=border_class>
+                                <p class="cond-group-label">{label}</p>
+                                {move || {
+                                    // Read the nested conditions array
+                                    let mut parent = rule.get()["conditions"][index].clone();
+                                    for &ni in np_list_sv.get_value().iter() { parent = parent["conditions"][ni].clone(); }
+                                    let arr = parent["conditions"].as_array().cloned().unwrap_or_default();
+                                    let total = arr.len();
+
+                                    let items = arr.into_iter().enumerate().map(|(ci, _)| {
+                                        let is_first = ci == 0;
+                                        let is_last = ci + 1 >= total;
+                                        let mut child_path = np_list_sv.get_value();
+                                        child_path.push(ci);
+                                        view! {
+                                            <div class="json-row">
+                                                <div class="json-row-controls">
+                                                    <span class="json-row-index">{ci + 1}</span>
+                                                    <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move up" disabled=is_first
+                                                        on:click={
+                                                            let np_c = np_list_sv.get_value();
+                                                            move |_| {
+                                                                let np_c = np_c.clone();
+                                                                rule.update(|v| {
+                                                                    let mut target = &mut v["conditions"][index];
+                                                                    for &ni in np_c.iter() { target = &mut target["conditions"][ni]; }
+                                                                    if let Some(arr) = target["conditions"].as_array_mut() { if ci > 0 { arr.swap(ci - 1, ci); } }
+                                                                });
+                                                            }
+                                                        }
+                                                    ><span class="material-icons" style="font-size:14px">"arrow_upward"</span></button>
+                                                    <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move down" disabled=is_last
+                                                        on:click={
+                                                            let np_c = np_list_sv.get_value();
+                                                            move |_| {
+                                                                let np_c = np_c.clone();
+                                                                rule.update(|v| {
+                                                                    let mut target = &mut v["conditions"][index];
+                                                                    for &ni in np_c.iter() { target = &mut target["conditions"][ni]; }
+                                                                    if let Some(arr) = target["conditions"].as_array_mut() { if ci + 1 < arr.len() { arr.swap(ci, ci + 1); } }
+                                                                });
+                                                            }
+                                                        }
+                                                    ><span class="material-icons" style="font-size:14px">"arrow_downward"</span></button>
+                                                    <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
+                                                        on:click={
+                                                            let np_c = np_list_sv.get_value();
+                                                            move |_| {
+                                                                let np_c = np_c.clone();
+                                                                rule.update(|v| {
+                                                                    let mut target = &mut v["conditions"][index];
+                                                                    for &ni in np_c.iter() { target = &mut target["conditions"][ni]; }
+                                                                    if let Some(arr) = target["conditions"].as_array_mut() { arr.remove(ci); }
+                                                                });
+                                                            }
+                                                        }
+                                                    ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                                </div>
+                                                <ConditionEditor rule=rule index=index nested_path=child_path />
+                                            </div>
+                                        }
+                                    }).collect_view();
+
+                                    items
+                                }}
+                                <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin-top:0.25rem"
+                                    on:click={
+                                        let np_c = np_list_sv.get_value();
+                                        move |_| {
+                                            let np_c = np_c.clone();
+                                            rule.update(|v| {
+                                                let mut target = &mut v["conditions"][index];
+                                                for &ni in np_c.iter() { target = &mut target["conditions"][ni]; }
+                                                if let Some(arr) = target["conditions"].as_array_mut() {
+                                                    arr.push(default_condition("device_state"));
+                                                } else {
+                                                    target["conditions"] = json!([default_condition("device_state")]);
+                                                }
+                                            });
+                                        }
+                                    }
+                                >"+ Add condition"</button>
+                            </div>
+                        }.into_any()
+                    },
+
+                    // ── NOT — single wrapped condition ───────────────────
+                    "not" => {
+                        let np_not_sv = np_stored;
+                        view! {
+                            <div class="cond-group cond-group--not">
+                                <p class="cond-group-label">"NOT — inverts the result"</p>
+                                {move || {
+                                    let mut parent = rule.get()["conditions"][index].clone();
+                                    for &ni in np_not_sv.get_value().iter() { parent = parent["conditions"][ni].clone(); }
+                                    let has_inner = !parent["condition"].is_null();
+
+                                    if has_inner {
+                                        // Render a single ConditionEditor for the wrapped condition.
+                                        // NOT uses "condition" (singular), not "conditions" array.
+                                        // We handle this by rendering the inner JSON inline.
+                                        let inner = parent["condition"].clone();
+                                        let inner_type = inner["type"].as_str().unwrap_or("device_state").to_string();
+                                        view! {
+                                            <div class="json-row">
+                                                <div class="json-row-controls">
+                                                    <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove inner condition"
+                                                        on:click={
+                                                            let np_c = np_not_sv.get_value();
+                                                            move |_| {
+                                                                let np_c = np_c.clone();
+                                                                rule.update(|v| {
+                                                                    let mut target = &mut v["conditions"][index];
+                                                                    for &ni in np_c.iter() { target = &mut target["conditions"][ni]; }
+                                                                    target["condition"] = Value::Null;
+                                                                });
+                                                            }
+                                                        }
+                                                    ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                                </div>
+                                                // NOT's inner condition as inline JSON (single condition, not array-indexable)
+                                                <label class="field-label">"Inner condition type"</label>
+                                                <select class="hc-select" on:change={
+                                                    let np_c = np_not_sv.get_value();
+                                                    move |ev| {
+                                                        let new_t = event_target_value(&ev);
+                                                        let np_c = np_c.clone();
+                                                        rule.update(|v| {
+                                                            let mut target = &mut v["conditions"][index];
+                                                            for &ni in np_c.iter() { target = &mut target["conditions"][ni]; }
+                                                            target["condition"] = default_condition(&new_t);
+                                                        });
+                                                    }
+                                                }>
+                                                    {[("device_state","Device state"),("time_window","Time window"),("script_expression","Script"),
+                                                      ("time_elapsed","Time elapsed"),("mode_is","Mode is"),("hub_variable","Hub variable")]
+                                                        .map(|(v,l)| view! { <option value=v selected=inner_type==v>{l}</option> }).collect_view()}
+                                                </select>
+                                                <textarea class="hc-textarea hc-textarea--code" rows="3"
+                                                    prop:value=serde_json::to_string_pretty(&inner).unwrap_or_default()
+                                                    on:input={
+                                                        let np_c = np_not_sv.get_value();
+                                                        move |ev| {
+                                                            if let Ok(parsed) = serde_json::from_str::<Value>(&event_target_value(&ev)) {
+                                                                let np_c = np_c.clone();
+                                                                rule.update(|v| {
+                                                                    let mut target = &mut v["conditions"][index];
+                                                                    for &ni in np_c.iter() { target = &mut target["conditions"][ni]; }
+                                                                    target["condition"] = parsed;
+                                                                });
+                                                            }
+                                                        }
+                                                    }
+                                                />
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <button class="hc-btn hc-btn--sm hc-btn--outline"
+                                                on:click={
+                                                    let np_c = np_not_sv.get_value();
+                                                    move |_| {
+                                                        let np_c = np_c.clone();
+                                                        rule.update(|v| {
+                                                            let mut target = &mut v["conditions"][index];
+                                                            for &ni in np_c.iter() { target = &mut target["conditions"][ni]; }
+                                                            target["condition"] = default_condition("device_state");
+                                                        });
+                                                    }
+                                                }
+                                            >"+ Set inner condition"</button>
+                                        }.into_any()
+                                    }
+                                }}
+                            </div>
+                        }.into_any()
+                    },
+
+                    // Unknown → JSON fallback
                     _ => view! {
                         <div class="trigger-fields">
-                            <p class="msg-muted" style="font-size:0.78rem">"Nested condition — edit as JSON:"</p>
                             <JsonBlock rule=rule path_prefix="conditions" index=index rows=6 />
                         </div>
                     }.into_any(),

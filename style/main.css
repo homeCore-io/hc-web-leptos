@@ -2619,6 +2619,11 @@ a.cell-link:hover { text-decoration: underline; }
 }
 .day-chip input { display: none; }
 
+/* Device multi-select */
+.device-multi-select {
+  display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center;
+}
+
 /* Condition/action editors */
 .condition-editor, .action-editor { display: flex; flex-direction: column; gap: 0.4rem; }
 .action-header-row { display: flex; align-items: center; gap: 0.75rem; }

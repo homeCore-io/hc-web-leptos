@@ -203,11 +203,15 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
     let history_err: RwSignal<Option<String>> = RwSignal::new(None);
     let history_open   = RwSignal::new(false);
 
-    // Reference data (fetched once).
+    // Reference data (fetched once, provided as context for sub-components).
     let devices: RwSignal<Vec<DeviceState>> = RwSignal::new(vec![]);
     let areas: RwSignal<Vec<Area>> = RwSignal::new(vec![]);
     let scenes: RwSignal<Vec<Scene>> = RwSignal::new(vec![]);
     let modes: RwSignal<Vec<ModeRecord>> = RwSignal::new(vec![]);
+    provide_context(devices);
+    provide_context(areas);
+    provide_context(scenes);
+    provide_context(modes);
 
     // ── Load rule (edit mode) + reference data ───────────────────────────────
     Effect::new(move |_| {
@@ -776,11 +780,8 @@ fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
                 match t.as_str() {
                     "device_state_changed" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Device ID"</label>
-                            <input type="text" class="hc-input" placeholder="e.g. light.living_room"
-                                prop:value=jget_str(&trigger, "device_id")
-                                on:input=move |ev| tset("device_id", json!(event_target_value(&ev)))
-                            />
+                            <label class="field-label">"Device(s)"</label>
+                            <DeviceMultiSelect rule=rule />
                             <label class="field-label">"Attribute (blank = any)"</label>
                             <input type="text" class="hc-input" placeholder="e.g. on, brightness"
                                 prop:value=jget_opt_str(&trigger, "attribute")
@@ -818,11 +819,9 @@ fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
 
                     "device_availability_changed" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Device ID"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&trigger, "device_id")
-                                on:input=move |ev| tset("device_id", json!(event_target_value(&ev)))
-                            />
+                            <label class="field-label">"Device"</label>
+                            <DeviceSelect value=jget_str(&trigger, "device_id")
+                                on_select=Callback::new(move |id: String| tset("device_id", json!(id))) />
                             <label class="field-label">"Direction"</label>
                             <select class="hc-select" on:change=move |ev| {
                                 let raw = event_target_value(&ev);
@@ -841,11 +840,9 @@ fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
 
                     "button_event" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Device ID"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&trigger, "device_id")
-                                on:input=move |ev| tset("device_id", json!(event_target_value(&ev)))
-                            />
+                            <label class="field-label">"Device"</label>
+                            <DeviceSelect value=jget_str(&trigger, "device_id")
+                                on_select=Callback::new(move |id: String| tset("device_id", json!(id))) />
                             <label class="field-label">"Event type"</label>
                             <select class="hc-select" on:change=move |ev| tset("event", json!(event_target_value(&ev)))>
                                 {[("pushed","Pushed"),("held","Held"),("double_tapped","Double-tapped"),("released","Released")]
@@ -856,11 +853,9 @@ fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
 
                     "numeric_threshold" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Device ID"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&trigger, "device_id")
-                                on:input=move |ev| tset("device_id", json!(event_target_value(&ev)))
-                            />
+                            <label class="field-label">"Device"</label>
+                            <DeviceSelect value=jget_str(&trigger, "device_id")
+                                on_select=Callback::new(move |id: String| tset("device_id", json!(id))) />
                             <label class="field-label">"Attribute"</label>
                             <input type="text" class="hc-input"
                                 prop:value=jget_str(&trigger, "attribute")
@@ -1105,9 +1100,9 @@ fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
                 match t.as_str() {
                     "device_state" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Device ID"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&c, "device_id") on:input=move |ev| cset("device_id", json!(event_target_value(&ev))) />
+                            <label class="field-label">"Device"</label>
+                            <DeviceSelect value=jget_str(&c, "device_id")
+                                on_select=Callback::new(move |id: String| cset("device_id", json!(id))) />
                             <div class="trigger-row-2">
                                 <div>
                                     <label class="field-label">"Attribute"</label>
@@ -1157,9 +1152,9 @@ fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
 
                     "time_elapsed" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Device ID"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&c, "device_id") on:input=move |ev| cset("device_id", json!(event_target_value(&ev))) />
+                            <label class="field-label">"Device"</label>
+                            <DeviceSelect value=jget_str(&c, "device_id")
+                                on_select=Callback::new(move |id: String| cset("device_id", json!(id))) />
                             <label class="field-label">"Attribute"</label>
                             <input type="text" class="hc-input"
                                 prop:value=jget_str(&c, "attribute") on:input=move |ev| cset("attribute", json!(event_target_value(&ev))) />
@@ -1172,9 +1167,9 @@ fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
 
                     "device_last_change" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Device ID"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&c, "device_id") on:input=move |ev| cset("device_id", json!(event_target_value(&ev))) />
+                            <label class="field-label">"Device"</label>
+                            <DeviceSelect value=jget_str(&c, "device_id")
+                                on_select=Callback::new(move |id: String| cset("device_id", json!(id))) />
                             <label class="field-label">"Change kind (blank = any)"</label>
                             <input type="text" class="hc-input"
                                 prop:value=jget_opt_str(&c, "kind") on:input=move |ev| cset_opt("kind", &event_target_value(&ev)) />
@@ -1324,8 +1319,9 @@ fn ActionEditor(
                 match t.as_str() {
                     "set_device_state" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Device ID"</label>
-                            <input type="text" class="hc-input" prop:value=jget_str(&a,"device_id") on:input=move |ev| aset("device_id", json!(event_target_value(&ev))) />
+                            <label class="field-label">"Device"</label>
+                            <DeviceSelect value=jget_str(&a, "device_id")
+                                on_select=Callback::new(move |id: String| aset("device_id", json!(id))) />
                             <label class="field-label">"State (JSON)"</label>
                             <textarea class="hc-textarea hc-textarea--code" rows="3"
                                 prop:value=serde_json::to_string_pretty(&a["state"]).unwrap_or_default()
@@ -1446,8 +1442,9 @@ fn ActionEditor(
 
                     "fade_device" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Device ID"</label>
-                            <input type="text" class="hc-input" prop:value=jget_str(&a,"device_id") on:input=move |ev| aset("device_id", json!(event_target_value(&ev))) />
+                            <label class="field-label">"Device"</label>
+                            <DeviceSelect value=jget_str(&a, "device_id")
+                                on_select=Callback::new(move |id: String| aset("device_id", json!(id))) />
                             <label class="field-label">"Target state (JSON)"</label>
                             <textarea class="hc-textarea hc-textarea--code" rows="2"
                                 prop:value=serde_json::to_string_pretty(&a["target"]).unwrap_or_default()
@@ -1546,6 +1543,131 @@ fn JsonBlock(
             {move || json_err.get().map(|e| view! {
                 <p class="msg-error" style="font-size:0.78rem; margin:0.2rem 0 0">{e}</p>
             })}
+        </div>
+    }
+}
+
+// ── DeviceSelect ─────────────────────────────────────────────────────────────
+// Dropdown that shows device names, stores device_id.
+
+#[component]
+fn DeviceSelect(
+    /// Current device_id value.
+    value: String,
+    /// Called with the selected device_id.
+    on_select: Callback<String>,
+) -> impl IntoView {
+    let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
+
+    view! {
+        <select class="hc-select"
+            on:change=move |ev| on_select.run(event_target_value(&ev))
+        >
+            <option value="" disabled=true selected=value.is_empty()>"— Select device —"</option>
+            {move || {
+                let mut devs = devices.get();
+                devs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                let current = value.clone();
+                // If the current value isn't in the device list (e.g. deleted device),
+                // show it as a separate option so the user can see what's set.
+                let has_current = current.is_empty() || devs.iter().any(|d| d.device_id == current);
+                let orphan = if !has_current {
+                    Some(view! {
+                        <option value=current.clone() selected=true>{format!("{current} (unknown)")}</option>
+                    })
+                } else { None };
+
+                let options = devs.into_iter().map(|d| {
+                    let sel = d.device_id == current;
+                    view! {
+                        <option value=d.device_id selected=sel>{d.name}</option>
+                    }
+                }).collect_view();
+
+                view! { {orphan} {options} }
+            }}
+        </select>
+    }
+}
+
+// ── DeviceMultiSelect ────────────────────────────────────────────────────────
+// For triggers with device_ids: shows selected devices as chips + add dropdown.
+
+#[component]
+fn DeviceMultiSelect(
+    rule: RwSignal<Value>,
+) -> impl IntoView {
+    let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
+
+    // Read primary device_id + additional device_ids from trigger
+    let get_all_ids = move || -> Vec<String> {
+        let trigger = rule.get()["trigger"].clone();
+        let primary = trigger["device_id"].as_str().unwrap_or("").to_string();
+        let mut ids = trigger["device_ids"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect::<Vec<_>>())
+            .unwrap_or_default();
+        // When device_ids is non-empty, primary is included in the set.
+        // When device_ids is empty, just the primary.
+        if ids.is_empty() && !primary.is_empty() {
+            ids.push(primary);
+        } else if !ids.is_empty() && !primary.is_empty() && !ids.contains(&primary) {
+            ids.insert(0, primary);
+        }
+        ids
+    };
+
+    let set_ids = move |ids: Vec<String>| {
+        rule.update(|v| {
+            if ids.len() <= 1 {
+                // Single device: use device_id only, clear device_ids.
+                v["trigger"]["device_id"] = json!(ids.first().cloned().unwrap_or_default());
+                if let Some(obj) = v["trigger"].as_object_mut() { obj.remove("device_ids"); }
+            } else {
+                // Multiple: device_id = first, device_ids = all.
+                v["trigger"]["device_id"] = json!(ids[0]);
+                v["trigger"]["device_ids"] = json!(ids);
+            }
+        });
+    };
+
+    let device_name = move |id: &str| -> String {
+        devices.get().iter().find(|d| d.device_id == id).map(|d| d.name.clone()).unwrap_or_else(|| id.to_string())
+    };
+
+    view! {
+        <div class="device-multi-select">
+            // Current devices as chips
+            {move || {
+                let ids = get_all_ids();
+                ids.into_iter().enumerate().map(|(i, id)| {
+                    let name = device_name(&id);
+                    view! {
+                        <span class="tag-chip">
+                            {name}
+                            <button class="tag-chip-remove" title="Remove device"
+                                on:click=move |_| {
+                                    let mut ids = get_all_ids();
+                                    ids.remove(i);
+                                    set_ids(ids);
+                                }
+                            >"×"</button>
+                        </span>
+                    }
+                }).collect_view()
+            }}
+
+            // Add device dropdown
+            {
+                let add_device = move |id: String| {
+                    if id.is_empty() { return; }
+                    let mut ids = get_all_ids();
+                    if !ids.contains(&id) { ids.push(id); }
+                    set_ids(ids);
+                };
+                view! {
+                    <DeviceSelect value=String::new() on_select=Callback::new(add_device) />
+                }
+            }
         </div>
     }
 }

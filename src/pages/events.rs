@@ -167,7 +167,17 @@ fn source_class(src: &str) -> &'static str {
 }
 
 fn format_time(ts: &str) -> String {
-    // Extract HH:MM:SS from ISO timestamp
+    // Parse UTC timestamp and convert to local time via JS Date.
+    if let Some(_window) = web_sys::window() {
+        let js_date = js_sys::Date::new(&wasm_bindgen::JsValue::from_str(ts));
+        if js_date.get_time().is_finite() {
+            let h = js_date.get_hours();
+            let m = js_date.get_minutes();
+            let s = js_date.get_seconds();
+            return format!("{h:02}:{m:02}:{s:02}");
+        }
+    }
+    // Fallback: extract from raw string
     if let Some(t_pos) = ts.find('T') {
         let time_part = &ts[t_pos + 1..];
         time_part.get(..8).unwrap_or(time_part).to_string()

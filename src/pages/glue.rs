@@ -40,7 +40,7 @@ fn type_icon(t: &str) -> &'static str {
         "threshold" => "thermostat",
         "schedule"  => "calendar_month",
         "timer"     => "timer",
-        "virtual_switch" => "toggle_on",
+        "switch" | "virtual_switch" => "toggle_on",
         _ => "extension",
     }
 }
@@ -86,7 +86,7 @@ fn device_value_summary(d: &Value) -> String {
             if state == "running" { format!("running ({remaining}s)") }
             else { state.to_string() }
         }
-        "virtual_switch" => {
+        "switch" | "virtual_switch" => {
             if attrs["on"].as_bool() == Some(true) { "ON".to_string() } else { "off".to_string() }
         }
         _ => "—".to_string(),
@@ -443,7 +443,7 @@ pub fn GlueDetailPage() -> impl IntoView {
                                     </div>
                                 }.into_any()
                             }
-                            "switch" | "virtual_switch" => {
+                            "switch" | "virtual_switch" | "vswitch" => {
                                 let on = attrs["on"].as_bool().unwrap_or(false);
                                 view! {
                                     <div class="glue-ctrl-row">

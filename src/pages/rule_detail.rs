@@ -1305,24 +1305,55 @@ fn ActionEditor(
     rule: RwSignal<Value>,
     path: &'static str,
     index: usize,
+    /// For nested actions inside block actions (e.g. conditional then_actions).
+    #[prop(optional)] nested_key: Option<&'static str>,
+    #[prop(optional)] nested_index: Option<usize>,
 ) -> impl IntoView {
-    let ag = move || rule.get()[path][index].clone();
+    // Path-aware accessors that handle both top-level and nested actions.
+    let ag = move || -> Value {
+        match (nested_key, nested_index) {
+            (Some(nk), Some(ni)) => rule.get()[path][index][nk][ni].clone(),
+            _ => rule.get()[path][index].clone(),
+        }
+    };
     let aset = move |key: &'static str, val: Value| {
-        rule.update(|v| { v[path][index][key] = val; });
+        rule.update(|v| {
+            match (nested_key, nested_index) {
+                (Some(nk), Some(ni)) => { v[path][index][nk][ni][key] = val; }
+                _ => { v[path][index][key] = val; }
+            }
+        });
     };
     let aset_opt = move |key: &'static str, raw: &str| {
         rule.update(|v| {
-            if raw.trim().is_empty() { if let Some(o) = v[path][index].as_object_mut() { o.remove(key); } }
+            let target = match (nested_key, nested_index) {
+                (Some(nk), Some(ni)) => &mut v[path][index][nk][ni],
+                _ => &mut v[path][index],
+            };
+            if raw.trim().is_empty() { if let Some(o) = target.as_object_mut() { o.remove(key); } }
             else {
                 let parsed = serde_json::from_str::<Value>(raw.trim()).unwrap_or_else(|_| json!(raw.trim()));
-                v[path][index][key] = parsed;
+                target[key] = parsed;
             }
         });
     };
     let aset_u64 = move |key: &'static str, raw: String| {
         rule.update(|v| {
-            if raw.trim().is_empty() { if let Some(o) = v[path][index].as_object_mut() { o.remove(key); } }
-            else if let Ok(n) = raw.trim().parse::<u64>() { v[path][index][key] = json!(n); }
+            let target = match (nested_key, nested_index) {
+                (Some(nk), Some(ni)) => &mut v[path][index][nk][ni],
+                _ => &mut v[path][index],
+            };
+            if raw.trim().is_empty() { if let Some(o) = target.as_object_mut() { o.remove(key); } }
+            else if let Ok(n) = raw.trim().parse::<u64>() { target[key] = json!(n); }
+        });
+    };
+    // For replacing the entire action (category/type change)
+    let aset_whole = move |val: Value| {
+        rule.update(|v| {
+            match (nested_key, nested_index) {
+                (Some(nk), Some(ni)) => { v[path][index][nk][ni] = val; }
+                _ => { v[path][index] = val; }
+            }
         });
     };
 
@@ -1351,12 +1382,14 @@ fn ActionEditor(
                             class="action-cat-btn"
                             class:action-cat-btn--active=move || action_category(ag()["type"].as_str().unwrap_or("")) == *key
                             on:click=move |_| {
+                                // Only reset if switching to a different category
+                                let current_cat = action_category(ag()["type"].as_str().unwrap_or(""));
+                                if current_cat == *key { return; }
                                 let def = category_default(key);
-                                rule.update(|v| {
-                                    let enabled = v[path][index]["enabled"].as_bool().unwrap_or(true);
-                                    v[path][index] = default_action(def);
-                                    v[path][index]["enabled"] = json!(enabled);
-                                });
+                                let enabled = ag()["enabled"].as_bool().unwrap_or(true);
+                                let mut new_action = default_action(def);
+                                new_action["enabled"] = json!(enabled);
+                                aset_whole(new_action);
                             }
                         >
                             <span class="material-icons" style="font-size:16px">{*icon}</span>
@@ -1381,7 +1414,7 @@ fn ActionEditor(
                                 <select class="hc-select" on:change=move |ev| {
                                     let new_t = event_target_value(&ev);
                                     let enabled = ag()["enabled"].as_bool().unwrap_or(true);
-                                    rule.update(|v| { v[path][index] = default_action(&new_t); v[path][index]["enabled"] = json!(enabled); });
+                                    let mut a = default_action(&new_t); a["enabled"] = json!(enabled); aset_whole(a);
                                 }>
                                     {[("set_device_state","Command device"),("fade_device","Fade device"),("capture_device_state","Capture state"),("restore_device_state","Restore state")]
                                         .map(|(v,l)| view! { <option value=v selected=t==v>{l}</option> }).collect_view()}
@@ -1391,7 +1424,7 @@ fn ActionEditor(
                                         <label class="field-label">"Device"</label>
                                         <DeviceSelect value=jget_str(&a,"device_id")
                                             on_select=Callback::new(move |id: String| aset("device_id", json!(id))) />
-                                        <DeviceStateBuilder rule=rule path=path index=index />
+                                        <DeviceStateBuilder rule=rule path=path index=index nested_key=nested_key nested_index=nested_index />
                                         {(t == "fade_device").then(|| view! {
                                             <label class="field-label">"Duration (seconds)"</label>
                                             <input type="number" class="hc-input hc-input--sm" style="width:8rem"
@@ -2105,19 +2138,55 @@ fn DeviceStateBuilder(
     rule: RwSignal<Value>,
     path: &'static str,
     index: usize,
+    nested_key: Option<&'static str>,
+    nested_index: Option<usize>,
 ) -> impl IntoView {
     let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
+    let nk = nested_key;
+    let ni = nested_index;
+
+    // Read the action value at the right path depth
+    let action_val = move || -> Value {
+        match (nk, ni) {
+            (Some(nk), Some(ni)) => rule.get()[path][index][nk][ni].clone(),
+            _ => rule.get()[path][index].clone(),
+        }
+    };
 
     let state_key = move || {
-        if rule.get_untracked()[path][index]["type"].as_str() == Some("fade_device") { "target" } else { "state" }
+        if action_val()["type"].as_str() == Some("fade_device") { "target" } else { "state" }
+    };
+
+    // Write to the state sub-object at the correct nested path
+    let state_update = move |f: Box<dyn FnOnce(&mut Value)>| {
+        let sk = state_key();
+        rule.update(|v| {
+            let target = match (nk, ni) {
+                (Some(nk), Some(ni)) => &mut v[path][index][nk][ni][sk],
+                _ => &mut v[path][index][sk],
+            };
+            f(target);
+        });
+    };
+    // Set a single field in the state sub-object
+    let sset = move |field: &'static str, val: Value| {
+        state_update(Box::new(move |s| { s[field] = val; }));
+    };
+    let sset_opt = move |field: &'static str, raw: &str| {
+        let raw = raw.to_string();
+        state_update(Box::new(move |s| {
+            if raw.trim().is_empty() { if let Some(o) = s.as_object_mut() { o.remove(field); } }
+            else { s[field] = json!(raw.trim()); }
+        }));
     };
 
     view! {
         <div class="state-builder">
             {move || {
-                let device_id = rule.get()[path][index]["device_id"].as_str().unwrap_or("").to_string();
+                let av = action_val();
+                let device_id = av["device_id"].as_str().unwrap_or("").to_string();
                 let sk = state_key();
-                let state = rule.get()[path][index][sk].clone();
+                let state = av[sk].clone();
 
                 let dev = devices.get().into_iter().find(|d| d.device_id == device_id);
                 if device_id.is_empty() {
@@ -2145,8 +2214,8 @@ fn DeviceStateBuilder(
                         on:change=move |ev| {
                             let cmd = event_target_value(&ev);
                             let new_state = command_to_state(&cmd, &d_for_change);
-                            let sk = state_key();
-                            rule.update(|v| { v[path][index][sk] = new_state; });
+                            let _sk = state_key();
+                            state_update(Box::new(|s| { *s = new_state; }));
                         }
                     >
                         <option value="" disabled=true selected=current_cmd.is_empty()>"— Select command —"</option>
@@ -2167,8 +2236,8 @@ fn DeviceStateBuilder(
                                     prop:value=state["brightness_pct"].as_f64().unwrap_or(50.0).to_string()
                                     on:input=move |ev| {
                                         if let Ok(n) = event_target_value(&ev).parse::<i64>() {
-                                            let sk = state_key();
-                                            rule.update(|v| { v[path][index][sk]["brightness_pct"] = json!(n); });
+                                            let _sk = state_key();
+                                            sset("brightness_pct", json!(n));
                                         }
                                     }
                                 />
@@ -2185,8 +2254,8 @@ fn DeviceStateBuilder(
                                     prop:value=state["color_temp"].as_f64().unwrap_or(2700.0).to_string()
                                     on:input=move |ev| {
                                         if let Ok(n) = event_target_value(&ev).parse::<i64>() {
-                                            let sk = state_key();
-                                            rule.update(|v| { v[path][index][sk]["color_temp"] = json!(n); });
+                                            let _sk = state_key();
+                                            sset("color_temp", json!(n));
                                         }
                                     }
                                 />
@@ -2203,8 +2272,8 @@ fn DeviceStateBuilder(
                                     prop:value=state["position"].as_f64().unwrap_or(50.0).to_string()
                                     on:input=move |ev| {
                                         if let Ok(n) = event_target_value(&ev).parse::<i64>() {
-                                            let sk = state_key();
-                                            rule.update(|v| { v[path][index][sk]["position"] = json!(n); });
+                                            let _sk = state_key();
+                                            sset("position", json!(n));
                                         }
                                     }
                                 />
@@ -2222,8 +2291,8 @@ fn DeviceStateBuilder(
                                     prop:value=state["volume"].as_f64().unwrap_or(20.0).to_string()
                                     on:input=move |ev| {
                                         if let Ok(n) = event_target_value(&ev).parse::<i64>() {
-                                            let sk = state_key();
-                                            rule.update(|v| { v[path][index][sk]["volume"] = json!(n); });
+                                            let _sk = state_key();
+                                            sset("volume", json!(n));
                                         }
                                     }
                                 />
@@ -2241,8 +2310,8 @@ fn DeviceStateBuilder(
                                     prop:value=state["bass"].as_i64().unwrap_or(0).to_string()
                                     on:input=move |ev| {
                                         if let Ok(n) = event_target_value(&ev).parse::<i64>() {
-                                            let sk = state_key();
-                                            rule.update(|v| { v[path][index][sk]["bass"] = json!(n); });
+                                            let _sk = state_key();
+                                            sset("bass", json!(n));
                                         }
                                     }
                                 />
@@ -2259,8 +2328,8 @@ fn DeviceStateBuilder(
                                     prop:value=state["treble"].as_i64().unwrap_or(0).to_string()
                                     on:input=move |ev| {
                                         if let Ok(n) = event_target_value(&ev).parse::<i64>() {
-                                            let sk = state_key();
-                                            rule.update(|v| { v[path][index][sk]["treble"] = json!(n); });
+                                            let _sk = state_key();
+                                            sset("treble", json!(n));
                                         }
                                     }
                                 />
@@ -2274,10 +2343,10 @@ fn DeviceStateBuilder(
                             <span class="control-label">"Mute"</span>
                             <div class="toggle-group">
                                 <button class:active=state["muted"].as_bool() == Some(true)
-                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["muted"] = json!(true); }); }
+                                    on:click=move |_| sset("muted", json!(true))
                                 >"Muted"</button>
                                 <button class:active=state["muted"].as_bool() == Some(false)
-                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["muted"] = json!(false); }); }
+                                    on:click=move |_| sset("muted", json!(false))
                                 >"Unmuted"</button>
                             </div>
                         </div>
@@ -2288,10 +2357,10 @@ fn DeviceStateBuilder(
                             <span class="control-label">"Shuffle"</span>
                             <div class="toggle-group">
                                 <button class:active=state["shuffle"].as_bool() == Some(true)
-                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["shuffle"] = json!(true); }); }
+                                    on:click=move |_| sset("shuffle", json!(true))
                                 >"On"</button>
                                 <button class:active=state["shuffle"].as_bool() == Some(false)
-                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["shuffle"] = json!(false); }); }
+                                    on:click=move |_| sset("shuffle", json!(false))
                                 >"Off"</button>
                             </div>
                         </div>
@@ -2302,10 +2371,10 @@ fn DeviceStateBuilder(
                             <span class="control-label">"Loudness"</span>
                             <div class="toggle-group">
                                 <button class:active=state["loudness"].as_bool() == Some(true)
-                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["loudness"] = json!(true); }); }
+                                    on:click=move |_| sset("loudness", json!(true))
                                 >"On"</button>
                                 <button class:active=state["loudness"].as_bool() == Some(false)
-                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["loudness"] = json!(false); }); }
+                                    on:click=move |_| sset("loudness", json!(false))
                                 >"Off"</button>
                             </div>
                         </div>
@@ -2318,8 +2387,8 @@ fn DeviceStateBuilder(
                                 <span class="control-label">"Favorite"</span>
                                 <select class="hc-select"
                                     on:change=move |ev| {
-                                        let sk = state_key();
-                                        rule.update(|v| { v[path][index][sk]["favorite"] = json!(event_target_value(&ev)); });
+                                        let _sk = state_key();
+                                        sset("favorite", json!(event_target_value(&ev)));
                                     }
                                 >
                                     <option value="" disabled=true selected=cur.is_empty()>"— Select —"</option>
@@ -2340,8 +2409,8 @@ fn DeviceStateBuilder(
                                 <span class="control-label">"Playlist"</span>
                                 <select class="hc-select"
                                     on:change=move |ev| {
-                                        let sk = state_key();
-                                        rule.update(|v| { v[path][index][sk]["playlist"] = json!(event_target_value(&ev)); });
+                                        let _sk = state_key();
+                                        sset("playlist", json!(event_target_value(&ev)));
                                     }
                                 >
                                     <option value="" disabled=true selected=cur.is_empty()>"— Select —"</option>
@@ -2364,8 +2433,8 @@ fn DeviceStateBuilder(
                                     prop:value=state["duration_secs"].as_u64().unwrap_or(300).to_string()
                                     on:input=move |ev| {
                                         if let Ok(n) = event_target_value(&ev).parse::<u64>() {
-                                            let sk = state_key();
-                                            rule.update(|v| { v[path][index][sk]["duration_secs"] = json!(n); });
+                                            let _sk = state_key();
+                                            sset("duration_secs", json!(n));
                                         }
                                     }
                                 />
@@ -2376,17 +2445,7 @@ fn DeviceStateBuilder(
                             <span class="control-label">"Label"</span>
                             <input type="text" class="hc-input hc-input--sm" placeholder="optional"
                                 prop:value=state["label"].as_str().unwrap_or("").to_string()
-                                on:input=move |ev| {
-                                    let raw = event_target_value(&ev);
-                                    let sk = state_key();
-                                    rule.update(|v| {
-                                        if raw.trim().is_empty() {
-                                            if let Some(o) = v[path][index][sk].as_object_mut() { o.remove("label"); }
-                                        } else {
-                                            v[path][index][sk]["label"] = json!(raw);
-                                        }
-                                    });
-                                }
+                                on:input=move |ev| sset_opt("label", &event_target_value(&ev))
                             />
                         </div>
                     }.into_any(),
@@ -2654,12 +2713,6 @@ fn NestedItemList(
                     arr.into_iter().enumerate().map(|(ai, _item)| {
                         let is_first = ai == 0;
                         let is_last = ai + 1 >= total;
-                        // Build the deep path for this nested action: path[index][key][ai]
-                        // We pass a synthetic path to ActionEditor — but ActionEditor expects
-                        // rule[path][index] to be the action. For nested, we need a different approach.
-                        // Instead, render inline controls.
-                        let a = rule.get()[path][index][key][ai].clone();
-                        let a_type = a["type"].as_str().unwrap_or("log_message").to_string();
                         view! {
                             <div class="json-row nested-action-row">
                                 <div class="json-row-controls">
@@ -2680,19 +2733,7 @@ fn NestedItemList(
                                         })
                                     ><span class="material-icons" style="font-size:14px">"close"</span></button>
                                 </div>
-                                // Nested action type + inline JSON editor
-                                <label class="field-label">"Action"</label>
-                                <select class="hc-select" on:change=move |ev| {
-                                    let new_t = event_target_value(&ev);
-                                    rule.update(|v| { v[path][index][key][ai] = default_action(&new_t); });
-                                }>
-                                    {[("set_device_state","Device command"),("notify","Notify"),("set_mode","Set mode"),
-                                      ("delay","Delay"),("log_message","Log message"),("run_script","Script"),
-                                      ("fire_event","Fire event"),("set_variable","Set variable"),
-                                      ("stop_rule_chain","Stop chain"),("exit_rule","Exit rule")]
-                                        .map(|(v,l)| view! { <option value=v selected=a_type==v>{l}</option> }).collect_view()}
-                                </select>
-                                <JsonBlock rule=rule path_prefix=path index=index nested_key=key nested_index=ai rows=3 />
+                                <ActionEditor rule=rule path=path index=index nested_key=key nested_index=ai />
                             </div>
                         }
                     }).collect_view().into_any()

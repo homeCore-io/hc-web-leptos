@@ -45,18 +45,19 @@ fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
         "rule_evaluation_failed" => "warn",
         _ => "info",
     };
-    // Summary uses {DEVICE_ID} placeholders — resolved at render time.
+    // Use device_name from event if available, fall back to device_id.
     let did = ev["device_id"].as_str().unwrap_or("");
+    let dn = ev["device_name"].as_str().unwrap_or(did);
     let summary = match t {
         "device_state_changed" => {
             let changed = ev["changed"].as_array()
                 .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", "))
                 .unwrap_or_default();
-            format!("{did}: {changed}")
+            format!("{dn}: {changed}")
         }
         "device_availability_changed" => {
             let avail = if ev["available"].as_bool() == Some(true) { "online" } else { "offline" };
-            format!("{did} → {avail}")
+            format!("{dn} → {avail}")
         }
         "rule_fired" => {
             let name = ev["rule_name"].as_str().unwrap_or("");
@@ -83,11 +84,15 @@ fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
             let on = if ev["on"].as_bool() == Some(true) { "on" } else { "off" };
             format!("Mode: {name} → {on}")
         }
-        "device_command_sent" => format!("Command → {did}"),
+        "device_command_sent" => {
+            let cmd_dn = ev["device_name"].as_str().unwrap_or(did);
+            format!("Command → {cmd_dn}")
+        }
         "timer_state_changed" => {
             let tid = ev["timer_id"].as_str().unwrap_or("");
+            let tname = ev["timer_name"].as_str().unwrap_or(tid);
             let state = ev["state"].as_str().unwrap_or("");
-            format!("Timer {tid}: {state}")
+            format!("Timer {tname}: {state}")
         }
         "plugin_registered" => format!("Plugin registered: {}", ev["plugin_id"].as_str().unwrap_or("")),
         "plugin_offline" => format!("Plugin offline: {}", ev["plugin_id"].as_str().unwrap_or("")),
@@ -443,18 +448,20 @@ pub fn EventsPage() -> impl IntoView {
                             let src_cls = source_class(entry.source);
                             let time_str = format_time(&entry.timestamp);
                             let kind_label = entry.kind.replace('_', " ");
-                            let raw_summary = entry.summary.clone();
                             let raw = entry.raw.clone();
 
-                            // Resolve device IDs → names using the device map loaded above
-                            let summary = {
-                                let mut s = raw_summary;
+                            // For log entries, resolve device IDs in the summary
+                            // (events already have device_name from core).
+                            let summary = if entry.source == "log" {
+                                let mut s = entry.summary.clone();
                                 for (did, dev) in devs.iter() {
                                     if s.contains(did.as_str()) {
                                         s = s.replace(did.as_str(), &dev.name);
                                     }
                                 }
                                 s
+                            } else {
+                                entry.summary.clone()
                             };
                             let severity = entry.severity.clone();
                             let source = entry.source;

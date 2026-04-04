@@ -3,10 +3,12 @@
 use crate::api::{create_glue, delete_glue, fetch_glue, fetch_glue_device, send_glue_command, update_device_meta};
 use crate::auth::use_auth;
 use crate::pages::shared::SearchField;
+use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use serde_json::{json, Value};
+use wasm_bindgen::prelude::*;
 
 // ── Type metadata ────────────────────────────────────────────────────────────
 
@@ -82,9 +84,14 @@ fn device_value_summary(d: &Value) -> String {
         }
         "timer" => {
             let state = attrs["state"].as_str().unwrap_or("idle");
-            let remaining = attrs["remaining_secs"].as_u64().unwrap_or(0);
-            if state == "running" { format!("running ({remaining}s)") }
-            else { state.to_string() }
+            if state == "running" {
+                let remaining = compute_remaining(attrs);
+                let mins = remaining / 60;
+                let secs = remaining % 60;
+                format!("running ({mins}:{secs:02})")
+            } else {
+                state.to_string()
+            }
         }
         "switch" | "virtual_switch" => {
             if attrs["on"].as_bool() == Some(true) { "ON".to_string() } else { "off".to_string() }
@@ -93,12 +100,32 @@ fn device_value_summary(d: &Value) -> String {
     }
 }
 
+/// For a running timer, compute remaining seconds from started_at + duration.
+fn compute_remaining(attrs: &Value) -> u64 {
+    let duration = attrs["duration_secs"].as_u64().unwrap_or(0);
+    let started = attrs["started_at"].as_str().unwrap_or("");
+    if started.is_empty() {
+        return attrs["remaining_secs"].as_u64().unwrap_or(0);
+    }
+    let now_ms = js_sys::Date::now(); // millis since epoch
+    let start_ms = js_sys::Date::new(&wasm_bindgen::JsValue::from_str(started)).get_time();
+    if !start_ms.is_finite() {
+        return attrs["remaining_secs"].as_u64().unwrap_or(0);
+    }
+    let elapsed = ((now_ms - start_ms) / 1000.0).max(0.0) as u64;
+    duration.saturating_sub(elapsed)
+}
+
+fn is_glue_device(plugin_id: &str) -> bool {
+    matches!(plugin_id, "core.glue" | "core.timer" | "core.switch")
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 #[component]
 pub fn GluePage() -> impl IntoView {
     let auth = use_auth();
-    let devices: RwSignal<Vec<Value>> = RwSignal::new(vec![]);
+    let ws = use_ws();
     let loading = RwSignal::new(true);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
     let search = RwSignal::new(String::new());
@@ -111,35 +138,71 @@ pub fn GluePage() -> impl IntoView {
     let new_name = RwSignal::new(String::new());
     let creating = RwSignal::new(false);
 
-    // Fetch
-    let reload = move || {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+    // 1-second tick for timer countdown display
+    let timer_tick = RwSignal::new(0u64);
+    Effect::new(move |_| {
+        let callback = Closure::<dyn FnMut()>::new(move || {
+            timer_tick.update(|t| *t += 1);
+        });
+        let handle = web_sys::window().and_then(|window| {
+            window
+                .set_interval_with_callback_and_timeout_and_arguments_0(
+                    callback.as_ref().unchecked_ref(),
+                    1000,
+                )
+                .ok()
+        });
+        callback.forget();
+        on_cleanup(move || {
+            if let (Some(window), Some(handle)) = (web_sys::window(), handle) {
+                window.clear_interval_with_handle(handle);
+            }
+        });
+    });
+
+    // Seed WS device map from glue REST endpoint
+    Effect::new(move |_| {
+        let token = match auth.token.get() { Some(t) => t, None => return };
         loading.set(true);
         spawn_local(async move {
             match fetch_glue(&token).await {
-                Ok(data) => devices.set(data),
+                Ok(data) => {
+                    ws.devices.update(|m| {
+                        for d in data {
+                            if let Ok(dev) = serde_json::from_value::<crate::models::DeviceState>(d) {
+                                m.insert(dev.device_id.clone(), dev);
+                            }
+                        }
+                    });
+                }
                 Err(e) => error.set(Some(e)),
             }
             loading.set(false);
         });
-    };
-
-    Effect::new(move |_| {
-        let _ = auth.token.get();
-        reload();
     });
 
-    // Filtered list
+    // Derive glue devices from the live WS device map
     let filtered = Memo::new(move |_| {
+        let _ = timer_tick.get(); // subscribe to tick for timer countdowns
         let q = search.get().to_lowercase();
-        let mut list: Vec<Value> = devices.get().into_iter()
+        let all = ws.devices.get();
+        let mut list: Vec<Value> = all.values()
+            .filter(|d| is_glue_device(&d.plugin_id))
             .filter(|d| {
                 if q.is_empty() { return true; }
-                let name = d["name"].as_str().unwrap_or("").to_lowercase();
-                let id = d["device_id"].as_str().unwrap_or("").to_lowercase();
-                let dt = device_type_str(d).to_lowercase();
-                name.contains(&q) || id.contains(&q) || dt.contains(&q)
+                let dt = d.device_type.as_deref().unwrap_or("");
+                d.name.to_lowercase().contains(&q)
+                    || d.device_id.to_lowercase().contains(&q)
+                    || dt.to_lowercase().contains(&q)
             })
+            .map(|d| json!({
+                "device_id": d.device_id,
+                "name": d.name,
+                "device_type": d.device_type,
+                "available": d.available,
+                "plugin_id": d.plugin_id,
+                "attributes": d.attributes,
+            }))
             .collect();
         list.sort_by(|a, b| {
             let ta = device_type_str(a);
@@ -157,7 +220,10 @@ pub fn GluePage() -> impl IntoView {
             <div class="page-heading">
                 <div>
                     <h1>"Glue Devices"</h1>
-                    <p>{move || format!("{} devices", devices.get().len())}</p>
+                    <p>{move || {
+                        let count = ws.devices.get().values().filter(|d| is_glue_device(&d.plugin_id)).count();
+                        format!("{count} devices")
+                    }}</p>
                 </div>
                 <button class="hc-btn hc-btn--primary"
                     on:click=move |_| show_create.update(|v| *v = !*v)
@@ -208,7 +274,9 @@ pub fn GluePage() -> impl IntoView {
                             spawn_local(async move {
                                 match create_glue(&token, &body).await {
                                     Ok(dev) => {
-                                        devices.update(|list| list.push(dev));
+                                        if let Ok(d) = serde_json::from_value::<crate::models::DeviceState>(dev) {
+                                            ws.devices.update(|m| { m.insert(d.device_id.clone(), d); });
+                                        }
                                         new_id.set(String::new());
                                         new_name.set(String::new());
                                         show_create.set(false);
@@ -279,7 +347,7 @@ pub fn GluePage() -> impl IntoView {
                                                             confirm_delete.set(None);
                                                             spawn_local(async move {
                                                                 match delete_glue(&token, &id).await {
-                                                                    Ok(()) => devices.update(|list| list.retain(|d| d["device_id"].as_str() != Some(&id))),
+                                                                    Ok(()) => ws.devices.update(|m| { m.remove(&id); }),
                                                                     Err(e) => error.set(Some(e)),
                                                                 }
                                                             });

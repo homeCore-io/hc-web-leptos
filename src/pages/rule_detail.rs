@@ -13,7 +13,7 @@ use crate::api::{
     fetch_rule, fetch_scenes, rule_fire_history, test_rule, update_rule,
 };
 use crate::auth::use_auth;
-use crate::models::{Area, DeviceState, ModeRecord, Scene};
+use crate::models::{is_scene_like, Area, DeviceState, ModeRecord, Scene};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -1561,11 +1561,11 @@ fn DeviceSelect(
         >
             <option value="" disabled=true selected=value.is_empty()>"— Select device —"</option>
             {move || {
-                let mut devs = devices.get();
+                let mut devs: Vec<DeviceState> = devices.get().into_iter()
+                    .filter(|d| !is_scene_like(d))
+                    .collect();
                 devs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
                 let current = value.clone();
-                // If the current value isn't in the device list (e.g. deleted device),
-                // show it as a separate option so the user can see what's set.
                 let has_current = current.is_empty() || devs.iter().any(|d| d.device_id == current);
                 let orphan = if !has_current {
                     Some(view! {

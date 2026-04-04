@@ -1,6 +1,6 @@
 //! Glue devices management page — create, view, and delete helper devices.
 
-use crate::api::{create_glue, delete_glue, fetch_glue, fetch_glue_device, send_glue_command};
+use crate::api::{create_glue, delete_glue, fetch_glue, fetch_glue_device, send_glue_command, update_device_meta};
 use crate::auth::use_auth;
 use crate::pages::shared::SearchField;
 use leptos::prelude::*;
@@ -11,6 +11,8 @@ use serde_json::{json, Value};
 // ── Type metadata ────────────────────────────────────────────────────────────
 
 const GLUE_TYPES: &[(&str, &str, &str)] = &[
+    ("switch",    "Switch",         "On/off toggle for automation flags"),
+    ("timer",     "Timer",          "Countdown timer with start/pause/cancel"),
     ("counter",   "Counter",        "Tracks event counts with increment/decrement"),
     ("number",    "Input Number",   "Adjustable numeric value with min/max"),
     ("select",    "Input Select",   "Dropdown with predefined options"),
@@ -104,7 +106,7 @@ pub fn GluePage() -> impl IntoView {
     let confirm_delete: RwSignal<Option<String>> = RwSignal::new(None);
 
     // Create form state
-    let new_type = RwSignal::new("counter".to_string());
+    let new_type = RwSignal::new("switch".to_string());
     let new_id = RwSignal::new(String::new());
     let new_name = RwSignal::new(String::new());
     let creating = RwSignal::new(false);
@@ -384,14 +386,34 @@ pub fn GlueDetailPage() -> impl IntoView {
                 let icon = type_icon(&dt);
                 let label = type_label(&dt);
                 let did = d["device_id"].as_str().unwrap_or("").to_string();
+                let current_name = d["name"].as_str().unwrap_or("").to_string();
                 let attrs = d["attributes"].clone();
 
                 view! {
                     <section class="detail-card">
                         <div class="glue-detail-header">
                             <span class="material-icons" style="font-size:28px; color:var(--hc-text-muted)">{icon}</span>
-                            <div>
-                                <h3 style="margin:0">{d["name"].as_str().unwrap_or("").to_string()}</h3>
+                            <div style="flex:1">
+                                <div class="rule-header-row">
+                                    <input type="text" class="hc-input rule-name-input"
+                                        prop:value=current_name.clone()
+                                        on:change=move |ev| {
+                                            let new_name = event_target_value(&ev);
+                                            if new_name.trim().is_empty() || new_name == current_name { return; }
+                                            let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+                                            let did = device_id();
+                                            busy.set(true);
+                                            spawn_local(async move {
+                                                let _ = update_device_meta(&token, &did, &json!({"name": new_name})).await;
+                                                match fetch_glue_device(&token, &did).await {
+                                                    Ok(d) => device.set(Some(d)),
+                                                    Err(e) => error.set(Some(e)),
+                                                }
+                                                busy.set(false);
+                                            });
+                                        }
+                                    />
+                                </div>
                                 <span class="glue-meta">{label}" · "<code>{did}</code></span>
                             </div>
                         </div>

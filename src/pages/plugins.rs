@@ -174,7 +174,7 @@ pub fn PluginsPage() -> impl IntoView {
             // ── Loading ─────────────────────────────────────────────────────
             {move || loading.get().then(|| view! { <p class="msg-muted">"Loading…"</p> })}
 
-            // ── Plugin cards ────────────────────────────────────────────────
+            // ── Plugin rows ─────────────────────────────────────────────────
             <div class="plugin-list">
                 {move || {
                     let list = filtered.get();
@@ -197,37 +197,37 @@ pub fn PluginsPage() -> impl IntoView {
                             let is_busy = current_busy.as_deref() == Some(&id);
                             let nav = use_navigate();
 
-                            // Action button closures
                             let id_start = id.clone();
                             let id_stop = id.clone();
                             let id_restart = id.clone();
 
                             view! {
-                                <div class="plugin-card" style="cursor:pointer"
-                                    on:click=move |_| {
-                                        let path = format!("/plugins/{}", id_nav);
-                                        nav(&path, Default::default());
-                                    }
-                                >
-                                    <div class="plugin-card-header">
-                                        <span class=dot_cls></span>
-                                        <span class="plugin-name">{name}</span>
-                                        <span class="plugin-badge plugin-status-badge">{label}</span>
-                                        {(!version.is_empty()).then(|| view! {
-                                            <span class="plugin-badge plugin-version-badge">{"v"}{version.clone()}</span>
-                                        })}
-                                        <span class="plugin-badge plugin-type-badge">{type_label(managed)}</span>
-                                    </div>
-                                    <div class="plugin-card-meta">
+                                <div class="plugin-row" on:click=move |_| {
+                                    let path = format!("/plugins/{}", id_nav);
+                                    nav(&path, Default::default());
+                                }>
+                                    // Left: status + name + badges
+                                    <span class=dot_cls></span>
+                                    <span class="plugin-row-name">{name}</span>
+                                    <span class="plugin-badge plugin-status-badge">{label}</span>
+                                    {(!version.is_empty()).then(|| view! {
+                                        <span class="plugin-badge plugin-version-badge">{"v"}{version.clone()}</span>
+                                    })}
+                                    <span class="plugin-badge plugin-type-badge">{type_label(managed)}</span>
+
+                                    // Center: meta
+                                    <div class="plugin-row-meta">
                                         <span title="Devices"><span class="material-icons" style="font-size:14px">"devices"</span>" "{device_count.to_string()}</span>
                                         <span title="Uptime"><span class="material-icons" style="font-size:14px">"schedule"</span>" "{uptime}</span>
                                         {(restart_count > 0).then(|| view! {
                                             <span title="Restarts"><span class="material-icons" style="font-size:14px">"refresh"</span>" "{restart_count.to_string()}</span>
                                         })}
                                     </div>
+
+                                    // Right: actions
                                     {managed.then(|| {
                                         view! {
-                                            <div class="plugin-card-actions" on:click=|ev: web_sys::MouseEvent| ev.stop_propagation()>
+                                            <div class="plugin-row-actions" on:click=|ev: web_sys::MouseEvent| ev.stop_propagation()>
                                                 {(status == "stopped" || status == "offline").then(|| {
                                                     let id = id_start.clone();
                                                     let do_action = do_action.clone();

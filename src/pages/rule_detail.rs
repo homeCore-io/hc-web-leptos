@@ -792,20 +792,24 @@ fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
                                 on_select=Callback::new(move |attr: String| tset_opt("attribute", &attr))
                             />
                             <div class="trigger-row-2">
-                                <div>
-                                    <label class="field-label">"To (JSON, blank = any)"</label>
-                                    <input type="text" class="hc-input"
-                                        prop:value=jget_opt_str(&trigger, "to")
-                                        on:input=move |ev| tset_opt("to", &event_target_value(&ev))
-                                    />
-                                </div>
-                                <div>
-                                    <label class="field-label">"From (JSON, blank = any)"</label>
-                                    <input type="text" class="hc-input"
-                                        prop:value=jget_opt_str(&trigger, "from")
-                                        on:input=move |ev| tset_opt("from", &event_target_value(&ev))
-                                    />
-                                </div>
+                                <AttrValueSelect
+                                    device_id=jget_str(&trigger, "device_id")
+                                    attribute=jget_opt_str(&trigger, "attribute")
+                                    value=trigger["to"].clone()
+                                    label="To (blank = any)"
+                                    on_select=Callback::new(move |raw: String| {
+                                        tset_opt("to", &raw);
+                                    })
+                                />
+                                <AttrValueSelect
+                                    device_id=jget_str(&trigger, "device_id")
+                                    attribute=jget_opt_str(&trigger, "attribute")
+                                    value=trigger["from"].clone()
+                                    label="From (blank = any)"
+                                    on_select=Callback::new(move |raw: String| {
+                                        tset_opt("from", &raw);
+                                    })
+                                />
                             </div>
                             <label class="field-label">"Hold duration (seconds, blank = immediate)"</label>
                             <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="None"
@@ -1121,9 +1125,13 @@ fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
                                     </select>
                                 </div>
                             </div>
-                            <label class="field-label">"Value (JSON)"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_opt_str(&c, "value") on:input=move |ev| cset_opt("value", &event_target_value(&ev)) />
+                            <AttrValueSelect
+                                device_id=jget_str(&c, "device_id")
+                                attribute=jget_str(&c, "attribute")
+                                value=c["value"].clone()
+                                label="Value"
+                                on_select=Callback::new(move |raw: String| cset_opt("value", &raw))
+                            />
                         </div>
                     }.into_any(),
 
@@ -2033,6 +2041,100 @@ fn DeviceStateBuilder(
                     {cmd_select}
                     {control}
                 }.into_any()
+            }}
+        </div>
+    }
+}
+
+// ── AttrValueSelect ──────────────────────────────────────────────────────────
+// Dropdown for trigger to/from values based on device attribute type.
+// Shows canonical labels: Open/Closed, On/Off, Locked/Unlocked, etc.
+
+/// Canonical display labels for a boolean attribute's true/false values.
+fn bool_labels(attr: &str) -> (&'static str, &'static str) {
+    match attr {
+        "open"       => ("Open",        "Closed"),
+        "on"         => ("On",          "Off"),
+        "locked"     => ("Locked",      "Unlocked"),
+        "muted"      => ("Muted",       "Unmuted"),
+        "shuffle"    => ("On",          "Off"),
+        "loudness"   => ("On",          "Off"),
+        "available"  => ("Online",      "Offline"),
+        "motion"     => ("Active",      "Clear"),
+        "occupied"   => ("Occupied",    "Vacant"),
+        "leak"       => ("Leak detected","Dry"),
+        "vibration"  => ("Active",      "Clear"),
+        _            => ("True",        "False"),
+    }
+}
+
+#[component]
+fn AttrValueSelect(
+    /// device_id to look up the attribute's current value type.
+    device_id: String,
+    /// Attribute name (e.g. "open", "on", "brightness_pct").
+    attribute: String,
+    /// Current value (may be null if "any").
+    value: Value,
+    /// Label for this field.
+    label: &'static str,
+    on_select: Callback<String>,
+) -> impl IntoView {
+    let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
+
+    view! {
+        <div>
+            <label class="field-label">{label}</label>
+            {move || {
+                let dev = devices.get().into_iter().find(|d| d.device_id == device_id);
+                let attr_val = dev.as_ref().and_then(|d| d.attributes.get(&attribute)).cloned();
+                let is_bool = attr_val.as_ref().map(|v| v.is_boolean()).unwrap_or(false)
+                    || matches!(attribute.as_str(), "on"|"open"|"locked"|"muted"|"shuffle"|"loudness"|"motion"|"occupied"|"leak"|"vibration"|"available");
+
+                if is_bool || attribute.is_empty() && value.is_boolean() {
+                    // Boolean attribute — show canonical labels (Open/Closed, On/Off, etc.)
+                    let attr_for_labels = if attribute.is_empty() { "on" } else { &attribute };
+                    let (true_label, false_label) = bool_labels(attr_for_labels);
+                    let cur = if value.is_null() { "" }
+                        else if value.as_bool() == Some(true) { "true" }
+                        else { "false" };
+                    view! {
+                        <select class="hc-select"
+                            on:change=move |ev| on_select.run(event_target_value(&ev))
+                        >
+                            <option value="" selected=cur.is_empty()>"— any —"</option>
+                            <option value="true" selected=cur == "true">{true_label}</option>
+                            <option value="false" selected=cur == "false">{false_label}</option>
+                        </select>
+                    }.into_any()
+                } else if attr_val.as_ref().map(|v| v.is_number()).unwrap_or(false) {
+                    // Numeric — show number input
+                    let num_str = if value.is_null() { String::new() } else { value.to_string() };
+                    view! {
+                        <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="any"
+                            prop:value=num_str
+                            on:input=move |ev| on_select.run(event_target_value(&ev))
+                        />
+                    }.into_any()
+                } else if attr_val.as_ref().map(|v| v.is_string()).unwrap_or(false) {
+                    // String attribute — show current value + empty for "any"
+                    let cur = if value.is_null() { String::new() } else { value.as_str().unwrap_or("").to_string() };
+                    view! {
+                        <input type="text" class="hc-input hc-input--sm" placeholder="any"
+                            prop:value=cur
+                            on:input=move |ev| on_select.run(event_target_value(&ev))
+                        />
+                    }.into_any()
+                } else {
+                    // Unknown / no device selected — fallback text
+                    let cur = if value.is_null() { String::new() } else { value.to_string() };
+                    view! {
+                        <input type="text" class="hc-input hc-input--sm" placeholder="any (JSON)"
+                            prop:value=cur
+                            on:input=move |ev| on_select.run(event_target_value(&ev))
+                        />
+                    }.into_any()
+                }
             }}
         </div>
     }

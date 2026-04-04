@@ -1672,8 +1672,98 @@ fn DeviceMultiSelect(
 }
 
 // ── DeviceStateBuilder ───────────────────────────────────────────────────────
-// Shows device-aware controls (toggles, sliders, numeric) for building
-// state JSON in set_device_state and fade_device actions.
+// Each action = one command to the device. Dropdown of available commands,
+// then the appropriate control for just that command.
+
+/// Build the list of available commands for a device based on its capabilities.
+fn device_commands(d: &DeviceState) -> Vec<(&'static str, &'static str)> {
+    let mut cmds = Vec::new();
+    let has = |k: &str| d.attributes.contains_key(k);
+    let has_f = |k: &str| d.attributes.get(k).and_then(|v| v.as_f64()).is_some();
+
+    if has("on") {
+        cmds.push(("on_true",  "Turn on"));
+        cmds.push(("on_false", "Turn off"));
+    }
+    if has_f("brightness_pct") { cmds.push(("brightness_pct", "Set brightness")); }
+    if has_f("color_temp")     { cmds.push(("color_temp", "Set color temperature")); }
+    if has_f("position")       { cmds.push(("position", "Set position")); }
+    if has("locked") {
+        cmds.push(("lock",   "Lock"));
+        cmds.push(("unlock", "Unlock"));
+    }
+    if is_media_player(d) {
+        cmds.push(("play",  "Play"));
+        cmds.push(("pause", "Pause"));
+        cmds.push(("stop",  "Stop"));
+        cmds.push(("next",  "Next track"));
+        cmds.push(("prev",  "Previous track"));
+        if has_f("volume")  { cmds.push(("set_volume", "Set volume")); }
+        if has("muted")     { cmds.push(("set_mute",   "Set mute")); }
+        if has("shuffle")   { cmds.push(("set_shuffle", "Set shuffle")); }
+        if has("loudness")  { cmds.push(("set_loudness","Set loudness")); }
+        if d.attributes.get("bass").and_then(|v| v.as_i64()).is_some()   { cmds.push(("set_bass",   "Set bass")); }
+        if d.attributes.get("treble").and_then(|v| v.as_i64()).is_some() { cmds.push(("set_treble", "Set treble")); }
+        if !media_available_favorites(d).is_empty() { cmds.push(("play_favorite", "Play favorite")); }
+        if !media_available_playlists(d).is_empty() { cmds.push(("play_playlist", "Play playlist")); }
+    }
+    cmds
+}
+
+/// Determine the current command key from the state JSON.
+fn detect_command(state: &Value) -> String {
+    let obj = match state.as_object() { Some(o) => o, None => return String::new() };
+    // Media action-based commands
+    if let Some(act) = obj.get("action").and_then(|v| v.as_str()) {
+        return match act {
+            "play" => "play", "pause" => "pause", "stop" => "stop",
+            "next" => "next", "previous" => "prev",
+            "set_volume" => "set_volume", "set_mute" => "set_mute",
+            "set_shuffle" => "set_shuffle", "set_bass" => "set_bass",
+            "set_treble" => "set_treble", "set_loudness" => "set_loudness",
+            "play_favorite" => "play_favorite", "play_playlist" => "play_playlist",
+            _ => act,
+        }.to_string();
+    }
+    // Direct attribute commands
+    if let Some(v) = obj.get("on") {
+        return if v.as_bool() == Some(true) { "on_true" } else { "on_false" }.to_string();
+    }
+    if obj.contains_key("locked") {
+        return if obj["locked"].as_bool() == Some(true) { "lock" } else { "unlock" }.to_string();
+    }
+    if obj.contains_key("brightness_pct") { return "brightness_pct".to_string(); }
+    if obj.contains_key("color_temp")     { return "color_temp".to_string(); }
+    if obj.contains_key("position")       { return "position".to_string(); }
+    String::new()
+}
+
+/// Build the state JSON for a given command key with a default value.
+fn command_to_state(cmd: &str, d: &DeviceState) -> Value {
+    match cmd {
+        "on_true"        => json!({"on": true}),
+        "on_false"       => json!({"on": false}),
+        "brightness_pct" => json!({"brightness_pct": d.attributes.get("brightness_pct").and_then(|v| v.as_i64()).unwrap_or(50)}),
+        "color_temp"     => json!({"color_temp": d.attributes.get("color_temp").and_then(|v| v.as_i64()).unwrap_or(2700)}),
+        "position"       => json!({"position": d.attributes.get("position").and_then(|v| v.as_i64()).unwrap_or(50)}),
+        "lock"           => json!({"locked": true}),
+        "unlock"         => json!({"locked": false}),
+        "play"           => json!({"action": "play"}),
+        "pause"          => json!({"action": "pause"}),
+        "stop"           => json!({"action": "stop"}),
+        "next"           => json!({"action": "next"}),
+        "prev"           => json!({"action": "previous"}),
+        "set_volume"     => json!({"action": "set_volume", "volume": d.attributes.get("volume").and_then(|v| v.as_i64()).unwrap_or(20)}),
+        "set_mute"       => json!({"action": "set_mute", "muted": false}),
+        "set_shuffle"    => json!({"action": "set_shuffle", "shuffle": false}),
+        "set_loudness"   => json!({"action": "set_loudness", "loudness": true}),
+        "set_bass"       => json!({"action": "set_bass", "bass": d.attributes.get("bass").and_then(|v| v.as_i64()).unwrap_or(0)}),
+        "set_treble"     => json!({"action": "set_treble", "treble": d.attributes.get("treble").and_then(|v| v.as_i64()).unwrap_or(0)}),
+        "play_favorite"  => json!({"action": "play_favorite", "favorite": ""}),
+        "play_playlist"  => json!({"action": "play_playlist", "playlist": ""}),
+        _                => json!({}),
+    }
+}
 
 #[component]
 fn DeviceStateBuilder(
@@ -1683,33 +1773,17 @@ fn DeviceStateBuilder(
 ) -> impl IntoView {
     let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
 
-    // "state" for set_device_state, "target" for fade_device
     let state_key = move || {
         if rule.get_untracked()[path][index]["type"].as_str() == Some("fade_device") { "target" } else { "state" }
-    };
-
-    // Helpers to read/write state fields
-    let sget = move |key: &str| -> Value {
-        rule.get()[path][index][state_key()][key].clone()
-    };
-    let sset = move |key: &'static str, val: Value| {
-        let sk = state_key();
-        rule.update(|v| { v[path][index][sk][key] = val; });
-    };
-    let sdel = move |key: &'static str| {
-        let sk = state_key();
-        rule.update(|v| {
-            if let Some(obj) = v[path][index][sk].as_object_mut() { obj.remove(key); }
-        });
-    };
-    let shas = move |key: &str| -> bool {
-        rule.get()[path][index][state_key()].get(key).is_some_and(|v| !v.is_null())
     };
 
     view! {
         <div class="state-builder">
             {move || {
                 let device_id = rule.get()[path][index]["device_id"].as_str().unwrap_or("").to_string();
+                let sk = state_key();
+                let state = rule.get()[path][index][sk].clone();
+
                 let dev = devices.get().into_iter().find(|d| d.device_id == device_id);
                 if device_id.is_empty() {
                     return view! { <p class="msg-muted" style="font-size:0.85rem">"Select a device first."</p> }.into_any();
@@ -1719,277 +1793,245 @@ fn DeviceStateBuilder(
                     None => return view! { <p class="msg-muted" style="font-size:0.85rem">"Device not found."</p> }.into_any(),
                 };
 
-                // Detect device capabilities
-                let has_on  = d.attributes.contains_key("on");
-                let has_bri = d.attributes.get("brightness_pct").and_then(|v| v.as_f64()).is_some();
-                let has_ct  = d.attributes.get("color_temp").and_then(|v| v.as_f64()).is_some();
-                let has_pos = d.attributes.get("position").and_then(|v| v.as_f64()).is_some();
-                let has_lock = d.attributes.contains_key("locked");
-                let is_media = is_media_player(&d);
-                let has_vol = d.attributes.get("volume").and_then(|v| v.as_f64()).is_some();
-                let has_bass = d.attributes.get("bass").and_then(|v| v.as_i64()).is_some();
-                let has_treble = d.attributes.get("treble").and_then(|v| v.as_i64()).is_some();
-                let has_mute = d.attributes.contains_key("muted");
-                let has_shuffle = d.attributes.contains_key("shuffle");
-                let has_loudness = d.attributes.contains_key("loudness");
+                let cmds = device_commands(&d);
+                let current_cmd = detect_command(&state);
                 let favorites = media_available_favorites(&d);
                 let playlists = media_available_playlists(&d);
 
-                view! {
-                    // ── Power on/off ─────────────────────────────────────
-                    {has_on.then(|| view! {
-                        <div class="control-row">
-                            <span class="control-label">"Power"</span>
-                            <div class="toggle-group">
-                                <button class:active=move || sget("on").as_bool() == Some(true)
-                                    on:click=move |_| sset("on", json!(true))
-                                >"On"</button>
-                                <button class:active=move || sget("on").as_bool() == Some(false)
-                                    on:click=move |_| sset("on", json!(false))
-                                >"Off"</button>
-                                <button class:active=move || !shas("on")
-                                    on:click=move |_| sdel("on")
-                                >"—"</button>
-                            </div>
-                        </div>
-                    })}
+                if cmds.is_empty() {
+                    return view! { <p class="msg-muted" style="font-size:0.85rem">"No known commands for this device."</p> }.into_any();
+                }
 
-                    // ── Brightness slider ─────────────────────────────────
-                    {has_bri.then(|| view! {
+                // Command selector
+                let d_for_change = d.clone();
+                let cmd_select = view! {
+                    <label class="field-label">"Command"</label>
+                    <select class="hc-select"
+                        on:change=move |ev| {
+                            let cmd = event_target_value(&ev);
+                            let new_state = command_to_state(&cmd, &d_for_change);
+                            let sk = state_key();
+                            rule.update(|v| { v[path][index][sk] = new_state; });
+                        }
+                    >
+                        <option value="" disabled=true selected=current_cmd.is_empty()>"— Select command —"</option>
+                        {cmds.iter().map(|(k, label)| {
+                            let sel = *k == current_cmd;
+                            view! { <option value=*k selected=sel>{*label}</option> }
+                        }).collect_view()}
+                    </select>
+                };
+
+                // Command-specific control
+                let control = match current_cmd.as_str() {
+                    "brightness_pct" => view! {
                         <div class="control-row">
                             <span class="control-label">"Brightness"</span>
                             <div class="state-slider-row">
                                 <input type="range" class="state-slider" min="0" max="100" step="1"
-                                    prop:value=move || sget("brightness_pct").as_f64().unwrap_or(0.0).to_string()
+                                    prop:value=state["brightness_pct"].as_f64().unwrap_or(50.0).to_string()
                                     on:input=move |ev| {
-                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() { sset("brightness_pct", json!(n)); }
+                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() {
+                                            let sk = state_key();
+                                            rule.update(|v| { v[path][index][sk]["brightness_pct"] = json!(n); });
+                                        }
                                     }
                                 />
-                                <span class="state-slider-val">{move || format!("{}%", sget("brightness_pct").as_i64().unwrap_or(0))}</span>
+                                <span class="state-slider-val">{format!("{}%", state["brightness_pct"].as_i64().unwrap_or(50))}</span>
                             </div>
                         </div>
-                    })}
+                    }.into_any(),
 
-                    // ── Color temperature slider ─────────────────────────
-                    {has_ct.then(|| view! {
+                    "color_temp" => view! {
                         <div class="control-row">
                             <span class="control-label">"Color Temp"</span>
                             <div class="state-slider-row">
                                 <input type="range" class="state-slider" min="2000" max="6500" step="100"
-                                    prop:value=move || sget("color_temp").as_f64().unwrap_or(2700.0).to_string()
+                                    prop:value=state["color_temp"].as_f64().unwrap_or(2700.0).to_string()
                                     on:input=move |ev| {
-                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() { sset("color_temp", json!(n)); }
+                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() {
+                                            let sk = state_key();
+                                            rule.update(|v| { v[path][index][sk]["color_temp"] = json!(n); });
+                                        }
                                     }
                                 />
-                                <span class="state-slider-val">{move || format!("{}K", sget("color_temp").as_i64().unwrap_or(2700))}</span>
+                                <span class="state-slider-val">{format!("{}K", state["color_temp"].as_i64().unwrap_or(2700))}</span>
                             </div>
                         </div>
-                    })}
+                    }.into_any(),
 
-                    // ── Position slider (shades) ─────────────────────────
-                    {has_pos.then(|| view! {
+                    "position" => view! {
                         <div class="control-row">
                             <span class="control-label">"Position"</span>
                             <div class="state-slider-row">
                                 <input type="range" class="state-slider" min="0" max="100" step="1"
-                                    prop:value=move || sget("position").as_f64().unwrap_or(0.0).to_string()
+                                    prop:value=state["position"].as_f64().unwrap_or(50.0).to_string()
                                     on:input=move |ev| {
-                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() { sset("position", json!(n)); }
+                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() {
+                                            let sk = state_key();
+                                            rule.update(|v| { v[path][index][sk]["position"] = json!(n); });
+                                        }
                                     }
                                 />
-                                <span class="state-slider-val">{move || format!("{}%", sget("position").as_i64().unwrap_or(0))}</span>
+                                <span class="state-slider-val">{format!("{}%", state["position"].as_i64().unwrap_or(50))}</span>
                             </div>
                         </div>
-                    })}
+                    }.into_any(),
 
-                    // ── Lock / Unlock ─────────────────────────────────────
-                    {has_lock.then(|| view! {
-                        <div class="control-row">
-                            <span class="control-label">"Lock"</span>
-                            <div class="toggle-group">
-                                <button class:active=move || sget("locked").as_bool() == Some(true)
-                                    on:click=move |_| sset("locked", json!(true))
-                                >"Lock"</button>
-                                <button class:active=move || sget("locked").as_bool() == Some(false)
-                                    on:click=move |_| sset("locked", json!(false))
-                                >"Unlock"</button>
-                            </div>
-                        </div>
-                    })}
-
-                    // ── Media: Action dropdown ───────────────────────────
-                    {is_media.then(|| view! {
-                        <div class="control-row">
-                            <span class="control-label">"Action"</span>
-                            <select class="hc-select"
-                                on:change=move |ev| {
-                                    let v = event_target_value(&ev);
-                                    if v.is_empty() { sdel("action"); } else { sset("action", json!(v)); }
-                                }
-                            >
-                                <option value="" selected=move || !shas("action")>"— none —"</option>
-                                {["play","pause","stop","next","previous"].map(|a| view! {
-                                    <option value=a selected=move || sget("action").as_str() == Some(a)>{a}</option>
-                                }).collect_view()}
-                            </select>
-                        </div>
-                    })}
-
-                    // ── Media: Volume slider ─────────────────────────────
-                    {(is_media && has_vol).then(|| view! {
+                    "set_volume" => view! {
                         <div class="control-row">
                             <span class="control-label">"Volume"</span>
                             <div class="state-slider-row">
                                 <span class="material-icons" style="font-size:16px;color:var(--hc-text-muted)">"volume_down"</span>
                                 <input type="range" class="state-slider" min="0" max="100" step="1"
-                                    prop:value=move || sget("volume").as_f64().unwrap_or(0.0).to_string()
+                                    prop:value=state["volume"].as_f64().unwrap_or(20.0).to_string()
                                     on:input=move |ev| {
-                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() { sset("volume", json!(n)); }
+                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() {
+                                            let sk = state_key();
+                                            rule.update(|v| { v[path][index][sk]["volume"] = json!(n); });
+                                        }
                                     }
                                 />
                                 <span class="material-icons" style="font-size:16px;color:var(--hc-text-muted)">"volume_up"</span>
-                                <span class="state-slider-val">{move || format!("{}%", sget("volume").as_i64().unwrap_or(0))}</span>
+                                <span class="state-slider-val">{format!("{}%", state["volume"].as_i64().unwrap_or(20))}</span>
                             </div>
                         </div>
-                    })}
+                    }.into_any(),
 
-                    // ── Media: Favorites dropdown ────────────────────────
-                    {(!favorites.is_empty()).then(|| {
-                        let favs = favorites.clone();
+                    "set_bass" => view! {
+                        <div class="control-row">
+                            <span class="control-label">"Bass"</span>
+                            <div class="state-slider-row">
+                                <input type="range" class="state-slider" min="-10" max="10" step="1"
+                                    prop:value=state["bass"].as_i64().unwrap_or(0).to_string()
+                                    on:input=move |ev| {
+                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() {
+                                            let sk = state_key();
+                                            rule.update(|v| { v[path][index][sk]["bass"] = json!(n); });
+                                        }
+                                    }
+                                />
+                                <span class="state-slider-val">{state["bass"].as_i64().unwrap_or(0).to_string()}</span>
+                            </div>
+                        </div>
+                    }.into_any(),
+
+                    "set_treble" => view! {
+                        <div class="control-row">
+                            <span class="control-label">"Treble"</span>
+                            <div class="state-slider-row">
+                                <input type="range" class="state-slider" min="-10" max="10" step="1"
+                                    prop:value=state["treble"].as_i64().unwrap_or(0).to_string()
+                                    on:input=move |ev| {
+                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() {
+                                            let sk = state_key();
+                                            rule.update(|v| { v[path][index][sk]["treble"] = json!(n); });
+                                        }
+                                    }
+                                />
+                                <span class="state-slider-val">{state["treble"].as_i64().unwrap_or(0).to_string()}</span>
+                            </div>
+                        </div>
+                    }.into_any(),
+
+                    "set_mute" => view! {
+                        <div class="control-row">
+                            <span class="control-label">"Mute"</span>
+                            <div class="toggle-group">
+                                <button class:active=state["muted"].as_bool() == Some(true)
+                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["muted"] = json!(true); }); }
+                                >"Muted"</button>
+                                <button class:active=state["muted"].as_bool() == Some(false)
+                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["muted"] = json!(false); }); }
+                                >"Unmuted"</button>
+                            </div>
+                        </div>
+                    }.into_any(),
+
+                    "set_shuffle" => view! {
+                        <div class="control-row">
+                            <span class="control-label">"Shuffle"</span>
+                            <div class="toggle-group">
+                                <button class:active=state["shuffle"].as_bool() == Some(true)
+                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["shuffle"] = json!(true); }); }
+                                >"On"</button>
+                                <button class:active=state["shuffle"].as_bool() == Some(false)
+                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["shuffle"] = json!(false); }); }
+                                >"Off"</button>
+                            </div>
+                        </div>
+                    }.into_any(),
+
+                    "set_loudness" => view! {
+                        <div class="control-row">
+                            <span class="control-label">"Loudness"</span>
+                            <div class="toggle-group">
+                                <button class:active=state["loudness"].as_bool() == Some(true)
+                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["loudness"] = json!(true); }); }
+                                >"On"</button>
+                                <button class:active=state["loudness"].as_bool() == Some(false)
+                                    on:click=move |_| { let sk = state_key(); rule.update(|v| { v[path][index][sk]["loudness"] = json!(false); }); }
+                                >"Off"</button>
+                            </div>
+                        </div>
+                    }.into_any(),
+
+                    "play_favorite" => {
+                        let cur = state["favorite"].as_str().unwrap_or("").to_string();
                         view! {
                             <div class="control-row">
                                 <span class="control-label">"Favorite"</span>
                                 <select class="hc-select"
                                     on:change=move |ev| {
-                                        let v = event_target_value(&ev);
-                                        if v.is_empty() {
-                                            sdel("action"); sdel("favorite");
-                                        } else {
-                                            sset("action", json!("play_favorite"));
-                                            sset("favorite", json!(v));
-                                        }
+                                        let sk = state_key();
+                                        rule.update(|v| { v[path][index][sk]["favorite"] = json!(event_target_value(&ev)); });
                                     }
                                 >
-                                    <option value="" selected=move || sget("action").as_str() != Some("play_favorite")>"— none —"</option>
-                                    {favs.into_iter().map(|f| {
+                                    <option value="" disabled=true selected=cur.is_empty()>"— Select —"</option>
+                                    {favorites.into_iter().map(|f| {
+                                        let sel = f == cur;
                                         let f2 = f.clone();
-                                        let f3 = f.clone();
-                                        view! { <option value=f selected=move || sget("favorite").as_str() == Some(&f2)>{f3}</option> }
+                                        view! { <option value=f selected=sel>{f2}</option> }
                                     }).collect_view()}
                                 </select>
                             </div>
-                        }
-                    })}
+                        }.into_any()
+                    },
 
-                    // ── Media: Playlists dropdown ────────────────────────
-                    {(!playlists.is_empty()).then(|| {
-                        let pls = playlists.clone();
+                    "play_playlist" => {
+                        let cur = state["playlist"].as_str().unwrap_or("").to_string();
                         view! {
                             <div class="control-row">
                                 <span class="control-label">"Playlist"</span>
                                 <select class="hc-select"
                                     on:change=move |ev| {
-                                        let v = event_target_value(&ev);
-                                        if v.is_empty() {
-                                            sdel("action"); sdel("playlist");
-                                        } else {
-                                            sset("action", json!("play_playlist"));
-                                            sset("playlist", json!(v));
-                                        }
+                                        let sk = state_key();
+                                        rule.update(|v| { v[path][index][sk]["playlist"] = json!(event_target_value(&ev)); });
                                     }
                                 >
-                                    <option value="" selected=move || sget("action").as_str() != Some("play_playlist")>"— none —"</option>
-                                    {pls.into_iter().map(|p| {
+                                    <option value="" disabled=true selected=cur.is_empty()>"— Select —"</option>
+                                    {playlists.into_iter().map(|p| {
+                                        let sel = p == cur;
                                         let p2 = p.clone();
-                                        let p3 = p.clone();
-                                        view! { <option value=p selected=move || sget("playlist").as_str() == Some(&p2)>{p3}</option> }
+                                        view! { <option value=p selected=sel>{p2}</option> }
                                     }).collect_view()}
                                 </select>
                             </div>
-                        }
-                    })}
+                        }.into_any()
+                    },
 
-                    // ── Media: Bass slider ───────────────────────────────
-                    {has_bass.then(|| view! {
-                        <div class="control-row">
-                            <span class="control-label">"Bass"</span>
-                            <div class="state-slider-row">
-                                <input type="range" class="state-slider" min="-10" max="10" step="1"
-                                    prop:value=move || sget("bass").as_i64().unwrap_or(0).to_string()
-                                    on:input=move |ev| {
-                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() { sset("bass", json!(n)); }
-                                    }
-                                />
-                                <span class="state-slider-val">{move || sget("bass").as_i64().unwrap_or(0).to_string()}</span>
-                            </div>
-                        </div>
-                    })}
+                    // Simple commands with no extra controls
+                    "on_true" | "on_false" | "lock" | "unlock"
+                    | "play" | "pause" | "stop" | "next" | "prev" => {
+                        view! { <span /> }.into_any()
+                    },
 
-                    // ── Media: Treble slider ─────────────────────────────
-                    {has_treble.then(|| view! {
-                        <div class="control-row">
-                            <span class="control-label">"Treble"</span>
-                            <div class="state-slider-row">
-                                <input type="range" class="state-slider" min="-10" max="10" step="1"
-                                    prop:value=move || sget("treble").as_i64().unwrap_or(0).to_string()
-                                    on:input=move |ev| {
-                                        if let Ok(n) = event_target_value(&ev).parse::<i64>() { sset("treble", json!(n)); }
-                                    }
-                                />
-                                <span class="state-slider-val">{move || sget("treble").as_i64().unwrap_or(0).to_string()}</span>
-                            </div>
-                        </div>
-                    })}
+                    _ => view! { <span /> }.into_any(),
+                };
 
-                    // ── Media: Mute toggle ───────────────────────────────
-                    {has_mute.then(|| view! {
-                        <div class="control-row">
-                            <span class="control-label">"Mute"</span>
-                            <div class="toggle-group">
-                                <button class:active=move || sget("muted").as_bool() == Some(true)
-                                    on:click=move |_| sset("muted", json!(true))
-                                >"Muted"</button>
-                                <button class:active=move || sget("muted").as_bool() == Some(false)
-                                    on:click=move |_| sset("muted", json!(false))
-                                >"Unmuted"</button>
-                            </div>
-                        </div>
-                    })}
-
-                    // ── Media: Shuffle toggle ────────────────────────────
-                    {has_shuffle.then(|| view! {
-                        <div class="control-row">
-                            <span class="control-label">"Shuffle"</span>
-                            <div class="toggle-group">
-                                <button class:active=move || sget("shuffle").as_bool() == Some(true)
-                                    on:click=move |_| sset("shuffle", json!(true))
-                                >"On"</button>
-                                <button class:active=move || sget("shuffle").as_bool() == Some(false)
-                                    on:click=move |_| sset("shuffle", json!(false))
-                                >"Off"</button>
-                            </div>
-                        </div>
-                    })}
-
-                    // ── Media: Loudness toggle ───────────────────────────
-                    {has_loudness.then(|| view! {
-                        <div class="control-row">
-                            <span class="control-label">"Loudness"</span>
-                            <div class="toggle-group">
-                                <button class:active=move || sget("loudness").as_bool() == Some(true)
-                                    on:click=move |_| sset("loudness", json!(true))
-                                >"On"</button>
-                                <button class:active=move || sget("loudness").as_bool() == Some(false)
-                                    on:click=move |_| sset("loudness", json!(false))
-                                >"Off"</button>
-                            </div>
-                        </div>
-                    })}
-
-                    // ── No controls found ────────────────────────────────
-                    {(!has_on && !has_bri && !has_ct && !has_pos && !has_lock && !is_media).then(|| view! {
-                        <p class="msg-muted" style="font-size:0.85rem">"No known controls for this device type. Use JSON fallback below."</p>
-                    })}
+                view! {
+                    {cmd_select}
+                    {control}
                 }.into_any()
             }}
         </div>

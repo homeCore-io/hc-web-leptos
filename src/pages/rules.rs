@@ -2,11 +2,16 @@
 
 use crate::api::{clone_rule, delete_rule, fetch_rules, patch_rule, rule_stale_refs};
 use crate::auth::use_auth;
-use crate::pages::shared::{ls_get, ls_set, SearchField};
+use crate::pages::shared::{
+    json_str_set, load_pref_json, ls_set, set_to_json_array,
+    FilterToggleButton, MultiSelectDropdown, ResetFiltersButton, SearchField,
+    SortDir, SortDirToggle, SortSelect,
+};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 
 const RULES_PREFS_KEY: &str = "hc-leptos:rules:prefs";
 
@@ -103,20 +108,20 @@ fn rule_tags(r: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-// ── Prefs ─────────────────────────────────────────────────────────────────────
+// ── Sort keys ────────────────────────────────────────────────────────────────
 
-fn load_prefs() -> (String, String, String) {
-    let raw = ls_get(RULES_PREFS_KEY).unwrap_or_default();
-    let v: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
-    let search = v["search"].as_str().unwrap_or("").to_string();
-    let status = v["status"].as_str().unwrap_or("all").to_string();
-    let trigger = v["trigger"].as_str().unwrap_or("all").to_string();
-    (search, status, trigger)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SortKey { Name, Priority }
+
+fn sort_key_from_str(s: Option<&str>) -> SortKey {
+    match s { Some("priority") => SortKey::Priority, _ => SortKey::Name }
+}
+fn sort_key_to_str(k: SortKey) -> &'static str {
+    match k { SortKey::Name => "name", SortKey::Priority => "priority" }
 }
 
-fn save_prefs(search: &str, status: &str, trigger: &str) {
-    let v = json!({ "search": search, "status": status, "trigger": trigger });
-    ls_set(RULES_PREFS_KEY, &v.to_string());
+fn sort_options() -> Vec<(String, String)> {
+    vec![("name".into(), "Name".into()), ("priority".into(), "Priority".into())]
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -131,19 +136,18 @@ pub fn RulesPage() -> impl IntoView {
     let loading = RwSignal::new(true);
     let page_error: RwSignal<Option<String>> = RwSignal::new(None);
 
-    let (init_search, init_status, init_trigger) = load_prefs();
-    let search = RwSignal::new(init_search);
-    let status_filter = RwSignal::new(init_status);
-    let trigger_filter = RwSignal::new(init_trigger);
-    let tag_filter: RwSignal<Option<String>> = RwSignal::new(None);
+    let prefs = load_pref_json(RULES_PREFS_KEY).unwrap_or(Value::Null);
+    let search = RwSignal::new(prefs["search"].as_str().unwrap_or("").to_string());
+    let status_filter: RwSignal<HashSet<String>> = RwSignal::new(json_str_set(&prefs, "status"));
+    let trigger_filter: RwSignal<HashSet<String>> = RwSignal::new(json_str_set(&prefs, "trigger"));
+    let tag_filter: RwSignal<HashSet<String>> = RwSignal::new(json_str_set(&prefs, "tags"));
+    let sort_by = RwSignal::new(sort_key_from_str(prefs["sort"].as_str()));
+    let sort_dir = RwSignal::new(if prefs["sort_dir"].as_str() == Some("desc") { SortDir::Desc } else { SortDir::Asc });
+    let filter_open = RwSignal::new(false);
 
-    // Inline confirm-delete: stores the rule id being confirmed.
     let confirm_delete: RwSignal<Option<String>> = RwSignal::new(None);
-    // Per-row busy: rule id currently being operated on.
     let row_busy: RwSignal<Option<String>> = RwSignal::new(None);
-    // Stale-ref warnings
     let stale_refs: RwSignal<Vec<Value>> = RwSignal::new(vec![]);
-    // Bulk selection
     let selected: RwSignal<Vec<String>> = RwSignal::new(vec![]);
     let bulk_busy = RwSignal::new(false);
 
@@ -186,20 +190,47 @@ pub fn RulesPage() -> impl IntoView {
 
     // Persist filter prefs on change.
     Effect::new(move |_| {
-        save_prefs(
-            &search.get(),
-            &status_filter.get(),
-            &trigger_filter.get(),
-        );
+        let v = json!({
+            "search":   search.get(),
+            "status":   set_to_json_array(&status_filter.get()),
+            "trigger":  set_to_json_array(&trigger_filter.get()),
+            "tags":     set_to_json_array(&tag_filter.get()),
+            "sort":     sort_key_to_str(sort_by.get()),
+            "sort_dir": if sort_dir.get() == SortDir::Desc { "desc" } else { "asc" },
+        });
+        ls_set(RULES_PREFS_KEY, &v.to_string());
     });
 
-    // ── Filtered list ─────────────────────────────────────────────────────────
+    // ── Dynamic filter options (computed from loaded rules) ─────────────────
+    let status_options: Signal<Vec<(String, String)>> = Signal::derive(move || {
+        vec![("active".into(), "Active".into()), ("disabled".into(), "Disabled".into())]
+    });
+    let trigger_options: Signal<Vec<(String, String)>> = Signal::derive(move || {
+        vec![
+            ("device".into(), "Device".into()),
+            ("time".into(), "Time".into()),
+            ("event".into(), "Event".into()),
+            ("manual".into(), "Manual".into()),
+        ]
+    });
+    let tag_options: Signal<Vec<(String, String)>> = Signal::derive(move || {
+        let mut tags: Vec<String> = rules.get().iter()
+            .flat_map(|r| rule_tags(r))
+            .collect::<HashSet<_>>()
+            .into_iter().collect();
+        tags.sort();
+        tags.into_iter().map(|t| (t.clone(), t)).collect()
+    });
+
+    // ── Filtered + sorted list ───────────────────────────────────────────────
     let filtered = Memo::new(move |_| {
         let q = search.get().to_lowercase();
         let st = status_filter.get();
         let tr = trigger_filter.get();
         let tf = tag_filter.get();
-        rules
+        let sk = sort_by.get();
+        let sd = sort_dir.get();
+        let mut list: Vec<Value> = rules
             .get()
             .into_iter()
             .filter(|r| {
@@ -209,22 +240,35 @@ pub fn RulesPage() -> impl IntoView {
                 if !q.is_empty() && !name.contains(&q) && !tags_lower.contains(&q) {
                     return false;
                 }
-                match st.as_str() {
-                    "active" if !rule_enabled(r) => return false,
-                    "disabled" if rule_enabled(r) => return false,
-                    _ => {}
+                if !st.is_empty() {
+                    let status = if rule_enabled(r) { "active" } else { "disabled" };
+                    if !st.contains(status) { return false; }
                 }
-                if tr != "all" && trigger_category(trigger_type(r)) != tr.as_str() {
-                    return false;
+                if !tr.is_empty() {
+                    let cat = trigger_category(trigger_type(r)).to_string();
+                    if !tr.contains(&cat) { return false; }
                 }
-                if let Some(ref tag) = tf {
-                    if !tags.iter().any(|t| t == tag) {
-                        return false;
-                    }
+                if !tf.is_empty() {
+                    if !tags.iter().any(|t| tf.contains(t)) { return false; }
                 }
                 true
             })
-            .collect::<Vec<_>>()
+            .collect();
+        list.sort_by(|a, b| {
+            let cmp = match sk {
+                SortKey::Priority => {
+                    let pa = a["priority"].as_i64().unwrap_or(0);
+                    let pb = b["priority"].as_i64().unwrap_or(0);
+                    pb.cmp(&pa)
+                }
+                SortKey::Name => {
+                    a["name"].as_str().unwrap_or("").to_lowercase()
+                        .cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
+                }
+            };
+            if sd == SortDir::Desc { cmp.reverse() } else { cmp }
+        });
+        list
     });
 
     // ── Toolbar navigate clone ────────────────────────────────────────────────
@@ -232,62 +276,70 @@ pub fn RulesPage() -> impl IntoView {
 
     view! {
         <div class="rules-page">
-            // ── Toolbar ───────────────────────────────────────────────────────
-            <div class="rules-toolbar">
-                <SearchField search=search placeholder="Search rules…" />
-
-                <div class="rules-filter-group">
-                    {["all", "active", "disabled"].map(|v| {
-                        let label = match v { "active" => "Active", "disabled" => "Disabled", _ => "All" };
-                        view! {
-                            <button
-                                class="filter-chip"
-                                class:filter-chip--active=move || status_filter.get() == v
-                                on:click=move |_| status_filter.set(v.to_string())
-                            >{label}</button>
-                        }
-                    }).collect_view()}
+            // ── Page heading ─────────────────────────────────────────────────
+            <div class="page-heading">
+                <div>
+                    <h1>"Rules"</h1>
+                    <p>
+                        {move || {
+                            let f = filtered.get().len();
+                            let t = rules.get().len();
+                            if f == t { format!("{t} rules") } else { format!("{f} / {t} rules") }
+                        }}
+                    </p>
                 </div>
-
-                <div class="rules-filter-group">
-                    {[
-                        ("all", "All Triggers"),
-                        ("device", "Device"),
-                        ("time", "Time"),
-                        ("event", "Event"),
-                        ("manual", "Manual"),
-                    ].map(|(v, label)| {
-                        view! {
-                            <button
-                                class="filter-chip"
-                                class:filter-chip--active=move || trigger_filter.get() == v
-                                on:click=move |_| trigger_filter.set(v.to_string())
-                            >{label}</button>
-                        }
-                    }).collect_view()}
-                </div>
-
                 <button
-                    class="hc-btn hc-btn--primary rules-new-btn"
+                    class="hc-btn hc-btn--primary"
                     on:click=move |_| nav_new("/rules/new", Default::default())
                 >"+ New Rule"</button>
             </div>
 
-            // ── Active tag filter + count ────────────────────────────────────
-            <div class="rules-sub-toolbar">
-                {move || tag_filter.get().map(|tag| view! {
-                    <span class="filter-chip filter-chip--active">
-                        "tag: " {tag.clone()}
-                        <button class="tag-chip-remove" on:click=move |_| tag_filter.set(None)>"×"</button>
-                    </span>
+            // ── Filter/sort toolbar ──────────────────────────────────────────
+            <div class="filter-panel panel">
+                <div class="filter-bar">
+                    <SearchField search=search placeholder="Search name, tags…" />
+
+                    <SortSelect
+                        current_value=Signal::derive(move || sort_key_to_str(sort_by.get()).to_string())
+                        options=Signal::derive(sort_options)
+                        on_change=Callback::new(move |v: String| sort_by.set(sort_key_from_str(Some(&v))))
+                    />
+                    <SortDirToggle sort_dir />
+                    <FilterToggleButton filter_open />
+                </div>
+
+                {move || filter_open.get().then(|| view! {
+                    <div class="filter-body">
+                        <div class="filter-multisel-row">
+                            <MultiSelectDropdown
+                                label="statuses"
+                                placeholder="All statuses"
+                                options=status_options
+                                selected=status_filter
+                            />
+                            <MultiSelectDropdown
+                                label="triggers"
+                                placeholder="All triggers"
+                                options=trigger_options
+                                selected=trigger_filter
+                            />
+                            <MultiSelectDropdown
+                                label="tags"
+                                placeholder="All tags"
+                                options=tag_options
+                                selected=tag_filter
+                            />
+                            <ResetFiltersButton on_reset=Callback::new(move |_| {
+                                search.set(String::new());
+                                status_filter.set(HashSet::new());
+                                trigger_filter.set(HashSet::new());
+                                tag_filter.set(HashSet::new());
+                                sort_by.set(SortKey::Name);
+                                sort_dir.set(SortDir::Asc);
+                            }) />
+                        </div>
+                    </div>
                 })}
-                <span class="rules-count">
-                    {move || {
-                        let f = filtered.get().len();
-                        let t = rules.get().len();
-                        if f == t { format!("{t} rules") } else { format!("{f} / {t} rules") }
-                    }}
-                </span>
             </div>
 
             // ── Bulk action bar ───────────────────────────────────────────────
@@ -538,7 +590,7 @@ pub fn RulesPage() -> impl IntoView {
                                                                 title="Filter by this tag"
                                                                 on:click=move |ev: web_sys::MouseEvent| {
                                                                     ev.stop_propagation();
-                                                                    tag_filter.set(Some(t2.clone()));
+                                                                    tag_filter.update(|s| { s.insert(t2.clone()); });
                                                                 }
                                                             >{t}</button>
                                                         }

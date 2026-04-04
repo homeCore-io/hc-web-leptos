@@ -10,7 +10,6 @@
 
 use crate::api::fetch_events;
 use crate::auth::{events_ws_url, logs_ws_url, use_auth};
-use crate::models::DeviceState;
 use crate::ws::use_ws;
 use crate::pages::shared::{
     FilterToggleButton, MultiSelectDropdown, ResetFiltersButton, SearchField,
@@ -39,30 +38,25 @@ struct ActivityEntry {
     raw: Value,
 }
 
-/// Look up device name from WsContext device map; fall back to ID.
-fn dev_name(devices: &std::collections::HashMap<String, DeviceState>, id: &str) -> String {
-    devices.get(id).map(|d| d.name.clone()).unwrap_or_else(|| id.to_string())
-}
-
-fn normalize_event(seq: u64, ev: &Value, devices: &std::collections::HashMap<String, DeviceState>) -> ActivityEntry {
+fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
     let t = ev["type"].as_str().unwrap_or("unknown");
     let severity = match t {
         "action_failed" | "system_alert" => "error",
         "rule_evaluation_failed" => "warn",
         _ => "info",
     };
+    // Summary uses {DEVICE_ID} placeholders — resolved at render time.
     let did = ev["device_id"].as_str().unwrap_or("");
-    let dn = if did.is_empty() { String::new() } else { dev_name(devices, did) };
     let summary = match t {
         "device_state_changed" => {
             let changed = ev["changed"].as_array()
                 .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", "))
                 .unwrap_or_default();
-            format!("{dn}: {changed}")
+            format!("{did}: {changed}")
         }
         "device_availability_changed" => {
             let avail = if ev["available"].as_bool() == Some(true) { "online" } else { "offline" };
-            format!("{dn} → {avail}")
+            format!("{did} → {avail}")
         }
         "rule_fired" => {
             let name = ev["rule_name"].as_str().unwrap_or("");
@@ -89,22 +83,16 @@ fn normalize_event(seq: u64, ev: &Value, devices: &std::collections::HashMap<Str
             let on = if ev["on"].as_bool() == Some(true) { "on" } else { "off" };
             format!("Mode: {name} → {on}")
         }
-        "device_command_sent" => {
-            format!("Command → {dn}")
-        }
+        "device_command_sent" => format!("Command → {did}"),
         "timer_state_changed" => {
             let tid = ev["timer_id"].as_str().unwrap_or("");
-            let tname = dev_name(devices, tid);
             let state = ev["state"].as_str().unwrap_or("");
-            format!("Timer {tname}: {state}")
+            format!("Timer {tid}: {state}")
         }
         "plugin_registered" => format!("Plugin registered: {}", ev["plugin_id"].as_str().unwrap_or("")),
         "plugin_offline" => format!("Plugin offline: {}", ev["plugin_id"].as_str().unwrap_or("")),
         "custom" => format!("Custom: {}", ev["event_type"].as_str().unwrap_or("")),
-        "system_alert" => {
-            let msg = ev["message"].as_str().unwrap_or("");
-            format!("Alert: {msg}")
-        }
+        "system_alert" => format!("Alert: {}", ev["message"].as_str().unwrap_or("")),
         _ => t.to_string(),
     };
 
@@ -121,18 +109,10 @@ fn normalize_event(seq: u64, ev: &Value, devices: &std::collections::HashMap<Str
     }
 }
 
-fn normalize_log(counter: u64, log: &Value, devices: &std::collections::HashMap<String, DeviceState>) -> ActivityEntry {
+fn normalize_log(counter: u64, log: &Value) -> ActivityEntry {
     let level = log["level"].as_str().unwrap_or("INFO").to_lowercase();
     let target = log["target"].as_str().unwrap_or("").to_string();
-    let raw_message = log["message"].as_str().unwrap_or("").to_string();
-
-    // Replace device IDs in the message with device names where possible.
-    let mut message = raw_message.clone();
-    for (id, dev) in devices.iter() {
-        if message.contains(id.as_str()) {
-            message = message.replace(id.as_str(), &dev.name);
-        }
-    }
+    let message = log["message"].as_str().unwrap_or("").to_string();
 
     ActivityEntry {
         id: format!("l-{counter}"),
@@ -250,11 +230,10 @@ pub fn EventsPage() -> impl IntoView {
             let token = token.clone();
             spawn_local(async move {
                 if let Ok(data) = fetch_events(&token, 200).await {
-                    let devs = ws_devices.get_untracked();
                     let events: Vec<ActivityEntry> = data.iter().enumerate()
                         .map(|(i, ev)| {
                             let seq = ev["seq"].as_u64().unwrap_or(i as u64);
-                            normalize_event(seq, &ev["event"], &devs)
+                            normalize_event(seq, &ev["event"])
                         })
                         .collect();
                     entries.update(|list| {
@@ -282,8 +261,7 @@ pub fn EventsPage() -> impl IntoView {
                     let parsed: Value = match serde_json::from_str(&text) { Ok(v) => v, Err(_) => return };
                     let seq = event_counter.get_untracked();
                     event_counter.set(seq + 1);
-                    let devs = ws_devices.get_untracked();
-                    add_entry(normalize_event(seq, &parsed, &devs));
+                    add_entry(normalize_event(seq, &parsed));
                 });
                 ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
                 on_msg.forget();
@@ -307,8 +285,7 @@ pub fn EventsPage() -> impl IntoView {
                     let parsed: Value = match serde_json::from_str(&text) { Ok(v) => v, Err(_) => return };
                     let c = log_counter.get_untracked();
                     log_counter.set(c + 1);
-                    let devs = ws_devices.get_untracked();
-                    add_entry(normalize_log(c, &parsed, &devs));
+                    add_entry(normalize_log(c, &parsed));
                 });
                 ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
                 on_msg.forget();
@@ -464,8 +441,20 @@ pub fn EventsPage() -> impl IntoView {
                             let src_cls = source_class(entry.source);
                             let time_str = format_time(&entry.timestamp);
                             let kind_label = entry.kind.replace('_', " ");
-                            let summary = entry.summary.clone();
+                            let raw_summary = entry.summary.clone();
                             let raw = entry.raw.clone();
+
+                            // Resolve device IDs → names at render time (device map is now populated)
+                            let summary = {
+                                let devs = ws_devices.get();
+                                let mut s = raw_summary;
+                                for (did, dev) in devs.iter() {
+                                    if s.contains(did.as_str()) {
+                                        s = s.replace(did.as_str(), &dev.name);
+                                    }
+                                }
+                                s
+                            };
                             let severity = entry.severity.clone();
                             let source = entry.source;
 

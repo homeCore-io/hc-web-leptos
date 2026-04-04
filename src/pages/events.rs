@@ -10,6 +10,8 @@
 
 use crate::api::fetch_events;
 use crate::auth::{events_ws_url, logs_ws_url, use_auth};
+use crate::models::DeviceState;
+use crate::ws::use_ws;
 use crate::pages::shared::{
     FilterToggleButton, MultiSelectDropdown, ResetFiltersButton, SearchField,
     SortDir, SortDirToggle,
@@ -37,25 +39,30 @@ struct ActivityEntry {
     raw: Value,
 }
 
-fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
+/// Look up device name from WsContext device map; fall back to ID.
+fn dev_name(devices: &std::collections::HashMap<String, DeviceState>, id: &str) -> String {
+    devices.get(id).map(|d| d.name.clone()).unwrap_or_else(|| id.to_string())
+}
+
+fn normalize_event(seq: u64, ev: &Value, devices: &std::collections::HashMap<String, DeviceState>) -> ActivityEntry {
     let t = ev["type"].as_str().unwrap_or("unknown");
     let severity = match t {
         "action_failed" | "system_alert" => "error",
         "rule_evaluation_failed" => "warn",
         _ => "info",
     };
+    let did = ev["device_id"].as_str().unwrap_or("");
+    let dn = if did.is_empty() { String::new() } else { dev_name(devices, did) };
     let summary = match t {
         "device_state_changed" => {
-            let dev = ev["device_id"].as_str().unwrap_or("");
             let changed = ev["changed"].as_array()
                 .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", "))
                 .unwrap_or_default();
-            format!("{dev}: {changed}")
+            format!("{dn}: {changed}")
         }
         "device_availability_changed" => {
-            let dev = ev["device_id"].as_str().unwrap_or("");
             let avail = if ev["available"].as_bool() == Some(true) { "online" } else { "offline" };
-            format!("{dev} → {avail}")
+            format!("{dn} → {avail}")
         }
         "rule_fired" => {
             let name = ev["rule_name"].as_str().unwrap_or("");
@@ -83,13 +90,13 @@ fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
             format!("Mode: {name} → {on}")
         }
         "device_command_sent" => {
-            let dev = ev["device_id"].as_str().unwrap_or("");
-            format!("Command → {dev}")
+            format!("Command → {dn}")
         }
         "timer_state_changed" => {
-            let id = ev["timer_id"].as_str().unwrap_or("");
+            let tid = ev["timer_id"].as_str().unwrap_or("");
+            let tname = dev_name(devices, tid);
             let state = ev["state"].as_str().unwrap_or("");
-            format!("Timer {id}: {state}")
+            format!("Timer {tname}: {state}")
         }
         "plugin_registered" => format!("Plugin registered: {}", ev["plugin_id"].as_str().unwrap_or("")),
         "plugin_offline" => format!("Plugin offline: {}", ev["plugin_id"].as_str().unwrap_or("")),
@@ -114,10 +121,18 @@ fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
     }
 }
 
-fn normalize_log(counter: u64, log: &Value) -> ActivityEntry {
+fn normalize_log(counter: u64, log: &Value, devices: &std::collections::HashMap<String, DeviceState>) -> ActivityEntry {
     let level = log["level"].as_str().unwrap_or("INFO").to_lowercase();
     let target = log["target"].as_str().unwrap_or("").to_string();
-    let message = log["message"].as_str().unwrap_or("").to_string();
+    let raw_message = log["message"].as_str().unwrap_or("").to_string();
+
+    // Replace device IDs in the message with device names where possible.
+    let mut message = raw_message.clone();
+    for (id, dev) in devices.iter() {
+        if message.contains(id.as_str()) {
+            message = message.replace(id.as_str(), &dev.name);
+        }
+    }
 
     ActivityEntry {
         id: format!("l-{counter}"),
@@ -166,6 +181,7 @@ fn format_time(ts: &str) -> String {
 #[component]
 pub fn EventsPage() -> impl IntoView {
     let auth = use_auth();
+    let ws = use_ws();
 
     // ── State ────────────────────────────────────────────────────────────────
     let entries: RwSignal<Vec<ActivityEntry>> = RwSignal::new(vec![]);
@@ -212,6 +228,9 @@ pub fn EventsPage() -> impl IntoView {
         }
     };
 
+    // Device name lookup — uses the shared WsContext device map.
+    let ws_devices = ws.devices;
+
     // ── Load initial events + connect WS ─────────────────────────────────────
     Effect::new(move |_| {
         let token = match auth.token.get() { Some(t) => t, None => return };
@@ -221,10 +240,11 @@ pub fn EventsPage() -> impl IntoView {
             let token = token.clone();
             spawn_local(async move {
                 if let Ok(data) = fetch_events(&token, 200).await {
+                    let devs = ws_devices.get_untracked();
                     let events: Vec<ActivityEntry> = data.iter().enumerate()
                         .map(|(i, ev)| {
                             let seq = ev["seq"].as_u64().unwrap_or(i as u64);
-                            normalize_event(seq, &ev["event"])
+                            normalize_event(seq, &ev["event"], &devs)
                         })
                         .collect();
                     entries.update(|list| {
@@ -252,7 +272,8 @@ pub fn EventsPage() -> impl IntoView {
                     let parsed: Value = match serde_json::from_str(&text) { Ok(v) => v, Err(_) => return };
                     let seq = event_counter.get_untracked();
                     event_counter.set(seq + 1);
-                    add_entry(normalize_event(seq, &parsed));
+                    let devs = ws_devices.get_untracked();
+                    add_entry(normalize_event(seq, &parsed, &devs));
                 });
                 ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
                 on_msg.forget();
@@ -276,7 +297,8 @@ pub fn EventsPage() -> impl IntoView {
                     let parsed: Value = match serde_json::from_str(&text) { Ok(v) => v, Err(_) => return };
                     let c = log_counter.get_untracked();
                     log_counter.set(c + 1);
-                    add_entry(normalize_log(c, &parsed));
+                    let devs = ws_devices.get_untracked();
+                    add_entry(normalize_log(c, &parsed, &devs));
                 });
                 ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
                 on_msg.forget();

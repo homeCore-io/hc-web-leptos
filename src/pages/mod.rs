@@ -5,6 +5,7 @@ pub mod events;
 pub mod glue;
 pub mod login;
 pub mod modes;
+pub mod plugins;
 pub mod rule_detail;
 pub mod rules;
 pub mod scene_detail;

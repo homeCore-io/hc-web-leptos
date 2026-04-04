@@ -1014,3 +1014,61 @@ pub fn format_abs(ts: Option<&DateTime<Utc>>) -> String {
     ts.map(|t| t.format("%Y-%m-%d %H:%M").to_string())
         .unwrap_or_default()
 }
+
+// ── Plugin types ────────────────────────────────────────────────────────────
+
+/// Plugin record matching the enriched `PluginRecord` from core API.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginInfo {
+    pub plugin_id: String,
+    pub registered_at: DateTime<Utc>,
+    pub status: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub managed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_heartbeat: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_restart: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub restart_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uptime_started: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub device_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub supports_management: bool,
+}
+
+impl PluginInfo {
+    /// Display name: strip "plugin." prefix and capitalize.
+    pub fn display_name(&self) -> String {
+        let name = self.plugin_id.strip_prefix("plugin.").unwrap_or(&self.plugin_id);
+        let mut chars = name.chars();
+        match chars.next() {
+            Some(c) => format!("{}{}", c.to_uppercase(), chars.as_str()),
+            None => name.to_string(),
+        }
+    }
+
+    /// Uptime as a human-readable string.
+    pub fn uptime_str(&self) -> String {
+        let Some(started) = self.uptime_started else { return "—".into() };
+        let secs = (Utc::now() - started).num_seconds().max(0) as u64;
+        let d = secs / 86400;
+        let h = (secs % 86400) / 3600;
+        let m = (secs % 3600) / 60;
+        if d > 0 { format!("{d}d {h}h {m}m") }
+        else if h > 0 { format!("{h}h {m}m") }
+        else { format!("{m}m") }
+    }
+}

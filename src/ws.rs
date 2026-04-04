@@ -50,6 +50,8 @@ pub struct WsContext {
     pub devices: RwSignal<HashMap<String, DeviceState>>,
     pub scene_activations: RwSignal<HashMap<String, DateTime<Utc>>>,
     pub status: RwSignal<WsStatus>,
+    /// Live plugin map keyed by `plugin_id` — updated by REST seed + WS events.
+    pub plugins: RwSignal<HashMap<String, crate::models::PluginInfo>>,
 }
 
 impl WsContext {
@@ -58,6 +60,7 @@ impl WsContext {
             devices: RwSignal::new(HashMap::new()),
             scene_activations: RwSignal::new(HashMap::new()),
             status: RwSignal::new(WsStatus::Connecting),
+            plugins: RwSignal::new(HashMap::new()),
         }
     }
 }
@@ -88,6 +91,13 @@ enum WsEvent {
         scene_id: String,
         #[allow(dead_code)]
         scene_name: String,
+    },
+    PluginRegistered {
+        plugin_id: String,
+    },
+    PluginStatusChanged {
+        plugin_id: String,
+        status: String,
     },
     #[serde(other)]
     Other,
@@ -207,6 +217,20 @@ pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
                     } => {
                         ctx.scene_activations.update(|m| {
                             m.insert(scene_id, timestamp);
+                        });
+                    }
+                    WsEvent::PluginRegistered { plugin_id } => {
+                        ctx.plugins.update(|m| {
+                            if let Some(p) = m.get_mut(&plugin_id) {
+                                p.status = "active".into();
+                            }
+                        });
+                    }
+                    WsEvent::PluginStatusChanged { plugin_id, status } => {
+                        ctx.plugins.update(|m| {
+                            if let Some(p) = m.get_mut(&plugin_id) {
+                                p.status = status;
+                            }
                         });
                     }
                     WsEvent::Other => {}

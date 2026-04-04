@@ -393,6 +393,40 @@ pub async fn send_glue_command(token: &str, id: &str, body: &Value) -> Result<()
     patch_json(&format!("/devices/{id}/state"), token, body).await
 }
 
+// ── Plugins API ─────────────────────────────────────────────────────────────
+
+pub async fn fetch_plugins(token: &str) -> Result<Vec<crate::models::PluginInfo>, String> {
+    get_json("/plugins", token).await
+}
+
+pub async fn fetch_plugin(token: &str, id: &str) -> Result<crate::models::PluginInfo, String> {
+    get_json(&format!("/plugins/{id}"), token).await
+}
+
+pub async fn start_plugin(token: &str, id: &str) -> Result<(), String> {
+    post_no_body(&format!("/plugins/{id}/start"), token).await
+}
+
+pub async fn stop_plugin(token: &str, id: &str) -> Result<(), String> {
+    post_no_body(&format!("/plugins/{id}/stop"), token).await
+}
+
+pub async fn restart_plugin(token: &str, id: &str) -> Result<(), String> {
+    post_no_body(&format!("/plugins/{id}/restart"), token).await
+}
+
+pub async fn patch_plugin(token: &str, id: &str, body: &serde_json::Value) -> Result<(), String> {
+    patch_json(&format!("/plugins/{id}"), token, body).await
+}
+
+pub async fn fetch_plugin_config(token: &str, id: &str) -> Result<serde_json::Value, String> {
+    get_json(&format!("/plugins/{id}/config"), token).await
+}
+
+pub async fn update_plugin_config(token: &str, id: &str, body: &serde_json::Value) -> Result<(), String> {
+    put_json(&format!("/plugins/{id}/config"), token, body).await.map(|_: serde_json::Value| ())
+}
+
 // ── Events API ───────────────────────────────────────────────────────────────
 
 pub async fn fetch_events(token: &str, limit: u32) -> Result<Vec<Value>, String> {

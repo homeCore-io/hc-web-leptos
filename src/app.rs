@@ -10,6 +10,7 @@ use crate::pages::{
     glue::{GlueDetailPage, GluePage},
     login::LoginPage,
     modes::ModesPage,
+    plugins::{PluginDetailPlaceholder, PluginsPage},
     rule_detail::{EditRulePage, NewRulePage},
     rules::RulesPage,
     scene_detail::{NativeSceneDetailPage, NewScenePage, PluginSceneDetailPage},
@@ -67,6 +68,12 @@ pub fn App() -> impl IntoView {
                 }/>
                 <Route path=path!("/glue/:id") view=move || view! {
                     <AuthGuard><GlueDetailPage /></AuthGuard>
+                }/>
+                <Route path=path!("/plugins") view=move || view! {
+                    <AuthGuard><PluginsPage /></AuthGuard>
+                }/>
+                <Route path=path!("/plugins/:id") view=move || view! {
+                    <AuthGuard><PluginDetailPlaceholder /></AuthGuard>
                 }/>
                 <Route path=path!("/rules") view=move || view! {
                     <AuthGuard><RulesPage /></AuthGuard>
@@ -176,6 +183,10 @@ fn NavShell(children: Children) -> impl IntoView {
                     <a href="/glue" class=active("/glue")>
                         <span class="material-icons" style="font-size:18px">"extension"</span>
                         "Glue"
+                    </a>
+                    <a href="/plugins" class=active("/plugins")>
+                        <span class="material-icons" style="font-size:18px">"widgets"</span>
+                        "Plugins"
                     </a>
                     <a href="/dashboards" class=active("/dashboards")>
                         <span class="material-icons" style="font-size:18px">"dashboard"</span>

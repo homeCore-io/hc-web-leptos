@@ -2619,6 +2619,18 @@ a.cell-link:hover { text-decoration: underline; }
 }
 .day-chip input { display: none; }
 
+/* Device state builder */
+.state-builder { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.25rem; }
+.state-attr-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.2rem 0; font-size: 0.85rem;
+}
+.state-attr-label { min-width: 8rem; font-weight: 500; }
+.state-slider-row { display: flex; align-items: center; gap: 0.5rem; flex: 1; }
+.state-slider { flex: 1; accent-color: var(--hc-accent); }
+.state-slider-val { min-width: 3rem; text-align: right; font-size: 0.82rem; color: var(--hc-text-muted); }
+.hc-select--sm { padding: 0.2rem 0.4rem; font-size: 0.82rem; }
+
 /* Device multi-select */
 .device-multi-select {
   display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center;

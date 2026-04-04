@@ -1323,10 +1323,7 @@ fn ActionEditor(
                             <label class="field-label">"Device"</label>
                             <DeviceSelect value=jget_str(&a, "device_id")
                                 on_select=Callback::new(move |id: String| aset("device_id", json!(id))) />
-                            <label class="field-label">"State (JSON)"</label>
-                            <textarea class="hc-textarea hc-textarea--code" rows="3"
-                                prop:value=serde_json::to_string_pretty(&a["state"]).unwrap_or_default()
-                                on:input=move |ev| { if let Ok(p) = serde_json::from_str::<Value>(&event_target_value(&ev)) { aset("state", p); } } />
+                            <DeviceStateBuilder rule=rule path=path index=index />
                         </div>
                     }.into_any(),
 
@@ -1447,10 +1444,7 @@ fn ActionEditor(
                             <label class="field-label">"Device"</label>
                             <DeviceSelect value=jget_str(&a, "device_id")
                                 on_select=Callback::new(move |id: String| aset("device_id", json!(id))) />
-                            <label class="field-label">"Target state (JSON)"</label>
-                            <textarea class="hc-textarea hc-textarea--code" rows="2"
-                                prop:value=serde_json::to_string_pretty(&a["target"]).unwrap_or_default()
-                                on:input=move |ev| { if let Ok(p) = serde_json::from_str::<Value>(&event_target_value(&ev)) { aset("target", p); } } />
+                            <DeviceStateBuilder rule=rule path=path index=index />
                             <label class="field-label">"Duration (seconds)"</label>
                             <input type="number" class="hc-input hc-input--sm" style="width:8rem"
                                 prop:value=a["duration_secs"].as_u64().unwrap_or(30).to_string()
@@ -1670,6 +1664,202 @@ fn DeviceMultiSelect(
                     <DeviceSelect value=String::new() on_select=Callback::new(add_device) />
                 }
             }
+        </div>
+    }
+}
+
+// ── DeviceStateBuilder ───────────────────────────────────────────────────────
+// Shows device-aware controls (toggles, sliders, numeric) for building
+// state JSON in set_device_state and fade_device actions.
+
+#[component]
+fn DeviceStateBuilder(
+    rule: RwSignal<Value>,
+    path: &'static str,
+    index: usize,
+) -> impl IntoView {
+    let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
+
+    // Determine the state key: "state" for set_device_state, "target" for fade_device
+    let state_key = move || {
+        let t = rule.get()[path][index]["type"].as_str().unwrap_or("").to_string();
+        if t == "fade_device" { "target" } else { "state" }
+    };
+
+    view! {
+        <div class="state-builder">
+            {move || {
+                let device_id = rule.get()[path][index]["device_id"].as_str().unwrap_or("").to_string();
+                let sk = state_key();
+                let state_val = rule.get()[path][index][sk].clone();
+                let state_obj = state_val.as_object().cloned().unwrap_or_default();
+
+                let dev = devices.get().into_iter().find(|d| d.device_id == device_id);
+                if dev.is_none() && device_id.is_empty() {
+                    return view! { <p class="msg-muted" style="font-size:0.85rem">"Select a device first."</p> }.into_any();
+                }
+
+                let dev_attrs = dev.as_ref().map(|d| &d.attributes);
+
+                // Build list of attribute rows: known attributes from device + any extra in state
+                let mut attr_keys: Vec<String> = Vec::new();
+                if let Some(attrs) = dev_attrs {
+                    let mut keys: Vec<String> = attrs.keys().cloned().collect();
+                    keys.sort();
+                    attr_keys = keys;
+                }
+                // Add any keys in state that aren't in device attrs (custom/action keys)
+                for k in state_obj.keys() {
+                    if !attr_keys.contains(k) { attr_keys.push(k.clone()); }
+                }
+
+                // Filter out read-only / metadata attributes
+                attr_keys.retain(|k| !matches!(k.as_str(),
+                    "last_seen" | "device_type" | "plugin_id" | "available"
+                    | "title" | "artist" | "album" | "album_art_url"
+                    | "media_type" | "source" | "duration_secs" | "position_secs"
+                    | "started_at" | "remaining_secs" | "sonos.queue_size"
+                ));
+
+                if attr_keys.is_empty() {
+                    return view! { <p class="msg-muted" style="font-size:0.85rem">"No controllable attributes found."</p> }.into_any();
+                }
+
+                attr_keys.into_iter().map(|attr| {
+                    let is_included = state_obj.contains_key(&attr);
+                    let dev_val = dev_attrs.and_then(|a| a.get(&attr)).cloned().unwrap_or(Value::Null);
+                    let dev_val_for_default = dev_val.clone();
+                    let state_val_for_attr = state_obj.get(&attr).cloned();
+
+                    // Determine control type from device value
+                    let is_bool = dev_val.is_boolean()
+                        || matches!(attr.as_str(), "on" | "muted" | "shuffle" | "locked" | "open");
+                    let is_pct = matches!(attr.as_str(),
+                        "brightness_pct" | "volume" | "position" | "bass" | "treble"
+                        | "color_temp"
+                    );
+                    let is_numeric = dev_val.is_number() || dev_val.is_f64() || dev_val.is_i64() || dev_val.is_u64();
+                    let is_action = attr == "action"; // media player action field
+
+                    let attr_clone = attr.clone();
+                    let attr_label = attr.replace('_', " ");
+
+                    view! {
+                        <div class="state-attr-row">
+                            // Include checkbox
+                            <input type="checkbox" class="rule-select-cb"
+                                prop:checked=is_included
+                                on:change=move |ev| {
+                                    use wasm_bindgen::JsCast;
+                                    let checked = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()).map(|el| el.checked()).unwrap_or(false);
+                                    let attr = attr_clone.clone();
+                                    let sk = state_key();
+                                    rule.update(|v| {
+                                        if checked {
+                                            // Add with current device value as default
+                                            let default = dev_val_for_default.clone();
+                                            v[path][index][sk][&attr] = if default.is_null() { json!(false) } else { default };
+                                        } else {
+                                            if let Some(obj) = v[path][index][sk].as_object_mut() { obj.remove(&attr); }
+                                        }
+                                    });
+                                }
+                            />
+                            <span class="state-attr-label">{attr_label}</span>
+
+                            // Value control (only shown when included)
+                            {if is_included {
+                                let attr_for_ctrl = attr.clone();
+                                let cur_val = state_val_for_attr.unwrap_or(dev_val.clone());
+
+                                if is_bool {
+                                    let checked = cur_val.as_bool().unwrap_or(false);
+                                    view! {
+                                        <select class="hc-select hc-select--sm"
+                                            on:change=move |ev| {
+                                                let sk = state_key();
+                                                let v = event_target_value(&ev) == "true";
+                                                rule.update(|r| { r[path][index][sk][&attr_for_ctrl] = json!(v); });
+                                            }
+                                        >
+                                            <option value="true" selected=checked>"On / True"</option>
+                                            <option value="false" selected=!checked>"Off / False"</option>
+                                        </select>
+                                    }.into_any()
+                                } else if is_pct {
+                                    let (min, max) = match attr.as_str() {
+                                        "color_temp"   => (2000.0, 6500.0),
+                                        "bass" | "treble" => (-10.0, 10.0),
+                                        _              => (0.0, 100.0),
+                                    };
+                                    let step = if attr == "color_temp" { 100.0 } else { 1.0 };
+                                    let num_val = cur_val.as_f64().unwrap_or(0.0);
+                                    view! {
+                                        <div class="state-slider-row">
+                                            <input type="range" class="state-slider"
+                                                min=min.to_string() max=max.to_string() step=step.to_string()
+                                                prop:value=num_val.to_string()
+                                                on:input=move |ev| {
+                                                    let sk = state_key();
+                                                    if let Ok(n) = event_target_value(&ev).parse::<f64>() {
+                                                        let val = if n.fract() == 0.0 { json!(n as i64) } else { json!(n) };
+                                                        rule.update(|r| { r[path][index][sk][&attr_for_ctrl] = val; });
+                                                    }
+                                                }
+                                            />
+                                            <span class="state-slider-val">{num_val.to_string()}</span>
+                                        </div>
+                                    }.into_any()
+                                } else if is_numeric {
+                                    let num_val = cur_val.as_f64().unwrap_or(0.0);
+                                    view! {
+                                        <input type="number" class="hc-input hc-input--sm" style="width:6rem"
+                                            prop:value=num_val.to_string()
+                                            on:input=move |ev| {
+                                                let sk = state_key();
+                                                if let Ok(n) = event_target_value(&ev).parse::<f64>() {
+                                                    let val = if n.fract() == 0.0 { json!(n as i64) } else { json!(n) };
+                                                    rule.update(|r| { r[path][index][sk][&attr_for_ctrl] = val; });
+                                                }
+                                            }
+                                        />
+                                    }.into_any()
+                                } else if is_action {
+                                    // Media player action dropdown
+                                    let cur = cur_val.as_str().unwrap_or("").to_string();
+                                    view! {
+                                        <select class="hc-select hc-select--sm"
+                                            on:change=move |ev| {
+                                                let sk = state_key();
+                                                rule.update(|r| { r[path][index][sk][&attr_for_ctrl] = json!(event_target_value(&ev)); });
+                                            }
+                                        >
+                                            {["play","pause","stop","next","previous","set_volume","set_mute","set_shuffle","set_bass","set_treble","play_favorite","play_playlist"]
+                                                .map(|a| view! { <option value=a selected=cur==a>{a.replace('_', " ")}</option> }).collect_view()}
+                                        </select>
+                                    }.into_any()
+                                } else {
+                                    // String / unknown → text input
+                                    let s = if cur_val.is_string() { cur_val.as_str().unwrap_or("").to_string() } else { cur_val.to_string() };
+                                    view! {
+                                        <input type="text" class="hc-input hc-input--sm"
+                                            prop:value=s
+                                            on:input=move |ev| {
+                                                let sk = state_key();
+                                                let raw = event_target_value(&ev);
+                                                let val = serde_json::from_str::<Value>(&raw).unwrap_or(json!(raw));
+                                                rule.update(|r| { r[path][index][sk][&attr_for_ctrl] = val; });
+                                            }
+                                        />
+                                    }.into_any()
+                                }
+                            } else {
+                                view! { <span /> }.into_any()
+                            }}
+                        </div>
+                    }
+                }).collect_view().into_any()
+            }}
         </div>
     }
 }

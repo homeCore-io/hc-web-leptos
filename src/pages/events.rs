@@ -427,6 +427,8 @@ pub fn EventsPage() -> impl IntoView {
             <div class="activity-timeline">
                 {move || {
                     let list = filtered.get();
+                    // Subscribe to device map so names update when devices load
+                    let devs = ws_devices.get();
                     if list.is_empty() {
                         view! {
                             <p class="msg-muted" style="padding:1rem">"No activity entries."</p>
@@ -444,9 +446,8 @@ pub fn EventsPage() -> impl IntoView {
                             let raw_summary = entry.summary.clone();
                             let raw = entry.raw.clone();
 
-                            // Resolve device IDs → names at render time (device map is now populated)
+                            // Resolve device IDs → names using the device map loaded above
                             let summary = {
-                                let devs = ws_devices.get();
                                 let mut s = raw_summary;
                                 for (did, dev) in devs.iter() {
                                     if s.contains(did.as_str()) {

@@ -370,3 +370,9 @@ pub async fn rule_fire_history(token: &str, id: &str) -> Result<Value, String> {
 pub async fn rule_stale_refs(token: &str) -> Result<Value, String> {
     get_json("/automations/stale-refs", token).await
 }
+
+// ── Events API ───────────────────────────────────────────────────────────────
+
+pub async fn fetch_events(token: &str, limit: u32) -> Result<Vec<Value>, String> {
+    get_json(&format!("/events?limit={limit}"), token).await
+}

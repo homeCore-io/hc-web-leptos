@@ -134,3 +134,16 @@ pub fn events_ws_url(token: &str) -> String {
 
     format!("{protocol}://{host}/api/v1/events/stream?token={token}")
 }
+
+/// Build the WebSocket URL for the HomeCore log stream.
+pub fn logs_ws_url(token: &str, history: u32) -> String {
+    let location = web_sys::window()
+        .and_then(|w| w.location().href().ok())
+        .unwrap_or_default();
+    let protocol = if location.starts_with("https") { "wss" } else { "ws" };
+    let host = web_sys::window()
+        .and_then(|w| w.location().host().ok())
+        .unwrap_or_else(|| "localhost:8080".to_string());
+
+    format!("{protocol}://{host}/api/v1/logs/stream?token={token}&history={history}&level=info")
+}

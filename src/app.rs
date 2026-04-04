@@ -6,6 +6,7 @@ use crate::pages::{
     areas::AreasPage,
     device_cards::DeviceCardsPage,
     device_detail::DeviceDetailPage,
+    events::EventsPage,
     login::LoginPage,
     modes::ModesPage,
     rule_detail::{EditRulePage, NewRulePage},
@@ -56,6 +57,9 @@ pub fn App() -> impl IntoView {
                 }/>
                 <Route path=path!("/modes") view=move || view! {
                     <AuthGuard><ModesPage /></AuthGuard>
+                }/>
+                <Route path=path!("/events") view=move || view! {
+                    <AuthGuard><EventsPage /></AuthGuard>
                 }/>
                 <Route path=path!("/rules") view=move || view! {
                     <AuthGuard><RulesPage /></AuthGuard>

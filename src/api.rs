@@ -385,6 +385,14 @@ pub async fn delete_glue(token: &str, id: &str) -> Result<(), String> {
     delete_no_body(&format!("/glue/{id}"), token).await
 }
 
+pub async fn fetch_glue_device(token: &str, id: &str) -> Result<Value, String> {
+    get_json(&format!("/devices/{id}"), token).await
+}
+
+pub async fn send_glue_command(token: &str, id: &str, body: &Value) -> Result<(), String> {
+    patch_json(&format!("/devices/{id}/state"), token, body).await
+}
+
 // ── Events API ───────────────────────────────────────────────────────────────
 
 pub async fn fetch_events(token: &str, limit: u32) -> Result<Vec<Value>, String> {

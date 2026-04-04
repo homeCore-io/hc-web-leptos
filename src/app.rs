@@ -7,7 +7,7 @@ use crate::pages::{
     device_cards::DeviceCardsPage,
     device_detail::DeviceDetailPage,
     events::EventsPage,
-    glue::GluePage,
+    glue::{GlueDetailPage, GluePage},
     login::LoginPage,
     modes::ModesPage,
     rule_detail::{EditRulePage, NewRulePage},
@@ -64,6 +64,9 @@ pub fn App() -> impl IntoView {
                 }/>
                 <Route path=path!("/glue") view=move || view! {
                     <AuthGuard><GluePage /></AuthGuard>
+                }/>
+                <Route path=path!("/glue/:id") view=move || view! {
+                    <AuthGuard><GlueDetailPage /></AuthGuard>
                 }/>
                 <Route path=path!("/rules") view=move || view! {
                     <AuthGuard><RulesPage /></AuthGuard>

@@ -1,10 +1,11 @@
 //! Glue devices management page — create, view, and delete helper devices.
 
-use crate::api::{create_glue, delete_glue, fetch_glue};
+use crate::api::{create_glue, delete_glue, fetch_glue, fetch_glue_device, send_glue_command};
 use crate::auth::use_auth;
 use crate::pages::shared::SearchField;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::hooks::{use_navigate, use_params_map};
 use serde_json::{json, Value};
 
 // ── Type metadata ────────────────────────────────────────────────────────────
@@ -245,9 +246,16 @@ pub fn GluePage() -> impl IntoView {
                             let summary = device_value_summary(&d);
                             let id_for_delete = id.clone();
                             let id_for_confirm = id.clone();
+                            let id_for_nav = id.clone();
+                            let nav = use_navigate();
 
                             view! {
-                                <div class="glue-row">
+                                <div class="glue-row" style="cursor:pointer"
+                                    on:click=move |_| {
+                                        let path = format!("/glue/{}", id_for_nav);
+                                        nav(&path, Default::default());
+                                    }
+                                >
                                     <span class="material-icons glue-icon" style="font-size:20px">{icon}</span>
                                     <div class="glue-info">
                                         <span class="glue-name">{name}</span>
@@ -262,7 +270,8 @@ pub fn GluePage() -> impl IntoView {
                                                 <span class="rule-confirm-delete">
                                                     "Delete? "
                                                     <button class="hc-btn hc-btn--sm hc-btn--danger"
-                                                        on:click=move |_| {
+                                                        on:click=move |ev: web_sys::MouseEvent| {
+                                                            ev.stop_propagation();
                                                             let token = match auth.token.get_untracked() { Some(t) => t, None => return };
                                                             let id = id_del.clone();
                                                             confirm_delete.set(None);
@@ -276,7 +285,7 @@ pub fn GluePage() -> impl IntoView {
                                                     >"Yes"</button>
                                                     " "
                                                     <button class="hc-btn hc-btn--sm hc-btn--outline"
-                                                        on:click=move |_| confirm_delete.set(None)
+                                                        on:click=move |ev: web_sys::MouseEvent| { ev.stop_propagation(); confirm_delete.set(None); }
                                                     >"No"</button>
                                                 </span>
                                             }.into_any()
@@ -284,7 +293,7 @@ pub fn GluePage() -> impl IntoView {
                                             let id_set = id_for_confirm.clone();
                                             view! {
                                                 <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Delete"
-                                                    on:click=move |_| confirm_delete.set(Some(id_set.clone()))
+                                                    on:click=move |ev: web_sys::MouseEvent| { ev.stop_propagation(); confirm_delete.set(Some(id_set.clone())); }
                                                 >
                                                     <span class="material-icons" style="font-size:15px">"delete"</span>
                                                 </button>
@@ -297,6 +306,251 @@ pub fn GluePage() -> impl IntoView {
                     }
                 }}
             </div>
+        </div>
+    }
+}
+
+// ── Detail / Edit Page ───────────────────────────────────────────────────────
+
+#[component]
+pub fn GlueDetailPage() -> impl IntoView {
+    let auth = use_auth();
+    let params = use_params_map();
+    let device_id = move || params.read().get("id").unwrap_or_default();
+    let device: RwSignal<Option<Value>> = RwSignal::new(None);
+    let loading = RwSignal::new(true);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+    let busy = RwSignal::new(false);
+    let navigate = use_navigate();
+
+    // Fetch device
+    Effect::new(move |_| {
+        let token = match auth.token.get() { Some(t) => t, None => return };
+        let did = device_id();
+        if did.is_empty() { return; }
+        loading.set(true);
+        spawn_local(async move {
+            match fetch_glue_device(&token, &did).await {
+                Ok(d) => device.set(Some(d)),
+                Err(e) => error.set(Some(e)),
+            }
+            loading.set(false);
+        });
+    });
+
+    // Send command helper
+    let send_cmd = move |cmd: Value| {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let did = device_id();
+        busy.set(true);
+        spawn_local(async move {
+            if let Err(e) = send_glue_command(&token, &did, &cmd).await {
+                error.set(Some(e));
+            }
+            // Refresh device state
+            match fetch_glue_device(&token, &did).await {
+                Ok(d) => device.set(Some(d)),
+                Err(e) => error.set(Some(e)),
+            }
+            busy.set(false);
+        });
+    };
+
+    view! {
+        <div class="glue-detail">
+            // ── Back + heading ────────────────────────────────────────────────
+            <div class="detail-heading">
+                <div class="detail-heading-actions">
+                    {
+                        let nav = navigate.clone();
+                        view! {
+                            <button class="hc-btn hc-btn--outline"
+                                on:click=move |_| nav("/glue", Default::default())
+                            >"← Glue Devices"</button>
+                        }
+                    }
+                    <h2 style="flex:1; margin:0; font-size:1.1rem">
+                        {move || device.get().map(|d| d["name"].as_str().unwrap_or("").to_string()).unwrap_or_default()}
+                    </h2>
+                </div>
+            </div>
+
+            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            {move || loading.get().then(|| view! { <p class="msg-muted">"Loading…"</p> })}
+
+            // ── Device info + controls ────────────────────────────────────────
+            {move || device.get().map(|d| {
+                let dt = device_type_str(&d);
+                let icon = type_icon(&dt);
+                let label = type_label(&dt);
+                let did = d["device_id"].as_str().unwrap_or("").to_string();
+                let attrs = d["attributes"].clone();
+
+                view! {
+                    <section class="detail-card">
+                        <div class="glue-detail-header">
+                            <span class="material-icons" style="font-size:28px; color:var(--hc-text-muted)">{icon}</span>
+                            <div>
+                                <h3 style="margin:0">{d["name"].as_str().unwrap_or("").to_string()}</h3>
+                                <span class="glue-meta">{label}" · "<code>{did}</code></span>
+                            </div>
+                        </div>
+                    </section>
+
+                    // ── Type-specific controls ───────────────────────────────
+                    <section class="detail-card">
+                        <h3 class="detail-card-title">"Controls"</h3>
+                        {match dt.as_str() {
+                            "counter" => {
+                                let count = attrs["count"].as_i64().unwrap_or(0);
+                                let step = attrs["step"].as_i64().unwrap_or(1);
+                                view! {
+                                    <div class="glue-ctrl-row">
+                                        <span class="glue-ctrl-value">{count.to_string()}</span>
+                                        <div class="glue-ctrl-btns">
+                                            <button class="hc-btn hc-btn--sm" disabled=move || busy.get()
+                                                on:click=move |_| send_cmd(json!({"command":"decrement"}))
+                                            >"-"{step.to_string()}</button>
+                                            <button class="hc-btn hc-btn--sm" disabled=move || busy.get()
+                                                on:click=move |_| send_cmd(json!({"command":"increment"}))
+                                            >"+"{step.to_string()}</button>
+                                            <button class="hc-btn hc-btn--sm hc-btn--outline" disabled=move || busy.get()
+                                                on:click=move |_| send_cmd(json!({"command":"reset"}))
+                                            >"Reset"</button>
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            }
+                            "switch" | "virtual_switch" => {
+                                let on = attrs["on"].as_bool().unwrap_or(false);
+                                view! {
+                                    <div class="glue-ctrl-row">
+                                        <div class="toggle-group">
+                                            <button class:active=on disabled=move || busy.get()
+                                                on:click=move |_| send_cmd(json!({"command":"on"}))
+                                            >"On"</button>
+                                            <button class:active=!on disabled=move || busy.get()
+                                                on:click=move |_| send_cmd(json!({"command":"off"}))
+                                            >"Off"</button>
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            }
+                            "number" => {
+                                let val = attrs["value"].as_f64().unwrap_or(0.0);
+                                let min = attrs["min"].as_f64().unwrap_or(0.0);
+                                let max = attrs["max"].as_f64().unwrap_or(100.0);
+                                let step = attrs["step"].as_f64().unwrap_or(1.0);
+                                let unit = attrs["unit"].as_str().unwrap_or("").to_string();
+                                view! {
+                                    <div class="glue-ctrl-row">
+                                        <span class="glue-ctrl-value">{format!("{val}{unit}")}</span>
+                                        <div class="state-slider-row" style="flex:1">
+                                            <input type="range" class="state-slider"
+                                                min=min.to_string() max=max.to_string() step=step.to_string()
+                                                prop:value=val.to_string()
+                                                on:change=move |ev| {
+                                                    if let Ok(n) = event_target_value(&ev).parse::<f64>() {
+                                                        send_cmd(json!({"command":"set","value":n}));
+                                                    }
+                                                }
+                                            />
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            }
+                            "select" => {
+                                let selected = attrs["selected"].as_str().unwrap_or("").to_string();
+                                let options: Vec<String> = attrs["options"].as_array()
+                                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                                    .unwrap_or_default();
+                                view! {
+                                    <div class="glue-ctrl-row">
+                                        <select class="hc-select" on:change=move |ev| {
+                                            send_cmd(json!({"command":"select","option":event_target_value(&ev)}));
+                                        }>
+                                            {options.into_iter().map(|opt| {
+                                                let sel = opt == selected;
+                                                let opt2 = opt.clone();
+                                                view! { <option value=opt selected=sel>{opt2}</option> }
+                                            }).collect_view()}
+                                        </select>
+                                        <button class="hc-btn hc-btn--sm hc-btn--outline" disabled=move || busy.get()
+                                            on:click=move |_| send_cmd(json!({"command":"previous"}))
+                                        >"◀"</button>
+                                        <button class="hc-btn hc-btn--sm hc-btn--outline" disabled=move || busy.get()
+                                            on:click=move |_| send_cmd(json!({"command":"next"}))
+                                        >"▶"</button>
+                                    </div>
+                                }.into_any()
+                            }
+                            "button" => view! {
+                                <div class="glue-ctrl-row">
+                                    <button class="hc-btn hc-btn--primary" disabled=move || busy.get()
+                                        on:click=move |_| send_cmd(json!({"command":"press"}))
+                                    >"Press"</button>
+                                    <span class="glue-meta">{format!("Last: {}", attrs["last_pressed"].as_str().unwrap_or("never"))}</span>
+                                </div>
+                            }.into_any(),
+                            "text" => {
+                                let val = attrs["value"].as_str().unwrap_or("").to_string();
+                                view! {
+                                    <div class="glue-ctrl-row" style="flex-direction:column; align-items:stretch">
+                                        <textarea class="hc-textarea" rows="3" prop:value=val.clone()
+                                            on:change=move |ev| {
+                                                send_cmd(json!({"command":"set","value":event_target_value(&ev)}));
+                                            }
+                                        />
+                                    </div>
+                                }.into_any()
+                            }
+                            "timer" => {
+                                let state = attrs["state"].as_str().unwrap_or("idle").to_string();
+                                let remaining = attrs["remaining_secs"].as_u64().unwrap_or(0);
+                                view! {
+                                    <div class="glue-ctrl-row">
+                                        <span class="glue-ctrl-value">{format!("{state} ({remaining}s)")}</span>
+                                        <div class="glue-ctrl-btns">
+                                            <button class="hc-btn hc-btn--sm" disabled=move || busy.get()
+                                                on:click=move |_| send_cmd(json!({"command":"start","duration_secs":300}))
+                                            >"Start 5m"</button>
+                                            <button class="hc-btn hc-btn--sm hc-btn--outline" disabled=move || busy.get()
+                                                on:click=move |_| send_cmd(json!({"command":"pause"}))
+                                            >"Pause"</button>
+                                            <button class="hc-btn hc-btn--sm hc-btn--outline" disabled=move || busy.get()
+                                                on:click=move |_| send_cmd(json!({"command":"resume"}))
+                                            >"Resume"</button>
+                                            <button class="hc-btn hc-btn--sm hc-btn--outline" disabled=move || busy.get()
+                                                on:click=move |_| send_cmd(json!({"command":"cancel"}))
+                                            >"Cancel"</button>
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            }
+                            "group" | "threshold" | "schedule" => {
+                                let summary = device_value_summary(&d);
+                                view! {
+                                    <div class="glue-ctrl-row">
+                                        <span class="glue-ctrl-value">{summary}</span>
+                                        <span class="glue-meta">"Read-only computed device"</span>
+                                    </div>
+                                }.into_any()
+                            }
+                            _ => view! {
+                                <p class="msg-muted">"No controls for this device type."</p>
+                            }.into_any(),
+                        }}
+                    </section>
+
+                    // ── Raw attributes ────────────────────────────────────────
+                    <section class="detail-card">
+                        <h3 class="detail-card-title">"Attributes"</h3>
+                        <pre class="activity-detail" style="max-height:30rem">
+                            {serde_json::to_string_pretty(&attrs).unwrap_or_default()}
+                        </pre>
+                    </section>
+                }
+            })}
         </div>
     }
 }

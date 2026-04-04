@@ -10,7 +10,7 @@ use crate::pages::{
     glue::{GlueDetailPage, GluePage},
     login::LoginPage,
     modes::ModesPage,
-    plugins::{PluginDetailPlaceholder, PluginsPage},
+    plugins::{PluginDetailPage, PluginsPage},
     rule_detail::{EditRulePage, NewRulePage},
     rules::RulesPage,
     scene_detail::{NativeSceneDetailPage, NewScenePage, PluginSceneDetailPage},
@@ -73,7 +73,7 @@ pub fn App() -> impl IntoView {
                     <AuthGuard><PluginsPage /></AuthGuard>
                 }/>
                 <Route path=path!("/plugins/:id") view=move || view! {
-                    <AuthGuard><PluginDetailPlaceholder /></AuthGuard>
+                    <AuthGuard><PluginDetailPage /></AuthGuard>
                 }/>
                 <Route path=path!("/rules") view=move || view! {
                     <AuthGuard><RulesPage /></AuthGuard>

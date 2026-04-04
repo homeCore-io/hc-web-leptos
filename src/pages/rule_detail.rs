@@ -285,21 +285,118 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
 
             // ── Status banners ───────────────────────────────────────────────
             {move || save_err.get().map(|e| view! { <p class="msg-error">{e}</p> })}
-            {move || save_ok.get().then(|| view! { <p class="msg-ok">"Saved."</p> })}
+            {move || save_ok.get().then(|| view! {
+                <p class="msg-ok save-ok-banner">
+                    <span class="material-icons" style="font-size:16px;vertical-align:middle">"check_circle"</span>
+                    " Saved successfully"
+                </p>
+            })}
             {move || loading.get().then(|| view! { <p class="msg-muted">"Loading…"</p> })}
 
             // ── Editor (hidden while loading) ────────────────────────────────
             <Show when=move || !loading.get()>
 
-                // ── Rule metadata ────────────────────────────────────────────
+                // ── Rule header: name + top action bar ───────────────────────
                 <section class="detail-card">
-                    <h3 class="detail-card-title">"Rule"</h3>
-
-                    <label class="field-label">"Name"</label>
-                    <input type="text" class="hc-input" placeholder="Rule name"
-                        prop:value=move || jget_str(&rule.get(), "name")
-                        on:input=move |ev| jset(rule, &["name"], json!(event_target_value(&ev)))
-                    />
+                    <div class="rule-header-row">
+                        <input type="text" class="hc-input rule-name-input" placeholder="Rule name"
+                            prop:value=move || jget_str(&rule.get(), "name")
+                            on:input=move |ev| jset(rule, &["name"], json!(event_target_value(&ev)))
+                        />
+                        <div class="rule-header-actions">
+                            {
+                                let nav_save_top = navigate.clone();
+                                let nav_cancel_top = navigate.clone();
+                                let nav_clone_top = navigate.clone();
+                                let nav_delete_top = navigate.clone();
+                                view! {
+                                    <button class="hc-btn hc-btn--primary hc-btn--sm"
+                                        disabled=move || saving.get()
+                                        on:click=move |_| {
+                                            let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+                                            let body = rule.get_untracked();
+                                            let name = body["name"].as_str().unwrap_or("");
+                                            if name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
+                                            save_err.set(None); save_ok.set(false); saving.set(true);
+                                            let nav = nav_save_top.clone();
+                                            let rule_id = id.map(|s| s.get_untracked()).unwrap_or_default();
+                                            spawn_local(async move {
+                                                let result = if rule_id.is_empty() { create_rule(&token, &body).await }
+                                                             else { update_rule(&token, &rule_id, &body).await };
+                                                match result {
+                                                    Ok(saved) => {
+                                                        if rule_id.is_empty() {
+                                                            let new_id = saved["id"].as_str().unwrap_or("").to_string();
+                                                            if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
+                                                        } else {
+                                                            rule.set(saved);
+                                                            save_ok.set(true);
+                                                            // Auto-dismiss after 3 seconds
+                                                            spawn_local(async move {
+                                                                gloo_timers::future::TimeoutFuture::new(3000).await;
+                                                                save_ok.set(false);
+                                                            });
+                                                        }
+                                                    }
+                                                    Err(e) => save_err.set(Some(e)),
+                                                }
+                                                saving.set(false);
+                                            });
+                                        }
+                                    >{move || if saving.get() { "Saving…" } else { "Save" }}</button>
+                                    <button class="hc-btn hc-btn--outline hc-btn--sm"
+                                        disabled=move || saving.get()
+                                        on:click=move |_| nav_cancel_top("/rules", Default::default())
+                                    >"Cancel"</button>
+                                    {(!is_new).then(|| {
+                                        let nc = nav_clone_top.clone();
+                                        let nd = nav_delete_top.clone();
+                                        view! {
+                                            <button class="hc-btn hc-btn--outline hc-btn--sm" title="Clone"
+                                                disabled=move || saving.get()
+                                                on:click=move |_| {
+                                                    let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+                                                    let rule_id = id.map(|s| s.get_untracked()).unwrap_or_default();
+                                                    if rule_id.is_empty() { return; }
+                                                    let nav = nc.clone();
+                                                    saving.set(true);
+                                                    spawn_local(async move {
+                                                        match clone_rule(&token, &rule_id).await {
+                                                            Ok(new_rule) => {
+                                                                let new_id = new_rule["id"].as_str().unwrap_or("").to_string();
+                                                                if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
+                                                            }
+                                                            Err(e) => save_err.set(Some(e)),
+                                                        }
+                                                        saving.set(false);
+                                                    });
+                                                }
+                                            >
+                                                <span class="material-icons" style="font-size:14px;vertical-align:middle">"content_copy"</span>
+                                            </button>
+                                            <button class="hc-btn hc-btn--outline hc-btn--sm hc-btn--danger-outline" title="Delete"
+                                                disabled=move || saving.get()
+                                                on:click=move |_| {
+                                                    let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+                                                    let rule_id = id.map(|s| s.get_untracked()).unwrap_or_default();
+                                                    let nav = nd.clone();
+                                                    saving.set(true);
+                                                    spawn_local(async move {
+                                                        match delete_rule(&token, &rule_id).await {
+                                                            Ok(()) => nav("/rules", Default::default()),
+                                                            Err(e) => { save_err.set(Some(e)); saving.set(false); }
+                                                        }
+                                                    });
+                                                }
+                                            >
+                                                <span class="material-icons" style="font-size:14px;vertical-align:middle">"delete"</span>
+                                            </button>
+                                        }
+                                    })}
+                                }
+                            }
+                        </div>
+                    </div>
 
                     <div class="rule-meta-row">
                         <CheckboxField label="Enabled" sig=rule key="enabled" />
@@ -507,6 +604,10 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                 } else {
                                                     rule.set(saved);
                                                     save_ok.set(true);
+                                                    spawn_local(async move {
+                                                        gloo_timers::future::TimeoutFuture::new(3000).await;
+                                                        save_ok.set(false);
+                                                    });
                                                 }
                                             }
                                             Err(e) => save_err.set(Some(e)),

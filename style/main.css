@@ -2787,10 +2787,11 @@ a.cell-link:hover { text-decoration: underline; }
 }
 
 .activity-detail {
-  background: var(--hc-surface-soft); border-bottom: 1px solid var(--hc-border);
-  padding: 0.5rem 0.8rem; font-size: 0.75rem; font-family: monospace;
-  white-space: pre-wrap; overflow-x: auto; max-height: 20rem;
-  margin: 0;
+  background: var(--hc-surface-soft); border: 1px solid var(--hc-border);
+  border-radius: 0.375rem; margin: 0.25rem 0.5rem 0.5rem;
+  padding: 0.75rem 1rem; font-size: 0.82rem; font-family: monospace;
+  line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  overflow-x: auto; max-height: 40rem;
 }
 
 /* Rules sub-toolbar (tag filter + count) */

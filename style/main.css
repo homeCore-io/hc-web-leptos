@@ -2639,6 +2639,37 @@ a.cell-link:hover { text-decoration: underline; }
 /* Condition/action editors */
 .condition-editor, .action-editor { display: flex; flex-direction: column; gap: 0.4rem; }
 .action-header-row { display: flex; align-items: center; gap: 0.75rem; }
+
+/* Action category selector */
+.action-cat-row {
+  display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.25rem 0;
+}
+.action-cat-btn {
+  display: flex; align-items: center; gap: 0.25rem;
+  padding: 0.3rem 0.6rem; border: 1px solid var(--hc-border);
+  border-radius: 1rem; font-size: 0.78rem; cursor: pointer;
+  background: var(--hc-surface); color: var(--hc-text-muted);
+  transition: all 0.15s;
+}
+.action-cat-btn:hover { background: var(--hc-surface-soft); color: var(--hc-text); }
+.action-cat-btn--active {
+  background: var(--hc-accent); color: #fff; border-color: var(--hc-accent);
+}
+.action-cat-label { white-space: nowrap; }
+
+/* Conditional branch styling */
+.cond-branch {
+  border-left: 3px solid var(--hc-border); padding-left: 0.6rem;
+  margin: 0.35rem 0;
+}
+.cond-branch--if { border-color: var(--hc-success); }
+.cond-branch--elseif { border-color: var(--hc-warn); }
+.cond-branch--else { border-color: var(--hc-text-muted); }
+.cond-branch-label {
+  font-weight: 700; font-size: 0.78rem; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--hc-text-muted);
+}
+.cond-branch-header { display: flex; align-items: center; justify-content: space-between; }
 .json-row-index {
   font-size: 0.75rem; font-weight: 600; color: var(--hc-text-muted);
   min-width: 1.2rem; text-align: center;

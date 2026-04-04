@@ -10,7 +10,7 @@
 
 use crate::api::{
     clone_rule, create_rule, delete_rule, fetch_areas, fetch_devices, fetch_modes,
-    fetch_rule, fetch_scenes, rule_fire_history, test_rule, update_rule,
+    fetch_rule, fetch_rules, fetch_scenes, rule_fire_history, test_rule, update_rule,
 };
 use crate::auth::use_auth;
 use crate::models::{
@@ -211,10 +211,12 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
     let areas: RwSignal<Vec<Area>> = RwSignal::new(vec![]);
     let scenes: RwSignal<Vec<Scene>> = RwSignal::new(vec![]);
     let modes: RwSignal<Vec<ModeRecord>> = RwSignal::new(vec![]);
+    let all_rules: RwSignal<Vec<Value>> = RwSignal::new(vec![]);
     provide_context(devices);
     provide_context(areas);
     provide_context(scenes);
     provide_context(modes);
+    provide_context(all_rules);
 
     // ── Load rule (edit mode) + reference data ───────────────────────────────
     Effect::new(move |_| {
@@ -229,6 +231,10 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
         {
             let t5 = token.clone();
             spawn_local(async move { if let Ok(m) = fetch_modes(&t5).await { modes.set(m); } });
+        }
+        {
+            let t6 = token.clone();
+            spawn_local(async move { if let Ok(r) = fetch_rules(&t6).await { all_rules.set(r); } });
         }
         // Fetch rule (edit mode).
         if let Some(id_sig) = id {
@@ -1254,6 +1260,45 @@ fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
 
 // ── ActionEditor ─────────────────────────────────────────────────────────────
 
+/// Map action type to category key for the category selector.
+fn action_category(t: &str) -> &'static str {
+    match t {
+        "set_device_state" | "fade_device" | "capture_device_state" | "restore_device_state" => "device",
+        "conditional" => "conditional",
+        "notify" => "notify",
+        "set_mode" => "mode",
+        "delay" | "wait_for_event" | "wait_for_expression" => "timing",
+        "run_script" => "script",
+        "run_rule_actions" | "pause_rule" | "resume_rule" | "cancel_delays" | "cancel_rule_timers" => "rule_ctrl",
+        _ => "more",
+    }
+}
+
+/// Default action for a category.
+fn category_default(cat: &str) -> &'static str {
+    match cat {
+        "device" => "set_device_state",
+        "conditional" => "conditional",
+        "notify" => "notify",
+        "mode" => "set_mode",
+        "timing" => "delay",
+        "script" => "run_script",
+        "rule_ctrl" => "run_rule_actions",
+        _ => "log_message",
+    }
+}
+
+const ACTION_CATEGORIES: &[(&str, &str, &str)] = &[
+    ("device",      "Control device",  "devices"),
+    ("conditional", "IF / ELSE",       "call_split"),
+    ("notify",      "Notify",          "notifications"),
+    ("mode",        "Set mode",        "tune"),
+    ("timing",      "Delay / Wait",    "schedule"),
+    ("script",      "Script",          "code"),
+    ("rule_ctrl",   "Rule control",    "smart_toy"),
+    ("more",        "More…",           "more_horiz"),
+];
+
 #[component]
 fn ActionEditor(
     rule: RwSignal<Value>,
@@ -1273,9 +1318,16 @@ fn ActionEditor(
             }
         });
     };
+    let aset_u64 = move |key: &'static str, raw: String| {
+        rule.update(|v| {
+            if raw.trim().is_empty() { if let Some(o) = v[path][index].as_object_mut() { o.remove(key); } }
+            else if let Ok(n) = raw.trim().parse::<u64>() { v[path][index][key] = json!(n); }
+        });
+    };
 
     view! {
         <div class="action-editor">
+            // ── Enabled toggle ───────────────────────────────────────────
             <div class="action-header-row">
                 <label class="rule-meta-inline">
                     <input type="checkbox"
@@ -1290,224 +1342,450 @@ fn ActionEditor(
                 </label>
             </div>
 
-            <label class="field-label">"Action type"</label>
-            <select class="hc-select"
-                on:change=move |ev| {
-                    let t = event_target_value(&ev);
-                    rule.update(|v| { v[path][index] = default_action(&t); });
-                }
-            >
-                <optgroup label="Device">
-                    {[("set_device_state","Set device state"),("fade_device","Fade device"),("capture_device_state","Capture state"),("restore_device_state","Restore state")]
-                        .map(|(v,l)| view! { <option value=v selected=move || ag()["type"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                </optgroup>
-                <optgroup label="Communication">
-                    {[("publish_mqtt","Publish MQTT"),("call_service","Call HTTP service"),("fire_event","Fire event"),("notify","Notify"),("log_message","Log message"),("comment","Comment")]
-                        .map(|(v,l)| view! { <option value=v selected=move || ag()["type"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                </optgroup>
-                <optgroup label="Script & Variables">
-                    {[("run_script","Run script (Rhai)"),("set_variable","Set variable"),("set_hub_variable","Set hub variable"),("set_private_boolean","Set private boolean")]
-                        .map(|(v,l)| view! { <option value=v selected=move || ag()["type"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                </optgroup>
-                <optgroup label="Timing & Flow">
-                    {[("delay","Delay"),("wait_for_event","Wait for event"),("wait_for_expression","Wait for expression"),("stop_rule_chain","Stop rule chain"),("exit_rule","Exit rule")]
-                        .map(|(v,l)| view! { <option value=v selected=move || ag()["type"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                </optgroup>
-                <optgroup label="Mode & Rule Control">
-                    {[("set_mode","Set mode"),("run_rule_actions","Run rule actions"),("pause_rule","Pause rule"),("resume_rule","Resume rule"),("cancel_delays","Cancel delays"),("cancel_rule_timers","Cancel rule timers")]
-                        .map(|(v,l)| view! { <option value=v selected=move || ag()["type"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                </optgroup>
-                <optgroup label="Block actions">
-                    {[("parallel","Parallel"),("conditional","Conditional"),("repeat_until","Repeat until"),("repeat_while","Repeat while"),("repeat_count","Repeat count"),
-                      ("ping_host","Ping host"),("set_device_state_per_mode","Set state per mode"),("delay_per_mode","Delay per mode"),("activate_scene_per_mode","Scene per mode")]
-                        .map(|(v,l)| view! { <option value=v selected=move || ag()["type"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                </optgroup>
-            </select>
+            // ── Category selector ────────────────────────────────────────
+            <div class="action-cat-row">
+                {ACTION_CATEGORIES.iter().map(|(key, label, icon)| {
+                    view! {
+                        <button
+                            class="action-cat-btn"
+                            class:action-cat-btn--active=move || action_category(ag()["type"].as_str().unwrap_or("")) == *key
+                            on:click=move |_| {
+                                let def = category_default(key);
+                                rule.update(|v| {
+                                    let enabled = v[path][index]["enabled"].as_bool().unwrap_or(true);
+                                    v[path][index] = default_action(def);
+                                    v[path][index]["enabled"] = json!(enabled);
+                                });
+                            }
+                        >
+                            <span class="material-icons" style="font-size:16px">{*icon}</span>
+                            <span class="action-cat-label">{*label}</span>
+                        </button>
+                    }
+                }).collect_view()}
+            </div>
 
-            // Type-specific fields
+            // ── Category-specific editor ─────────────────────────────────
             {move || {
                 let a = ag();
                 let t = a["type"].as_str().unwrap_or("").to_string();
-                match t.as_str() {
-                    "set_device_state" => view! {
+                let cat = action_category(&t);
+
+                match cat {
+                    // ── DEVICE ────────────────────────────────────────────
+                    "device" => {
+                        // Sub-type selector within device category
+                        view! {
+                            <div class="trigger-fields">
+                                <select class="hc-select" on:change=move |ev| {
+                                    let new_t = event_target_value(&ev);
+                                    let enabled = ag()["enabled"].as_bool().unwrap_or(true);
+                                    rule.update(|v| { v[path][index] = default_action(&new_t); v[path][index]["enabled"] = json!(enabled); });
+                                }>
+                                    {[("set_device_state","Command device"),("fade_device","Fade device"),("capture_device_state","Capture state"),("restore_device_state","Restore state")]
+                                        .map(|(v,l)| view! { <option value=v selected=t==v>{l}</option> }).collect_view()}
+                                </select>
+                                {match t.as_str() {
+                                    "set_device_state" | "fade_device" => view! {
+                                        <label class="field-label">"Device"</label>
+                                        <DeviceSelect value=jget_str(&a,"device_id")
+                                            on_select=Callback::new(move |id: String| aset("device_id", json!(id))) />
+                                        <DeviceStateBuilder rule=rule path=path index=index />
+                                        {(t == "fade_device").then(|| view! {
+                                            <label class="field-label">"Duration (seconds)"</label>
+                                            <input type="number" class="hc-input hc-input--sm" style="width:8rem"
+                                                prop:value=a["duration_secs"].as_u64().unwrap_or(30).to_string()
+                                                on:input=move |ev| aset_u64("duration_secs", event_target_value(&ev)) />
+                                        })}
+                                    }.into_any(),
+                                    "capture_device_state" => view! {
+                                        <label class="field-label">"Snapshot key"</label>
+                                        <input type="text" class="hc-input" prop:value=jget_str(&a,"key")
+                                            on:input=move |ev| aset("key", json!(event_target_value(&ev))) />
+                                        <label class="field-label">"Devices"</label>
+                                        <p class="msg-muted" style="font-size:0.78rem">"Select devices to capture:"</p>
+                                        // TODO: multi-device chip selector
+                                        <input type="text" class="hc-input" placeholder="device_id_1, device_id_2"
+                                            prop:value=a["device_ids"].as_array().map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default()
+                                            on:input=move |ev| {
+                                                let ids: Vec<Value> = event_target_value(&ev).split(',').map(|s| json!(s.trim())).filter(|v| v.as_str()!=Some("")).collect();
+                                                aset("device_ids", json!(ids));
+                                            } />
+                                    }.into_any(),
+                                    "restore_device_state" => view! {
+                                        <label class="field-label">"Snapshot key"</label>
+                                        <input type="text" class="hc-input" prop:value=jget_str(&a,"key")
+                                            on:input=move |ev| aset("key", json!(event_target_value(&ev))) />
+                                    }.into_any(),
+                                    _ => view! { <span /> }.into_any(),
+                                }}
+                            </div>
+                        }.into_any()
+                    },
+
+                    // ── CONDITIONAL (IF/ELSE) ────────────────────────────
+                    "conditional" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Device"</label>
-                            <DeviceSelect value=jget_str(&a, "device_id")
-                                on_select=Callback::new(move |id: String| aset("device_id", json!(id))) />
-                            <DeviceStateBuilder rule=rule path=path index=index />
+                            <div class="cond-branch cond-branch--if">
+                                <span class="cond-branch-label">"IF"</span>
+                                <label class="field-label">"Condition (Rhai expression)"</label>
+                                <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                    prop:value=jget_str(&a, "condition")
+                                    on:input=move |ev| aset("condition", json!(event_target_value(&ev))) />
+                                <label class="field-label">"THEN actions:"</label>
+                                <NestedItemList rule=rule path=path index=index key="then_actions" />
+                            </div>
+
+                            // ELSE-IF branches
+                            {move || {
+                                let branches = rule.get()[path][index]["else_if"].as_array().cloned().unwrap_or_default();
+                                branches.into_iter().enumerate().map(|(bi, branch)| {
+                                    let cond = branch["condition"].as_str().unwrap_or("").to_string();
+                                    view! {
+                                        <div class="cond-branch cond-branch--elseif">
+                                            <div class="cond-branch-header">
+                                                <span class="cond-branch-label">"ELSE IF"</span>
+                                                <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove branch"
+                                                    on:click=move |_| rule.update(|v| {
+                                                        if let Some(arr) = v[path][index]["else_if"].as_array_mut() { arr.remove(bi); }
+                                                    })
+                                                ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                            </div>
+                                            <label class="field-label">"Condition"</label>
+                                            <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                                prop:value=cond
+                                                on:input=move |ev| rule.update(|v| {
+                                                    v[path][index]["else_if"][bi]["condition"] = json!(event_target_value(&ev));
+                                                }) />
+                                            <label class="field-label">"THEN actions:"</label>
+                                            <NestedElseIfActions rule=rule path=path index=index branch_index=bi />
+                                        </div>
+                                    }
+                                }).collect_view()
+                            }}
+
+                            <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin:0.25rem 0"
+                                on:click=move |_| rule.update(|v| {
+                                    let branch = json!({"condition": "", "actions": []});
+                                    if let Some(arr) = v[path][index]["else_if"].as_array_mut() { arr.push(branch); }
+                                    else { v[path][index]["else_if"] = json!([branch]); }
+                                })
+                            >"+ Add ELSE IF"</button>
+
+                            <div class="cond-branch cond-branch--else">
+                                <span class="cond-branch-label">"ELSE"</span>
+                                <NestedItemList rule=rule path=path index=index key="else_actions" />
+                            </div>
                         </div>
                     }.into_any(),
 
+                    // ── NOTIFY ────────────────────────────────────────────
                     "notify" => view! {
                         <div class="trigger-fields">
                             <label class="field-label">"Channel"</label>
-                            <input type="text" class="hc-input" prop:value=jget_str(&a,"channel") on:input=move |ev| aset("channel", json!(event_target_value(&ev))) />
-                            <label class="field-label">"Message"</label>
-                            <textarea class="hc-textarea" rows="2" prop:value=jget_str(&a,"message") on:input=move |ev| aset("message", json!(event_target_value(&ev))) />
+                            <select class="hc-select" on:change=move |ev| aset("channel", json!(event_target_value(&ev)))>
+                                {[("all","All channels"),("telegram","Telegram"),("pushover","Pushover"),("email","Email")]
+                                    .map(|(v,l)| view! { <option value=v selected=a["channel"].as_str()==Some(v)>{l}</option> }).collect_view()}
+                            </select>
                             <label class="field-label">"Title (optional)"</label>
-                            <input type="text" class="hc-input" prop:value=jget_opt_str(&a,"title") on:input=move |ev| aset_opt("title", &event_target_value(&ev)) />
+                            <input type="text" class="hc-input" prop:value=jget_opt_str(&a,"title")
+                                on:input=move |ev| aset_opt("title", &event_target_value(&ev)) />
+                            <label class="field-label">"Message"</label>
+                            <textarea class="hc-textarea" rows="2" prop:value=jget_str(&a,"message")
+                                on:input=move |ev| aset("message", json!(event_target_value(&ev))) />
                         </div>
                     }.into_any(),
 
-                    "delay" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Duration (seconds)"</label>
-                            <input type="number" class="hc-input hc-input--sm" style="width:8rem"
-                                prop:value=a["duration_secs"].as_u64().unwrap_or(5).to_string()
-                                on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u64>() { aset("duration_secs", json!(n)); } } />
-                        </div>
-                    }.into_any(),
-
-                    "set_mode" => view! {
+                    // ── MODE ──────────────────────────────────────────────
+                    "mode" => view! {
                         <div class="trigger-fields">
                             <label class="field-label">"Mode"</label>
-                            <ModeSelect value=jget_str(&a, "mode_id")
+                            <ModeSelect value=jget_str(&a,"mode_id")
                                 on_select=Callback::new(move |id: String| aset("mode_id", json!(id))) />
                             <label class="field-label">"Command"</label>
-                            <select class="hc-select" on:change=move |ev| aset("command", json!(event_target_value(&ev)))>
-                                {[("on","On"),("off","Off"),("toggle","Toggle")].map(|(v,l)| view! { <option value=v selected=a["command"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                            </select>
+                            <div class="toggle-group">
+                                <button class:active=a["command"].as_str()==Some("on")
+                                    on:click=move |_| aset("command", json!("on"))>"On"</button>
+                                <button class:active=a["command"].as_str()==Some("off")
+                                    on:click=move |_| aset("command", json!("off"))>"Off"</button>
+                                <button class:active=a["command"].as_str()==Some("toggle")
+                                    on:click=move |_| aset("command", json!("toggle"))>"Toggle"</button>
+                            </div>
                         </div>
                     }.into_any(),
 
-                    "run_script" => view! {
+                    // ── TIMING / WAIT ─────────────────────────────────────
+                    "timing" => view! {
+                        <div class="trigger-fields">
+                            <select class="hc-select" on:change=move |ev| {
+                                let new_t = event_target_value(&ev);
+                                let enabled = ag()["enabled"].as_bool().unwrap_or(true);
+                                rule.update(|v| { v[path][index] = default_action(&new_t); v[path][index]["enabled"] = json!(enabled); });
+                            }>
+                                {[("delay","Delay"),("wait_for_event","Wait for event"),("wait_for_expression","Wait for expression")]
+                                    .map(|(v,l)| view! { <option value=v selected=t==v>{l}</option> }).collect_view()}
+                            </select>
+                            {match t.as_str() {
+                                "delay" => view! {
+                                    <div class="control-row">
+                                        <span class="control-label">"Duration"</span>
+                                        <div class="state-slider-row">
+                                            <input type="range" class="state-slider" min="1" max="300" step="1"
+                                                prop:value=a["duration_secs"].as_u64().unwrap_or(5).to_string()
+                                                on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u64>() { aset("duration_secs", json!(n)); } } />
+                                            <span class="state-slider-val">{format!("{}s", a["duration_secs"].as_u64().unwrap_or(5))}</span>
+                                        </div>
+                                    </div>
+                                    <div class="control-row">
+                                        <span class="control-label">"Cancelable"</span>
+                                        <div class="toggle-group">
+                                            <button class:active=a["cancelable"].as_bool()==Some(true)
+                                                on:click=move |_| aset("cancelable", json!(true))>"Yes"</button>
+                                            <button class:active=a["cancelable"].as_bool()!=Some(true)
+                                                on:click=move |_| aset("cancelable", json!(false))>"No"</button>
+                                        </div>
+                                    </div>
+                                }.into_any(),
+                                "wait_for_event" => view! {
+                                    <label class="field-label">"Device (optional)"</label>
+                                    <DeviceSelect value=jget_opt_str(&a,"device_id")
+                                        on_select=Callback::new(move |id: String| aset_opt("device_id", &id)) />
+                                    <label class="field-label">"Attribute (optional)"</label>
+                                    <AttributeSelect device_id=jget_opt_str(&a,"device_id") value=jget_opt_str(&a,"attribute")
+                                        on_select=Callback::new(move |attr: String| aset_opt("attribute", &attr)) />
+                                    <label class="field-label">"Timeout (ms, blank = no timeout)"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="none"
+                                        prop:value=jget_u64_str(&a,"timeout_ms")
+                                        on:input=move |ev| aset_u64("timeout_ms", event_target_value(&ev)) />
+                                }.into_any(),
+                                "wait_for_expression" => view! {
+                                    <label class="field-label">"Rhai expression"</label>
+                                    <textarea class="hc-textarea hc-textarea--code" rows="3"
+                                        prop:value=jget_str(&a,"expression")
+                                        on:input=move |ev| aset("expression", json!(event_target_value(&ev))) />
+                                    <label class="field-label">"Timeout (ms, blank = no timeout)"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="none"
+                                        prop:value=jget_u64_str(&a,"timeout_ms")
+                                        on:input=move |ev| aset_u64("timeout_ms", event_target_value(&ev)) />
+                                }.into_any(),
+                                _ => view! { <span /> }.into_any(),
+                            }}
+                        </div>
+                    }.into_any(),
+
+                    // ── SCRIPT ────────────────────────────────────────────
+                    "script" => view! {
                         <div class="trigger-fields">
                             <label class="field-label">"Rhai script"</label>
-                            <textarea class="hc-textarea hc-textarea--code" rows="6" prop:value=jget_str(&a,"script") on:input=move |ev| aset("script", json!(event_target_value(&ev))) />
+                            <textarea class="hc-textarea hc-textarea--code" rows="6"
+                                prop:value=jget_str(&a,"script")
+                                on:input=move |ev| aset("script", json!(event_target_value(&ev))) />
                         </div>
                     }.into_any(),
 
-                    "log_message" => view! {
+                    // ── RULE CONTROL ──────────────────────────────────────
+                    "rule_ctrl" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Message"</label>
-                            <textarea class="hc-textarea" rows="2" prop:value=jget_str(&a,"message") on:input=move |ev| aset("message", json!(event_target_value(&ev))) />
-                        </div>
-                    }.into_any(),
-
-                    "comment" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Comment"</label>
-                            <textarea class="hc-textarea" rows="2" prop:value=jget_str(&a,"text") on:input=move |ev| aset("text", json!(event_target_value(&ev))) />
-                        </div>
-                    }.into_any(),
-
-                    "fire_event" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Event type"</label>
-                            <input type="text" class="hc-input" prop:value=jget_str(&a,"event_type") on:input=move |ev| aset("event_type", json!(event_target_value(&ev))) />
-                            <label class="field-label">"Payload (JSON)"</label>
-                            <textarea class="hc-textarea hc-textarea--code" rows="2"
-                                prop:value=serde_json::to_string_pretty(&a["payload"]).unwrap_or_default()
-                                on:input=move |ev| { if let Ok(p) = serde_json::from_str::<Value>(&event_target_value(&ev)) { aset("payload", p); } } />
-                        </div>
-                    }.into_any(),
-
-                    "publish_mqtt" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Topic"</label>
-                            <input type="text" class="hc-input hc-textarea--code" prop:value=jget_str(&a,"topic") on:input=move |ev| aset("topic", json!(event_target_value(&ev))) />
-                            <label class="field-label">"Payload"</label>
-                            <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=jget_str(&a,"payload") on:input=move |ev| aset("payload", json!(event_target_value(&ev))) />
-                        </div>
-                    }.into_any(),
-
-                    "call_service" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"URL"</label>
-                            <input type="text" class="hc-input" prop:value=jget_str(&a,"url") on:input=move |ev| aset("url", json!(event_target_value(&ev))) />
-                            <label class="field-label">"Method"</label>
-                            <select class="hc-select" on:change=move |ev| aset("method", json!(event_target_value(&ev)))>
-                                {["GET","POST","PUT","PATCH","DELETE"].map(|m| view! { <option value=m selected=a["method"].as_str()==Some(m)>{m}</option> }).collect_view()}
+                            <select class="hc-select" on:change=move |ev| {
+                                let new_t = event_target_value(&ev);
+                                let enabled = ag()["enabled"].as_bool().unwrap_or(true);
+                                rule.update(|v| { v[path][index] = default_action(&new_t); v[path][index]["enabled"] = json!(enabled); });
+                            }>
+                                {[("run_rule_actions","Run rule actions"),("pause_rule","Pause rule"),("resume_rule","Resume rule"),
+                                  ("cancel_delays","Cancel delays"),("cancel_rule_timers","Cancel rule timers")]
+                                    .map(|(v,l)| view! { <option value=v selected=t==v>{l}</option> }).collect_view()}
                             </select>
+                            {match t.as_str() {
+                                "run_rule_actions" | "pause_rule" | "resume_rule" => view! {
+                                    <label class="field-label">"Rule"</label>
+                                    <RuleSelect value=jget_str(&a,"rule_id")
+                                        on_select=Callback::new(move |id: String| aset("rule_id", json!(id))) />
+                                }.into_any(),
+                                "cancel_delays" => view! {
+                                    <label class="field-label">"Cancel key (blank = all)"</label>
+                                    <input type="text" class="hc-input" prop:value=jget_opt_str(&a,"key")
+                                        on:input=move |ev| aset_opt("key", &event_target_value(&ev)) />
+                                }.into_any(),
+                                "cancel_rule_timers" => view! {
+                                    <label class="field-label">"Rule (blank = current rule)"</label>
+                                    <RuleSelect value=jget_opt_str(&a,"rule_id")
+                                        on_select=Callback::new(move |id: String| aset_opt("rule_id", &id)) />
+                                }.into_any(),
+                                _ => view! { <span /> }.into_any(),
+                            }}
                         </div>
                     }.into_any(),
 
-                    "set_variable" | "set_hub_variable" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Variable name"</label>
-                            <input type="text" class="hc-input" prop:value=jget_str(&a,"name") on:input=move |ev| aset("name", json!(event_target_value(&ev))) />
-                            <label class="field-label">"Value (JSON)"</label>
-                            <input type="text" class="hc-input" prop:value=jget_opt_str(&a,"value") on:input=move |ev| aset_opt("value", &event_target_value(&ev)) />
-                        </div>
-                    }.into_any(),
-
-                    "run_rule_actions" | "pause_rule" | "resume_rule" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Rule ID (UUID)"</label>
-                            <input type="text" class="hc-input hc-textarea--code" prop:value=jget_str(&a,"rule_id") on:input=move |ev| aset("rule_id", json!(event_target_value(&ev))) />
-                        </div>
-                    }.into_any(),
-
-                    "set_private_boolean" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Name"</label>
-                            <input type="text" class="hc-input" prop:value=jget_str(&a,"name") on:input=move |ev| aset("name", json!(event_target_value(&ev))) />
-                            <label class="field-label">"Value"</label>
-                            <select class="hc-select" on:change=move |ev| aset("value", json!(event_target_value(&ev)=="true"))>
-                                <option value="true" selected=a["value"].as_bool()!=Some(false)>"True"</option>
-                                <option value="false" selected=a["value"].as_bool()==Some(false)>"False"</option>
-                            </select>
-                        </div>
-                    }.into_any(),
-
-                    "fade_device" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Device"</label>
-                            <DeviceSelect value=jget_str(&a, "device_id")
-                                on_select=Callback::new(move |id: String| aset("device_id", json!(id))) />
-                            <DeviceStateBuilder rule=rule path=path index=index />
-                            <label class="field-label">"Duration (seconds)"</label>
-                            <input type="number" class="hc-input hc-input--sm" style="width:8rem"
-                                prop:value=a["duration_secs"].as_u64().unwrap_or(30).to_string()
-                                on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u64>() { aset("duration_secs", json!(n)); } } />
-                        </div>
-                    }.into_any(),
-
-                    "capture_device_state" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Snapshot key"</label>
-                            <input type="text" class="hc-input" prop:value=jget_str(&a,"key") on:input=move |ev| aset("key", json!(event_target_value(&ev))) />
-                            <label class="field-label">"Device IDs (comma-separated)"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=a["device_ids"].as_array().map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default()
-                                on:input=move |ev| {
-                                    let ids: Vec<Value> = event_target_value(&ev).split(',').map(|s| json!(s.trim())).filter(|v| v.as_str()!=Some("")).collect();
-                                    aset("device_ids", json!(ids));
-                                } />
-                        </div>
-                    }.into_any(),
-
-                    "restore_device_state" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Snapshot key"</label>
-                            <input type="text" class="hc-input" prop:value=jget_str(&a,"key") on:input=move |ev| aset("key", json!(event_target_value(&ev))) />
-                        </div>
-                    }.into_any(),
-
-                    "wait_for_expression" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Rhai expression"</label>
-                            <textarea class="hc-textarea hc-textarea--code" rows="3" prop:value=jget_str(&a,"expression") on:input=move |ev| aset("expression", json!(event_target_value(&ev))) />
-                        </div>
-                    }.into_any(),
-
-                    "cancel_delays" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Cancel key (blank = all)"</label>
-                            <input type="text" class="hc-input" prop:value=jget_opt_str(&a,"key") on:input=move |ev| aset_opt("key", &event_target_value(&ev)) />
-                        </div>
-                    }.into_any(),
-
-                    "stop_rule_chain" | "exit_rule" | "cancel_rule_timers" | "wait_for_event" => view! {
-                        <div class="trigger-fields">
-                            <p class="msg-muted" style="font-size:0.85rem">"No configurable fields."</p>
-                        </div>
-                    }.into_any(),
-
-                    // Block actions + anything else → JSON fallback
+                    // ── MORE (expanded action types) ─────────────────────
                     _ => view! {
                         <div class="trigger-fields">
-                            <JsonBlock rule=rule path_prefix=path index=index rows=8 />
+                            <select class="hc-select" on:change=move |ev| {
+                                let new_t = event_target_value(&ev);
+                                let enabled = ag()["enabled"].as_bool().unwrap_or(true);
+                                rule.update(|v| { v[path][index] = default_action(&new_t); v[path][index]["enabled"] = json!(enabled); });
+                            }>
+                                {[("log_message","Log message"),("comment","Comment"),("fire_event","Fire event"),
+                                  ("publish_mqtt","Publish MQTT"),("call_service","HTTP request"),
+                                  ("set_variable","Set variable"),("set_hub_variable","Set hub variable"),
+                                  ("set_private_boolean","Set private boolean"),
+                                  ("stop_rule_chain","Stop rule chain"),("exit_rule","Exit rule"),
+                                  ("parallel","Parallel"),("repeat_count","Repeat N times"),
+                                  ("repeat_until","Repeat until"),("repeat_while","Repeat while"),
+                                  ("ping_host","Ping host"),
+                                  ("set_device_state_per_mode","Device per mode"),("delay_per_mode","Delay per mode"),
+                                  ("activate_scene_per_mode","Scene per mode")]
+                                    .map(|(v,l)| view! { <option value=v selected=t==v>{l}</option> }).collect_view()}
+                            </select>
+                            {match t.as_str() {
+                                "log_message" => view! {
+                                    <label class="field-label">"Level"</label>
+                                    <select class="hc-select" on:change=move |ev| aset_opt("level", &event_target_value(&ev))>
+                                        {[("","Info (default)"),("debug","Debug"),("warn","Warning"),("error","Error")]
+                                            .map(|(v,l)| view! { <option value=v selected=a["level"].as_str().unwrap_or("")==v>{l}</option> }).collect_view()}
+                                    </select>
+                                    <label class="field-label">"Message"</label>
+                                    <textarea class="hc-textarea" rows="2" prop:value=jget_str(&a,"message")
+                                        on:input=move |ev| aset("message", json!(event_target_value(&ev))) />
+                                }.into_any(),
+                                "comment" => view! {
+                                    <textarea class="hc-textarea" rows="2" placeholder="Comment text"
+                                        prop:value=jget_str(&a,"text")
+                                        on:input=move |ev| aset("text", json!(event_target_value(&ev))) />
+                                }.into_any(),
+                                "fire_event" => view! {
+                                    <label class="field-label">"Event type"</label>
+                                    <input type="text" class="hc-input" prop:value=jget_str(&a,"event_type")
+                                        on:input=move |ev| aset("event_type", json!(event_target_value(&ev))) />
+                                    <label class="field-label">"Payload (JSON)"</label>
+                                    <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                        prop:value=serde_json::to_string_pretty(&a["payload"]).unwrap_or_default()
+                                        on:input=move |ev| { if let Ok(p) = serde_json::from_str::<Value>(&event_target_value(&ev)) { aset("payload", p); } } />
+                                }.into_any(),
+                                "publish_mqtt" => view! {
+                                    <label class="field-label">"Topic"</label>
+                                    <input type="text" class="hc-input hc-textarea--code" prop:value=jget_str(&a,"topic")
+                                        on:input=move |ev| aset("topic", json!(event_target_value(&ev))) />
+                                    <label class="field-label">"Payload"</label>
+                                    <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=jget_str(&a,"payload")
+                                        on:input=move |ev| aset("payload", json!(event_target_value(&ev))) />
+                                }.into_any(),
+                                "call_service" => view! {
+                                    <label class="field-label">"URL"</label>
+                                    <input type="text" class="hc-input" prop:value=jget_str(&a,"url")
+                                        on:input=move |ev| aset("url", json!(event_target_value(&ev))) />
+                                    <label class="field-label">"Method"</label>
+                                    <select class="hc-select" on:change=move |ev| aset("method", json!(event_target_value(&ev)))>
+                                        {["GET","POST","PUT","PATCH","DELETE"].map(|m| view! { <option value=m selected=a["method"].as_str()==Some(m)>{m}</option> }).collect_view()}
+                                    </select>
+                                    <label class="field-label">"Body (JSON, optional)"</label>
+                                    <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                        prop:value=serde_json::to_string_pretty(&a["body"]).unwrap_or_default()
+                                        on:input=move |ev| { if let Ok(p) = serde_json::from_str::<Value>(&event_target_value(&ev)) { aset("body", p); } } />
+                                }.into_any(),
+                                "set_variable" | "set_hub_variable" => view! {
+                                    <label class="field-label">"Variable name"</label>
+                                    <input type="text" class="hc-input" prop:value=jget_str(&a,"name")
+                                        on:input=move |ev| aset("name", json!(event_target_value(&ev))) />
+                                    <label class="field-label">"Operation"</label>
+                                    <select class="hc-select" on:change=move |ev| aset_opt("op", &event_target_value(&ev))>
+                                        {[("","Set (replace)"),("add","Add"),("subtract","Subtract"),("multiply","Multiply"),("divide","Divide"),("toggle","Toggle")]
+                                            .map(|(v,l)| view! { <option value=v selected=a["op"].as_str().unwrap_or("")==v>{l}</option> }).collect_view()}
+                                    </select>
+                                    <label class="field-label">"Value (JSON)"</label>
+                                    <input type="text" class="hc-input" prop:value=jget_opt_str(&a,"value")
+                                        on:input=move |ev| aset_opt("value", &event_target_value(&ev)) />
+                                }.into_any(),
+                                "set_private_boolean" => view! {
+                                    <label class="field-label">"Name"</label>
+                                    <input type="text" class="hc-input" prop:value=jget_str(&a,"name")
+                                        on:input=move |ev| aset("name", json!(event_target_value(&ev))) />
+                                    <label class="field-label">"Value"</label>
+                                    <div class="toggle-group">
+                                        <button class:active=a["value"].as_bool()==Some(true)
+                                            on:click=move |_| aset("value", json!(true))>"True"</button>
+                                        <button class:active=a["value"].as_bool()==Some(false)
+                                            on:click=move |_| aset("value", json!(false))>"False"</button>
+                                    </div>
+                                }.into_any(),
+                                "stop_rule_chain" | "exit_rule" => view! {
+                                    <p class="msg-muted" style="font-size:0.85rem">
+                                        {if t == "stop_rule_chain" { "Stops lower-priority rules." } else { "Halts remaining actions." }}
+                                    </p>
+                                }.into_any(),
+                                // Block actions with nested action lists
+                                "parallel" => view! {
+                                    <NestedItemList rule=rule path=path index=index key="actions" />
+                                }.into_any(),
+                                "repeat_count" => view! {
+                                    <div class="trigger-row-2">
+                                        <div>
+                                            <label class="field-label">"Count"</label>
+                                            <input type="number" class="hc-input hc-input--sm" min="1"
+                                                prop:value=a["count"].as_u64().unwrap_or(3).to_string()
+                                                on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u64>() { aset("count", json!(n)); } } />
+                                        </div>
+                                        <div>
+                                            <label class="field-label">"Interval (ms)"</label>
+                                            <input type="number" class="hc-input hc-input--sm" placeholder="none"
+                                                prop:value=jget_u64_str(&a,"interval_ms")
+                                                on:input=move |ev| aset_u64("interval_ms", event_target_value(&ev)) />
+                                        </div>
+                                    </div>
+                                    <NestedItemList rule=rule path=path index=index key="actions" />
+                                }.into_any(),
+                                "repeat_until" | "repeat_while" => view! {
+                                    <label class="field-label">"Condition (Rhai)"</label>
+                                    <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                        prop:value=jget_str(&a,"condition")
+                                        on:input=move |ev| aset("condition", json!(event_target_value(&ev))) />
+                                    <div class="trigger-row-2">
+                                        <div>
+                                            <label class="field-label">"Max iterations"</label>
+                                            <input type="number" class="hc-input hc-input--sm" placeholder="unlimited"
+                                                prop:value=jget_u64_str(&a,"max_iterations")
+                                                on:input=move |ev| aset_u64("max_iterations", event_target_value(&ev)) />
+                                        </div>
+                                        <div>
+                                            <label class="field-label">"Interval (ms)"</label>
+                                            <input type="number" class="hc-input hc-input--sm" placeholder="none"
+                                                prop:value=jget_u64_str(&a,"interval_ms")
+                                                on:input=move |ev| aset_u64("interval_ms", event_target_value(&ev)) />
+                                        </div>
+                                    </div>
+                                    <NestedItemList rule=rule path=path index=index key="actions" />
+                                }.into_any(),
+                                "ping_host" => view! {
+                                    <label class="field-label">"Host"</label>
+                                    <input type="text" class="hc-input" prop:value=jget_str(&a,"host")
+                                        on:input=move |ev| aset("host", json!(event_target_value(&ev))) />
+                                    <div class="trigger-row-2">
+                                        <div>
+                                            <label class="field-label">"Ping count"</label>
+                                            <input type="number" class="hc-input hc-input--sm" placeholder="1"
+                                                prop:value=jget_u64_str(&a,"count")
+                                                on:input=move |ev| aset_u64("count", event_target_value(&ev)) />
+                                        </div>
+                                        <div>
+                                            <label class="field-label">"Timeout (ms)"</label>
+                                            <input type="number" class="hc-input hc-input--sm" placeholder="3000"
+                                                prop:value=jget_u64_str(&a,"timeout_ms")
+                                                on:input=move |ev| aset_u64("timeout_ms", event_target_value(&ev)) />
+                                        </div>
+                                    </div>
+                                    <div class="cond-branch cond-branch--if">
+                                        <span class="cond-branch-label">"Reachable"</span>
+                                        <NestedItemList rule=rule path=path index=index key="then_actions" />
+                                    </div>
+                                    <div class="cond-branch cond-branch--else">
+                                        <span class="cond-branch-label">"Unreachable"</span>
+                                        <NestedItemList rule=rule path=path index=index key="else_actions" />
+                                    </div>
+                                }.into_any(),
+                                // Remaining block types → JSON
+                                _ => view! {
+                                    <JsonBlock rule=rule path_prefix=path index=index rows=8 />
+                                }.into_any(),
+                            }}
                         </div>
                     }.into_any(),
                 }
@@ -1524,11 +1802,17 @@ fn JsonBlock(
     rule: RwSignal<Value>,
     path_prefix: &'static str,
     index: usize,
+    #[prop(optional)] nested_key: Option<&'static str>,
+    #[prop(optional)] nested_index: Option<usize>,
     #[prop(default = 6)] rows: u32,
 ) -> impl IntoView {
     let json_err: RwSignal<Option<String>> = RwSignal::new(None);
+    let initial = match (nested_key, nested_index) {
+        (Some(nk), Some(ni)) => rule.get_untracked()[path_prefix][index][nk][ni].clone(),
+        _ => rule.get_untracked()[path_prefix][index].clone(),
+    };
     let text: RwSignal<String> = RwSignal::new(
-        serde_json::to_string_pretty(&rule.get_untracked()[path_prefix][index]).unwrap_or_default()
+        serde_json::to_string_pretty(&initial).unwrap_or_default()
     );
 
     view! {
@@ -1540,7 +1824,12 @@ fn JsonBlock(
                     text.set(raw.clone());
                     match serde_json::from_str::<Value>(&raw) {
                         Ok(parsed) => {
-                            rule.update(|v| { v[path_prefix][index] = parsed; });
+                            rule.update(|v| {
+                                match (nested_key, nested_index) {
+                                    (Some(nk), Some(ni)) => { v[path_prefix][index][nk][ni] = parsed; }
+                                    _ => { v[path_prefix][index] = parsed; }
+                                }
+                            });
                             json_err.set(None);
                         }
                         Err(e) => json_err.set(Some(e.to_string())),
@@ -2240,6 +2529,170 @@ fn SceneSelect(value: String, on_select: Callback<String>) -> impl IntoView {
 }
 
 // ── CheckboxField ────────────────────────────────────────────────────────────
+
+#[component]
+fn RuleSelect(value: String, on_select: Callback<String>) -> impl IntoView {
+    let all_rules = use_context::<RwSignal<Vec<Value>>>().unwrap_or(RwSignal::new(vec![]));
+
+    view! {
+        <select class="hc-select"
+            on:change=move |ev| on_select.run(event_target_value(&ev))
+        >
+            <option value="" selected=value.is_empty()>"— Select rule —"</option>
+            {move || {
+                let current = value.clone();
+                let mut rules = all_rules.get();
+                rules.sort_by(|a, b| a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase()));
+                let has_current = current.is_empty() || rules.iter().any(|r| r["id"].as_str() == Some(&current));
+                let orphan = if !has_current {
+                    Some(view! { <option value=current.clone() selected=true>{format!("{current} (unknown)")}</option> })
+                } else { None };
+                let options = rules.into_iter().map(|r| {
+                    let id = r["id"].as_str().unwrap_or("").to_string();
+                    let name = r["name"].as_str().unwrap_or("(unnamed)").to_string();
+                    let sel = id == current;
+                    view! { <option value=id selected=sel>{name}</option> }
+                }).collect_view();
+                view! { {orphan} {options} }
+            }}
+        </select>
+    }
+}
+
+/// Renders a nested action list inside a block action (e.g. conditional then/else,
+/// parallel actions, repeat body). Reads/writes directly to rule[path][index][key].
+#[component]
+fn NestedItemList(
+    rule: RwSignal<Value>,
+    path: &'static str,
+    index: usize,
+    key: &'static str,
+) -> impl IntoView {
+    view! {
+        <div class="nested-action-list">
+            {move || {
+                let arr = rule.get()[path][index][key].as_array().cloned().unwrap_or_default();
+                let total = arr.len();
+                if arr.is_empty() {
+                    view! { <p class="msg-muted" style="font-size:0.78rem">"No actions."</p> }.into_any()
+                } else {
+                    arr.into_iter().enumerate().map(|(ai, _item)| {
+                        let is_first = ai == 0;
+                        let is_last = ai + 1 >= total;
+                        // Build the deep path for this nested action: path[index][key][ai]
+                        // We pass a synthetic path to ActionEditor — but ActionEditor expects
+                        // rule[path][index] to be the action. For nested, we need a different approach.
+                        // Instead, render inline controls.
+                        let a = rule.get()[path][index][key][ai].clone();
+                        let a_type = a["type"].as_str().unwrap_or("log_message").to_string();
+                        view! {
+                            <div class="json-row nested-action-row">
+                                <div class="json-row-controls">
+                                    <span class="json-row-index">{ai + 1}</span>
+                                    <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move up" disabled=is_first
+                                        on:click=move |_| rule.update(|v| {
+                                            if let Some(arr) = v[path][index][key].as_array_mut() { if ai > 0 { arr.swap(ai - 1, ai); } }
+                                        })
+                                    ><span class="material-icons" style="font-size:14px">"arrow_upward"</span></button>
+                                    <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move down" disabled=is_last
+                                        on:click=move |_| rule.update(|v| {
+                                            if let Some(arr) = v[path][index][key].as_array_mut() { if ai + 1 < arr.len() { arr.swap(ai, ai + 1); } }
+                                        })
+                                    ><span class="material-icons" style="font-size:14px">"arrow_downward"</span></button>
+                                    <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
+                                        on:click=move |_| rule.update(|v| {
+                                            if let Some(arr) = v[path][index][key].as_array_mut() { arr.remove(ai); }
+                                        })
+                                    ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                </div>
+                                // Nested action type + inline JSON editor
+                                <label class="field-label">"Action"</label>
+                                <select class="hc-select" on:change=move |ev| {
+                                    let new_t = event_target_value(&ev);
+                                    rule.update(|v| { v[path][index][key][ai] = default_action(&new_t); });
+                                }>
+                                    {[("set_device_state","Device command"),("notify","Notify"),("set_mode","Set mode"),
+                                      ("delay","Delay"),("log_message","Log message"),("run_script","Script"),
+                                      ("fire_event","Fire event"),("set_variable","Set variable"),
+                                      ("stop_rule_chain","Stop chain"),("exit_rule","Exit rule")]
+                                        .map(|(v,l)| view! { <option value=v selected=a_type==v>{l}</option> }).collect_view()}
+                                </select>
+                                <JsonBlock rule=rule path_prefix=path index=index nested_key=key nested_index=ai rows=3 />
+                            </div>
+                        }
+                    }).collect_view().into_any()
+                }
+            }}
+            <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin-top:0.25rem"
+                on:click=move |_| rule.update(|v| {
+                    let entry = default_action("log_message");
+                    if let Some(arr) = v[path][index][key].as_array_mut() { arr.push(entry); }
+                    else { v[path][index][key] = json!([entry]); }
+                })
+            >"+ Add action"</button>
+        </div>
+    }
+}
+
+/// Renders nested actions inside an else_if branch.
+#[component]
+fn NestedElseIfActions(
+    rule: RwSignal<Value>,
+    path: &'static str,
+    index: usize,
+    branch_index: usize,
+) -> impl IntoView {
+    view! {
+        <div class="nested-action-list">
+            {move || {
+                let arr = rule.get()[path][index]["else_if"][branch_index]["actions"].as_array().cloned().unwrap_or_default();
+                if arr.is_empty() {
+                    view! { <p class="msg-muted" style="font-size:0.78rem">"No actions."</p> }.into_any()
+                } else {
+                    arr.into_iter().enumerate().map(|(ai, a)| {
+                        let a_type = a["type"].as_str().unwrap_or("log_message").to_string();
+                        view! {
+                            <div class="json-row nested-action-row">
+                                <div class="json-row-controls">
+                                    <span class="json-row-index">{ai + 1}</span>
+                                    <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
+                                        on:click=move |_| rule.update(|v| {
+                                            if let Some(arr) = v[path][index]["else_if"][branch_index]["actions"].as_array_mut() { arr.remove(ai); }
+                                        })
+                                    ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                </div>
+                                <select class="hc-select" on:change=move |ev| {
+                                    let new_t = event_target_value(&ev);
+                                    rule.update(|v| { v[path][index]["else_if"][branch_index]["actions"][ai] = default_action(&new_t); });
+                                }>
+                                    {[("set_device_state","Device command"),("notify","Notify"),("set_mode","Set mode"),
+                                      ("delay","Delay"),("log_message","Log message"),("run_script","Script"),
+                                      ("fire_event","Fire event"),("stop_rule_chain","Stop chain")]
+                                        .map(|(v,l)| view! { <option value=v selected=a_type==v>{l}</option> }).collect_view()}
+                                </select>
+                                <textarea class="hc-textarea hc-textarea--code" rows="2"
+                                    prop:value=serde_json::to_string_pretty(&a).unwrap_or_default()
+                                    on:input=move |ev| {
+                                        if let Ok(parsed) = serde_json::from_str::<Value>(&event_target_value(&ev)) {
+                                            rule.update(|v| { v[path][index]["else_if"][branch_index]["actions"][ai] = parsed; });
+                                        }
+                                    }
+                                />
+                            </div>
+                        }
+                    }).collect_view().into_any()
+                }
+            }}
+            <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin-top:0.25rem"
+                on:click=move |_| rule.update(|v| {
+                    let entry = default_action("log_message");
+                    if let Some(arr) = v[path][index]["else_if"][branch_index]["actions"].as_array_mut() { arr.push(entry); }
+                    else { v[path][index]["else_if"][branch_index]["actions"] = json!([entry]); }
+                })
+            >"+ Add action"</button>
+        </div>
+    }
+}
 
 #[component]
 fn CheckboxField(label: &'static str, sig: RwSignal<Value>, key: &'static str) -> impl IntoView {

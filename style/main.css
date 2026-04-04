@@ -2794,6 +2794,25 @@ a.cell-link:hover { text-decoration: underline; }
   min-height: 4rem;
 }
 
+/* ── Glue devices page ─────────────────────────────────────────── */
+.glue-page { display: flex; flex-direction: column; gap: 0.75rem; }
+.glue-create-form { display: flex; flex-direction: column; gap: 0.5rem; }
+.glue-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.glue-row {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.5rem 0.75rem; background: var(--hc-surface);
+  border: 1px solid var(--hc-border); border-radius: 0.375rem;
+}
+.glue-row:hover { border-color: var(--hc-border-strong); }
+.glue-icon { color: var(--hc-text-muted); flex-shrink: 0; }
+.glue-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.glue-name { font-weight: 600; font-size: 0.9rem; }
+.glue-meta { font-size: 0.78rem; color: var(--hc-text-muted); }
+.glue-id {
+  font-family: monospace; font-size: 0.72rem; color: var(--hc-text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 20rem;
+}
+
 /* Rules sub-toolbar (tag filter + count) */
 .rules-sub-toolbar {
   display: flex; align-items: center; gap: 0.5rem;

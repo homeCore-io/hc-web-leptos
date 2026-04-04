@@ -371,6 +371,20 @@ pub async fn rule_stale_refs(token: &str) -> Result<Value, String> {
     get_json("/automations/stale-refs", token).await
 }
 
+// ── Glue Devices API ─────────────────────────────────────────────────────────
+
+pub async fn fetch_glue(token: &str) -> Result<Vec<Value>, String> {
+    get_json("/glue", token).await
+}
+
+pub async fn create_glue(token: &str, body: &Value) -> Result<Value, String> {
+    post_json("/glue", token, body).await
+}
+
+pub async fn delete_glue(token: &str, id: &str) -> Result<(), String> {
+    delete_no_body(&format!("/glue/{id}"), token).await
+}
+
 // ── Events API ───────────────────────────────────────────────────────────────
 
 pub async fn fetch_events(token: &str, limit: u32) -> Result<Vec<Value>, String> {

@@ -7,6 +7,7 @@ use crate::pages::{
     device_cards::DeviceCardsPage,
     device_detail::DeviceDetailPage,
     events::EventsPage,
+    glue::GluePage,
     login::LoginPage,
     modes::ModesPage,
     rule_detail::{EditRulePage, NewRulePage},
@@ -60,6 +61,9 @@ pub fn App() -> impl IntoView {
                 }/>
                 <Route path=path!("/events") view=move || view! {
                     <AuthGuard><EventsPage /></AuthGuard>
+                }/>
+                <Route path=path!("/glue") view=move || view! {
+                    <AuthGuard><GluePage /></AuthGuard>
                 }/>
                 <Route path=path!("/rules") view=move || view! {
                     <AuthGuard><RulesPage /></AuthGuard>
@@ -165,6 +169,10 @@ fn NavShell(children: Children) -> impl IntoView {
                     <a href="/rules" class=active("/rules")>
                         <span class="material-icons" style="font-size:18px">"smart_toy"</span>
                         "Rules"
+                    </a>
+                    <a href="/glue" class=active("/glue")>
+                        <span class="material-icons" style="font-size:18px">"extension"</span>
+                        "Glue"
                     </a>
                     <a href="/dashboards" class=active("/dashboards")>
                         <span class="material-icons" style="font-size:18px">"dashboard"</span>

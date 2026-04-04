@@ -2962,34 +2962,6 @@ fn ModeSelect(value: String, on_select: Callback<String>) -> impl IntoView {
     }
 }
 
-// ── SceneSelect ──────────────────────────────────────────────────────────────
-
-#[component]
-fn SceneSelect(value: String, on_select: Callback<String>) -> impl IntoView {
-    let scenes = use_context::<RwSignal<Vec<Scene>>>().unwrap_or(RwSignal::new(vec![]));
-
-    view! {
-        <select class="hc-select"
-            on:change=move |ev| on_select.run(event_target_value(&ev))
-        >
-            <option value="" selected=value.is_empty()>"— Select scene —"</option>
-            {move || {
-                let current = value.clone();
-                let ss = scenes.get();
-                let has_current = current.is_empty() || ss.iter().any(|s| s.id == current);
-                let orphan = if !has_current {
-                    Some(view! { <option value=current.clone() selected=true>{format!("{current} (unknown)")}</option> })
-                } else { None };
-                let options = ss.into_iter().map(|s| {
-                    let sel = s.id == current;
-                    view! { <option value=s.id.clone() selected=sel>{s.name.clone()}</option> }
-                }).collect_view();
-                view! { {orphan} {options} }
-            }}
-        </select>
-    }
-}
-
 // ── CheckboxField ────────────────────────────────────────────────────────────
 
 #[component]

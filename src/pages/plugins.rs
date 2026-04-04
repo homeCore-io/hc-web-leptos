@@ -2,8 +2,8 @@
 //! navigation to detail pages.
 
 use crate::api::{
-    fetch_plugin_config, fetch_plugins, patch_plugin, restart_plugin, start_plugin, stop_plugin,
-    update_plugin_config,
+    fetch_plugin, fetch_plugin_config, fetch_plugins, patch_plugin, restart_plugin, start_plugin,
+    stop_plugin, update_plugin_config,
 };
 use crate::auth::use_auth;
 use crate::models::PluginInfo;
@@ -297,6 +297,19 @@ pub fn PluginDetailPage() -> impl IntoView {
     let plugin = Memo::new(move |_| {
         let id = plugin_id();
         ws.plugins.get().get(&id).cloned()
+    });
+
+    // Seed plugin into WS map if not already present (direct navigation)
+    Effect::new(move |_| {
+        let token = match auth.token.get() { Some(t) => t, None => return };
+        let id = plugin_id();
+        if id.is_empty() { return; }
+        if ws.plugins.get_untracked().contains_key(&id) { return; }
+        spawn_local(async move {
+            if let Ok(p) = fetch_plugin(&token, &id).await {
+                ws.plugins.update(|m| { m.insert(p.plugin_id.clone(), p); });
+            }
+        });
     });
 
     // Fetch config on mount

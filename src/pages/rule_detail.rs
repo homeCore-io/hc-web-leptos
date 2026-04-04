@@ -783,9 +783,10 @@ fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
                             <label class="field-label">"Device(s)"</label>
                             <DeviceMultiSelect rule=rule />
                             <label class="field-label">"Attribute (blank = any)"</label>
-                            <input type="text" class="hc-input" placeholder="e.g. on, brightness"
-                                prop:value=jget_opt_str(&trigger, "attribute")
-                                on:input=move |ev| tset_opt("attribute", &event_target_value(&ev))
+                            <AttributeSelect
+                                device_id=jget_str(&trigger, "device_id")
+                                value=jget_opt_str(&trigger, "attribute")
+                                on_select=Callback::new(move |attr: String| tset_opt("attribute", &attr))
                             />
                             <div class="trigger-row-2">
                                 <div>
@@ -857,9 +858,10 @@ fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
                             <DeviceSelect value=jget_str(&trigger, "device_id")
                                 on_select=Callback::new(move |id: String| tset("device_id", json!(id))) />
                             <label class="field-label">"Attribute"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&trigger, "attribute")
-                                on:input=move |ev| tset("attribute", json!(event_target_value(&ev)))
+                            <AttributeSelect
+                                device_id=jget_str(&trigger, "device_id")
+                                value=jget_str(&trigger, "attribute")
+                                on_select=Callback::new(move |attr: String| tset("attribute", json!(attr)))
                             />
                             <div class="trigger-row-2">
                                 <div>
@@ -1001,10 +1003,9 @@ fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
 
                     "mode_changed" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Mode ID (blank = any)"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_opt_str(&trigger, "mode_id")
-                                on:input=move |ev| tset_opt("mode_id", &event_target_value(&ev))
+                            <label class="field-label">"Mode (blank = any)"</label>
+                            <ModeSelect value=jget_opt_str(&trigger, "mode_id")
+                                on_select=Callback::new(move |id: String| tset_opt("mode_id", &id))
                             />
                             <label class="field-label">"Direction"</label>
                             <select class="hc-select" on:change=move |ev| {
@@ -1106,8 +1107,8 @@ fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
                             <div class="trigger-row-2">
                                 <div>
                                     <label class="field-label">"Attribute"</label>
-                                    <input type="text" class="hc-input"
-                                        prop:value=jget_str(&c, "attribute") on:input=move |ev| cset("attribute", json!(event_target_value(&ev))) />
+                                    <AttributeSelect device_id=jget_str(&c, "device_id") value=jget_str(&c, "attribute")
+                                        on_select=Callback::new(move |attr: String| cset("attribute", json!(attr))) />
                                 </div>
                                 <div>
                                     <label class="field-label">"Operator"</label>
@@ -1156,8 +1157,8 @@ fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
                             <DeviceSelect value=jget_str(&c, "device_id")
                                 on_select=Callback::new(move |id: String| cset("device_id", json!(id))) />
                             <label class="field-label">"Attribute"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&c, "attribute") on:input=move |ev| cset("attribute", json!(event_target_value(&ev))) />
+                            <AttributeSelect device_id=jget_str(&c, "device_id") value=jget_str(&c, "attribute")
+                                on_select=Callback::new(move |attr: String| cset("attribute", json!(attr))) />
                             <label class="field-label">"Duration (seconds)"</label>
                             <input type="number" class="hc-input hc-input--sm" style="width:8rem"
                                 prop:value=c["duration_secs"].as_u64().unwrap_or(60).to_string()
@@ -1216,9 +1217,9 @@ fn ConditionEditor(rule: RwSignal<Value>, index: usize) -> impl IntoView {
 
                     "mode_is" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Mode ID"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&c, "mode_id") on:input=move |ev| cset("mode_id", json!(event_target_value(&ev))) />
+                            <label class="field-label">"Mode"</label>
+                            <ModeSelect value=jget_str(&c, "mode_id")
+                                on_select=Callback::new(move |id: String| cset("mode_id", json!(id))) />
                             <label class="field-label">"Expected state"</label>
                             <select class="hc-select" on:change=move |ev| cset("on", json!(event_target_value(&ev)=="true"))>
                                 <option value="true" selected=c["on"].as_bool()!=Some(false)>"On"</option>
@@ -1351,8 +1352,9 @@ fn ActionEditor(
 
                     "set_mode" => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Mode ID"</label>
-                            <input type="text" class="hc-input" prop:value=jget_str(&a,"mode_id") on:input=move |ev| aset("mode_id", json!(event_target_value(&ev))) />
+                            <label class="field-label">"Mode"</label>
+                            <ModeSelect value=jget_str(&a, "mode_id")
+                                on_select=Callback::new(move |id: String| aset("mode_id", json!(id))) />
                             <label class="field-label">"Command"</label>
                             <select class="hc-select" on:change=move |ev| aset("command", json!(event_target_value(&ev)))>
                                 {[("on","On"),("off","Off"),("toggle","Toggle")].map(|(v,l)| view! { <option value=v selected=a["command"].as_str()==Some(v)>{l}</option> }).collect_view()}
@@ -1669,6 +1671,105 @@ fn DeviceMultiSelect(
                 }
             }
         </div>
+    }
+}
+
+// ── AttributeSelect ──────────────────────────────────────────────────────────
+// Dropdown of attribute names from a specific device.
+
+#[component]
+fn AttributeSelect(
+    /// device_id to look up attributes for.
+    device_id: String,
+    /// Current attribute value.
+    value: String,
+    on_select: Callback<String>,
+) -> impl IntoView {
+    let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
+
+    view! {
+        <select class="hc-select"
+            on:change=move |ev| on_select.run(event_target_value(&ev))
+        >
+            <option value="" selected=value.is_empty()>"— any attribute —"</option>
+            {move || {
+                let dev_id = device_id.clone();
+                let current = value.clone();
+                let devs = devices.get();
+                let dev = devs.iter().find(|d| d.device_id == dev_id);
+                let mut attrs: Vec<String> = dev
+                    .map(|d| d.attributes.keys().cloned().collect())
+                    .unwrap_or_default();
+                attrs.sort();
+                // If current value isn't in the list, show it as orphan
+                let has_current = current.is_empty() || attrs.contains(&current);
+                let orphan = if !has_current {
+                    Some(view! { <option value=current.clone() selected=true>{format!("{current} (unknown)")}</option> })
+                } else { None };
+                let options = attrs.into_iter().map(|attr| {
+                    let sel = attr == current;
+                    let attr2 = attr.clone();
+                    view! { <option value=attr selected=sel>{attr2}</option> }
+                }).collect_view();
+                view! { {orphan} {options} }
+            }}
+        </select>
+    }
+}
+
+// ── ModeSelect ───────────────────────────────────────────────────────────────
+
+#[component]
+fn ModeSelect(value: String, on_select: Callback<String>) -> impl IntoView {
+    let modes = use_context::<RwSignal<Vec<ModeRecord>>>().unwrap_or(RwSignal::new(vec![]));
+
+    view! {
+        <select class="hc-select"
+            on:change=move |ev| on_select.run(event_target_value(&ev))
+        >
+            <option value="" selected=value.is_empty()>"— Select mode —"</option>
+            {move || {
+                let current = value.clone();
+                let ms = modes.get();
+                let has_current = current.is_empty() || ms.iter().any(|m| m.config.id == current);
+                let orphan = if !has_current {
+                    Some(view! { <option value=current.clone() selected=true>{format!("{current} (unknown)")}</option> })
+                } else { None };
+                let options = ms.into_iter().map(|m| {
+                    let sel = m.config.id == current;
+                    view! { <option value=m.config.id.clone() selected=sel>{m.config.name.clone()}</option> }
+                }).collect_view();
+                view! { {orphan} {options} }
+            }}
+        </select>
+    }
+}
+
+// ── SceneSelect ──────────────────────────────────────────────────────────────
+
+#[component]
+fn SceneSelect(value: String, on_select: Callback<String>) -> impl IntoView {
+    let scenes = use_context::<RwSignal<Vec<Scene>>>().unwrap_or(RwSignal::new(vec![]));
+
+    view! {
+        <select class="hc-select"
+            on:change=move |ev| on_select.run(event_target_value(&ev))
+        >
+            <option value="" selected=value.is_empty()>"— Select scene —"</option>
+            {move || {
+                let current = value.clone();
+                let ss = scenes.get();
+                let has_current = current.is_empty() || ss.iter().any(|s| s.id == current);
+                let orphan = if !has_current {
+                    Some(view! { <option value=current.clone() selected=true>{format!("{current} (unknown)")}</option> })
+                } else { None };
+                let options = ss.into_iter().map(|s| {
+                    let sel = s.id == current;
+                    view! { <option value=s.id.clone() selected=sel>{s.name.clone()}</option> }
+                }).collect_view();
+                view! { {orphan} {options} }
+            }}
+        </select>
     }
 }
 

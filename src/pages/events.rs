@@ -438,28 +438,30 @@ pub fn EventsPage() -> impl IntoView {
                             let source = entry.source;
 
                             view! {
-                                <div
-                                    class=format!("activity-row {sev_cls}")
-                                    class:activity-row--selected=move || selected_entry.get().as_deref() == Some(&id_sel)
-                                    on:click=move |_| {
-                                        selected_entry.update(|sel| {
-                                            if sel.as_deref() == Some(&id_for_click) { *sel = None; }
-                                            else { *sel = Some(id_for_click.clone()); }
-                                        });
-                                    }
-                                >
-                                    <span class="activity-time">{time_str}</span>
-                                    <span class=format!("activity-source-badge {src_cls}")>{source}</span>
-                                    <span class="activity-severity-badge">{severity}</span>
-                                    <span class="activity-kind">{kind_label}</span>
-                                    <span class="activity-summary">{summary}</span>
+                                <div class="activity-entry">
+                                    <div
+                                        class=format!("activity-row {sev_cls}")
+                                        class:activity-row--selected=move || selected_entry.get().as_deref() == Some(&id_sel)
+                                        on:click=move |_| {
+                                            selected_entry.update(|sel| {
+                                                if sel.as_deref() == Some(&id_for_click) { *sel = None; }
+                                                else { *sel = Some(id_for_click.clone()); }
+                                            });
+                                        }
+                                    >
+                                        <span class="activity-time">{time_str}</span>
+                                        <span class=format!("activity-source-badge {src_cls}")>{source}</span>
+                                        <span class="activity-severity-badge">{severity}</span>
+                                        <span class="activity-kind">{kind_label}</span>
+                                        <span class="activity-summary">{summary}</span>
+                                    </div>
+                                    {move || (selected_entry.get().as_deref() == Some(&id_sel2)).then(|| {
+                                        let pretty = serde_json::to_string_pretty(&raw).unwrap_or_default();
+                                        view! {
+                                            <div class="activity-detail">{pretty}</div>
+                                        }
+                                    })}
                                 </div>
-                                {move || (selected_entry.get().as_deref() == Some(&id_sel2)).then(|| {
-                                    let pretty = serde_json::to_string_pretty(&raw).unwrap_or_default();
-                                    view! {
-                                        <pre class="activity-detail">{pretty}</pre>
-                                    }
-                                })}
                             }
                         }).collect_view().into_any()
                     }

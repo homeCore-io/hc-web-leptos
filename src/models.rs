@@ -225,7 +225,8 @@ pub fn is_scene_like(d: &DeviceState) -> bool {
 }
 
 pub fn is_timer_device(d: &DeviceState) -> bool {
-    d.plugin_id.starts_with("core.timer")
+    d.device_id.starts_with("timer_")
+        || d.plugin_id.starts_with("core.timer")
         || d.device_type.as_deref() == Some("timer")
         || str_attr(d.attributes.get("kind")) == Some("timer")
 }

@@ -14,7 +14,8 @@ use crate::api::{
 };
 use crate::auth::use_auth;
 use crate::models::{
-    is_media_player, is_scene_like, media_available_favorites, media_available_playlists,
+    is_media_player, is_scene_like, is_timer_device,
+    media_available_favorites, media_available_playlists,
     Area, DeviceState, ModeRecord, Scene,
 };
 use leptos::prelude::*;
@@ -1978,6 +1979,22 @@ fn device_commands(d: &DeviceState) -> Vec<(&'static str, &'static str)> {
     let has = |k: &str| d.attributes.contains_key(k);
     let has_f = |k: &str| d.attributes.get(k).and_then(|v| v.as_f64()).is_some();
 
+    // Timer devices
+    if is_timer_device(d) {
+        cmds.push(("timer_start",   "Start timer"));
+        cmds.push(("timer_cancel",  "Cancel timer"));
+        cmds.push(("timer_pause",   "Pause timer"));
+        cmds.push(("timer_resume",  "Resume timer"));
+        cmds.push(("timer_restart", "Restart timer"));
+        return cmds;
+    }
+
+    // Scene devices (plugin scenes like Lutron/Hue)
+    if is_scene_like(d) {
+        cmds.push(("activate", "Activate scene"));
+        return cmds;
+    }
+
     if has("on") {
         cmds.push(("on_true",  "Turn on"));
         cmds.push(("on_false", "Turn off"));
@@ -2010,6 +2027,21 @@ fn device_commands(d: &DeviceState) -> Vec<(&'static str, &'static str)> {
 /// Determine the current command key from the state JSON.
 fn detect_command(state: &Value) -> String {
     let obj = match state.as_object() { Some(o) => o, None => return String::new() };
+    // Timer commands
+    if let Some(cmd) = obj.get("command").and_then(|v| v.as_str()) {
+        return match cmd {
+            "start"   => "timer_start",
+            "cancel"  => "timer_cancel",
+            "pause"   => "timer_pause",
+            "resume"  => "timer_resume",
+            "restart" => "timer_restart",
+            _ => cmd,
+        }.to_string();
+    }
+    // Scene activation
+    if obj.get("activate").and_then(|v| v.as_bool()) == Some(true) {
+        return "activate".to_string();
+    }
     // Media action-based commands
     if let Some(act) = obj.get("action").and_then(|v| v.as_str()) {
         return match act {
@@ -2038,6 +2070,12 @@ fn detect_command(state: &Value) -> String {
 /// Build the state JSON for a given command key with a default value.
 fn command_to_state(cmd: &str, d: &DeviceState) -> Value {
     match cmd {
+        "timer_start"    => json!({"command": "start", "duration_secs": 300}),
+        "timer_cancel"   => json!({"command": "cancel"}),
+        "timer_pause"    => json!({"command": "pause"}),
+        "timer_resume"   => json!({"command": "resume"}),
+        "timer_restart"  => json!({"command": "restart"}),
+        "activate"       => json!({"activate": true}),
         "on_true"        => json!({"on": true}),
         "on_false"       => json!({"on": false}),
         "brightness_pct" => json!({"brightness_pct": d.attributes.get("brightness_pct").and_then(|v| v.as_i64()).unwrap_or(50)}),
@@ -2317,9 +2355,46 @@ fn DeviceStateBuilder(
                         }.into_any()
                     },
 
+                    // Timer start — show duration + optional label
+                    "timer_start" => view! {
+                        <div class="control-row">
+                            <span class="control-label">"Duration"</span>
+                            <div class="state-slider-row">
+                                <input type="number" class="hc-input hc-input--sm" style="width:6rem" min="1"
+                                    prop:value=state["duration_secs"].as_u64().unwrap_or(300).to_string()
+                                    on:input=move |ev| {
+                                        if let Ok(n) = event_target_value(&ev).parse::<u64>() {
+                                            let sk = state_key();
+                                            rule.update(|v| { v[path][index][sk]["duration_secs"] = json!(n); });
+                                        }
+                                    }
+                                />
+                                <span class="state-slider-val">"seconds"</span>
+                            </div>
+                        </div>
+                        <div class="control-row">
+                            <span class="control-label">"Label"</span>
+                            <input type="text" class="hc-input hc-input--sm" placeholder="optional"
+                                prop:value=state["label"].as_str().unwrap_or("").to_string()
+                                on:input=move |ev| {
+                                    let raw = event_target_value(&ev);
+                                    let sk = state_key();
+                                    rule.update(|v| {
+                                        if raw.trim().is_empty() {
+                                            if let Some(o) = v[path][index][sk].as_object_mut() { o.remove("label"); }
+                                        } else {
+                                            v[path][index][sk]["label"] = json!(raw);
+                                        }
+                                    });
+                                }
+                            />
+                        </div>
+                    }.into_any(),
+
                     // Simple commands with no extra controls
-                    "on_true" | "on_false" | "lock" | "unlock"
-                    | "play" | "pause" | "stop" | "next" | "prev" => {
+                    "on_true" | "on_false" | "lock" | "unlock" | "activate"
+                    | "play" | "pause" | "stop" | "next" | "prev"
+                    | "timer_cancel" | "timer_pause" | "timer_resume" | "timer_restart" => {
                         view! { <span /> }.into_any()
                     },
 

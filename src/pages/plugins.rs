@@ -12,7 +12,7 @@ use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashSet;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -286,11 +286,9 @@ pub fn PluginDetailPage() -> impl IntoView {
 
     // Config editor state
     let config_raw: RwSignal<Option<String>> = RwSignal::new(None);
-    let config_json: RwSignal<Option<Value>> = RwSignal::new(None);
     let config_loading = RwSignal::new(false);
-    let config_dirty = RwSignal::new(false);
-    let raw_mode = RwSignal::new(false);
-    let raw_text = RwSignal::new(String::new());
+    let editing = RwSignal::new(false);
+    let edit_text = RwSignal::new(String::new());
     let config_save_busy = RwSignal::new(false);
 
     // Live plugin data from WS map
@@ -321,21 +319,11 @@ pub fn PluginDetailPage() -> impl IntoView {
         spawn_local(async move {
             match fetch_plugin_config(&token, &id).await {
                 Ok(resp) => {
-                    if let Some(config) = resp.get("config") {
-                        config_json.set(Some(config.clone()));
-                        // Convert to TOML string for raw editor
-                        if let Ok(toml_val) = serde_json::from_value::<toml::Value>(config.clone()) {
-                            let toml_str = toml::to_string_pretty(&toml_val).unwrap_or_default();
-                            raw_text.set(toml_str.clone());
-                            config_raw.set(Some(toml_str));
-                        }
-                    } else if let Some(raw) = resp["raw"].as_str() {
-                        raw_text.set(raw.to_string());
+                    if let Some(raw) = resp["raw"].as_str() {
                         config_raw.set(Some(raw.to_string()));
                     }
                 }
                 Err(e) => {
-                    // Config unavailable is not fatal — remote plugins may not support it
                     if !e.contains("not found") && !e.contains("not available") {
                         error.set(Some(format!("Config: {e}")));
                     }
@@ -388,18 +376,14 @@ pub fn PluginDetailPage() -> impl IntoView {
         let token = match auth.token.get_untracked() { Some(t) => t, None => return };
         let id = plugin_id();
         config_save_busy.set(true);
-        let body = if raw_mode.get_untracked() {
-            json!({ "raw": raw_text.get_untracked() })
-        } else if let Some(cfg) = config_json.get_untracked() {
-            json!({ "config": cfg })
-        } else {
-            json!({ "raw": raw_text.get_untracked() })
-        };
+        let text = edit_text.get_untracked();
         spawn_local(async move {
-            match update_plugin_config(&token, &id, &body).await {
+            match update_plugin_config(&token, &id, &json!({ "raw": text })).await {
                 Ok(()) => {
+                    // Update the stored raw config and exit editing mode
+                    config_raw.set(Some(edit_text.get_untracked()));
+                    editing.set(false);
                     notice.set(Some("Config saved. Restart plugin to apply changes.".into()));
-                    config_dirty.set(false);
                 }
                 Err(e) => error.set(Some(format!("Save failed: {e}"))),
             }
@@ -549,20 +533,30 @@ pub fn PluginDetailPage() -> impl IntoView {
                 }
             })}
 
-            // ── Configuration Editor ────────────────────────────────────────
+            // ── Configuration ───────────────────────────────────────────────
             <section class="detail-card">
                 <div style="display:flex; align-items:center; justify-content:space-between">
                     <h3 class="detail-card-title" style="margin:0">"Configuration"</h3>
-                    <div style="display:flex; gap:0.5rem; align-items:center">
-                        <button class="hc-btn hc-btn--sm"
-                            class:hc-btn--outline=move || !raw_mode.get()
-                            class:hc-btn--primary=move || raw_mode.get()
-                            on:click=move |_| raw_mode.update(|v| *v = !*v)
-                        >{move || if raw_mode.get() { "Structured" } else { "Raw TOML" }}</button>
-                        <button class="hc-btn hc-btn--sm hc-btn--primary"
-                            disabled=move || config_save_busy.get() || !config_dirty.get()
-                            on:click=move |_| save_config()
-                        >{move || if config_save_busy.get() { "Saving…" } else { "Save" }}</button>
+                    <div style="display:flex; gap:0.35rem; align-items:center">
+                        <Show when=move || !editing.get()>
+                            <button class="hc-btn hc-btn--sm hc-btn--outline"
+                                disabled=move || config_raw.get().is_none()
+                                on:click=move |_| {
+                                    edit_text.set(config_raw.get().unwrap_or_default());
+                                    editing.set(true);
+                                }
+                            >"Edit"</button>
+                        </Show>
+                        <Show when=move || editing.get()>
+                            <button class="hc-btn hc-btn--sm hc-btn--primary"
+                                disabled=move || config_save_busy.get()
+                                on:click=move |_| save_config()
+                            >{move || if config_save_busy.get() { "Saving…" } else { "Save" }}</button>
+                            <button class="hc-btn hc-btn--sm hc-btn--outline"
+                                disabled=move || config_save_busy.get()
+                                on:click=move |_| editing.set(false)
+                            >"Cancel"</button>
+                        </Show>
                     </div>
                 </div>
 
@@ -570,7 +564,7 @@ pub fn PluginDetailPage() -> impl IntoView {
 
                 {move || {
                     if config_loading.get() { return None; }
-                    if config_json.get().is_none() && config_raw.get().is_none() {
+                    if config_raw.get().is_none() {
                         return Some(view! {
                             <p class="msg-muted" style="margin-top:0.5rem">
                                 "No configuration available for this plugin."
@@ -578,44 +572,17 @@ pub fn PluginDetailPage() -> impl IntoView {
                         }.into_any());
                     }
 
-                    if raw_mode.get() {
+                    if editing.get() {
                         Some(view! {
                             <textarea class="hc-textarea plugin-config-editor"
-                                rows="20"
-                                prop:value=move || raw_text.get()
-                                on:input=move |ev| {
-                                    raw_text.set(event_target_value(&ev));
-                                    config_dirty.set(true);
-                                }
+                                rows="24"
+                                prop:value=move || edit_text.get()
+                                on:input=move |ev| edit_text.set(event_target_value(&ev))
                             />
                         }.into_any())
-                    } else if let Some(cfg) = config_json.get() {
-                        // Structured view: render each top-level TOML section
-                        if let Some(obj) = cfg.as_object() {
-                            let sections: Vec<_> = obj.iter().map(|(k, v)| {
-                                let key = k.clone();
-                                let val = v.clone();
-                                view! { <ConfigSection key=key.clone() value=val config_json config_dirty /> }
-                            }).collect();
-                            Some(view! {
-                                <div class="plugin-config-structured">{sections}</div>
-                            }.into_any())
-                        } else {
-                            Some(view! {
-                                <pre class="activity-detail">{serde_json::to_string_pretty(&cfg).unwrap_or_default()}</pre>
-                            }.into_any())
-                        }
                     } else {
-                        // Raw-only (parse failed)
                         Some(view! {
-                            <textarea class="hc-textarea plugin-config-editor"
-                                rows="20"
-                                prop:value=move || raw_text.get()
-                                on:input=move |ev| {
-                                    raw_text.set(event_target_value(&ev));
-                                    config_dirty.set(true);
-                                }
-                            />
+                            <pre class="plugin-config-viewer">{move || config_raw.get().unwrap_or_default()}</pre>
                         }.into_any())
                     }
                 }}
@@ -660,130 +627,3 @@ pub fn PluginDetailPage() -> impl IntoView {
     }
 }
 
-// ── Structured config section ───────────────────────────────────────────────
-
-#[component]
-fn ConfigSection(
-    key: String,
-    value: Value,
-    config_json: RwSignal<Option<Value>>,
-    config_dirty: RwSignal<bool>,
-) -> impl IntoView {
-    let collapsed = RwSignal::new(false);
-
-    view! {
-        <div class="config-section">
-            <div class="config-section-header" on:click=move |_| collapsed.update(|v| *v = !*v)>
-                <span class="material-icons" style="font-size:16px">
-                    {move || if collapsed.get() { "expand_more" } else { "expand_less" }}
-                </span>
-                <span class="config-section-title">{"["}{key.clone()}{"]"}</span>
-            </div>
-            <Show when=move || !collapsed.get()>
-                <div class="config-section-body">
-                    {if let Some(obj) = value.as_object() {
-                        obj.iter().map(|(field_key, field_val)| {
-                            let fk = field_key.clone();
-                            let section = key.clone();
-                            render_config_field(fk, field_val.clone(), section, config_json, config_dirty)
-                        }).collect_view().into_any()
-                    } else {
-                        // Non-object value at section level — show as read-only
-                        view! {
-                            <div class="config-field">
-                                <span class="config-field-value">{value.to_string()}</span>
-                            </div>
-                        }.into_any()
-                    }}
-                </div>
-            </Show>
-        </div>
-    }
-}
-
-fn render_config_field(
-    key: String,
-    value: Value,
-    section: String,
-    config_json: RwSignal<Option<Value>>,
-    config_dirty: RwSignal<bool>,
-) -> impl IntoView {
-    let display_key = key.clone();
-    let update_field = move |new_val: Value| {
-        config_json.update(|cfg| {
-            if let Some(ref mut c) = cfg {
-                if let Some(sec) = c.get_mut(&section) {
-                    if let Some(obj) = sec.as_object_mut() {
-                        obj.insert(key.clone(), new_val);
-                    }
-                }
-            }
-        });
-        config_dirty.set(true);
-    };
-
-    view! {
-        <div class="config-field">
-            <label class="config-field-label">{display_key}</label>
-            {match &value {
-                Value::Bool(b) => {
-                    let checked = *b;
-                    view! {
-                        <input type="checkbox" class="hc-checkbox"
-                            prop:checked=checked
-                            on:change=move |ev| {
-                                let v = event_target_checked(&ev);
-                                update_field(Value::Bool(v));
-                            }
-                        />
-                    }.into_any()
-                }
-                Value::Number(n) => {
-                    let s = n.to_string();
-                    view! {
-                        <input type="text" class="hc-input hc-input--sm"
-                            prop:value=s
-                            on:change=move |ev| {
-                                let text = event_target_value(&ev);
-                                let v = text.parse::<f64>()
-                                    .map(|f| serde_json::Number::from_f64(f).map(Value::Number).unwrap_or(Value::String(text.clone())))
-                                    .unwrap_or_else(|_| {
-                                        text.parse::<i64>()
-                                            .map(|i| Value::Number(i.into()))
-                                            .unwrap_or(Value::String(text))
-                                    });
-                                update_field(v);
-                            }
-                        />
-                    }.into_any()
-                }
-                Value::String(s) => {
-                    let s = s.clone();
-                    view! {
-                        <input type="text" class="hc-input hc-input--sm"
-                            prop:value=s
-                            on:change=move |ev| {
-                                update_field(Value::String(event_target_value(&ev)));
-                            }
-                        />
-                    }.into_any()
-                }
-                _ => {
-                    // Arrays, nested objects — show as JSON text
-                    let pretty = serde_json::to_string_pretty(&value).unwrap_or_default();
-                    view! {
-                        <pre class="config-field-complex">{pretty}</pre>
-                    }.into_any()
-                }
-            }}
-        </div>
-    }
-}
-
-fn event_target_checked(ev: &web_sys::Event) -> bool {
-    use wasm_bindgen::JsCast;
-    ev.target()
-        .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
-        .map(|el| el.checked())
-        .unwrap_or(false)
-}

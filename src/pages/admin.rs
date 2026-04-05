@@ -1,8 +1,10 @@
-//! Admin page — user management, password change, system status, backup, log level.
+//! Admin page — user management, password change, system status, backup, log level,
+//! stale device references, device cleanup.
 
 use crate::api::{
-    change_password, create_user, delete_user, fetch_me, fetch_system_status, fetch_users,
-    get_log_level, set_log_level, set_user_role, trigger_backup,
+    bulk_delete_devices, change_password, create_user, delete_user, fetch_me,
+    fetch_stale_refs, fetch_system_status, fetch_users, get_log_level, set_log_level,
+    set_user_role, trigger_backup,
 };
 use crate::auth::use_auth;
 use crate::models::*;
@@ -665,6 +667,156 @@ pub fn AdminPage() -> impl IntoView {
                     </Button>
                 </div>
             </div>
+        </div>
+
+        // ── Stale Device References ──────────────────────────────────────
+        <div class="detail-card">
+            <h2 class="card-title">"Stale Device References"</h2>
+            <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">"Rules that reference device IDs no longer registered in the device store."</p>
+            <StaleRefsSection />
+        </div>
+
+        // ── Device Cleanup ───────────────────────────────────────────────
+        <div class="detail-card">
+            <h2 class="card-title">"Device Cleanup"</h2>
+            <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">"Bulk delete devices by ID. Affected rules will have references nullified."</p>
+            <DeviceCleanupSection />
+        </div>
+    }
+}
+
+// ── Stale Refs Sub-Component ─────────────────────────────────────────────
+
+#[component]
+fn StaleRefsSection() -> impl IntoView {
+    let auth = use_auth();
+    let stale_rules: RwSignal<Vec<serde_json::Value>> = RwSignal::new(vec![]);
+    let loading = RwSignal::new(false);
+    let error = RwSignal::new(Option::<String>::None);
+
+    let refresh = move || {
+        let token = auth.token_str().unwrap_or_default();
+        loading.set(true);
+        error.set(None);
+        spawn_local(async move {
+            match fetch_stale_refs(&token).await {
+                Ok(data) => stale_rules.set(data),
+                Err(e) => error.set(Some(e)),
+            }
+            loading.set(false);
+        });
+    };
+
+    Effect::new(move |_| refresh());
+
+    view! {
+        {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+        <div style="margin-bottom:0.5rem">
+            <Button variant=ButtonVariant::Outline on_click=Callback::new(move |_| refresh())>
+                {move || if loading.get() { "Checking..." } else { "Check Now" }}
+            </Button>
+        </div>
+        {move || {
+            let rules = stale_rules.get();
+            if loading.get() {
+                view! { <p>"Loading..."</p> }.into_any()
+            } else if rules.is_empty() {
+                view! { <p style="color:var(--hc-success,#4caf50)">"No stale references found."</p> }.into_any()
+            } else {
+                view! {
+                    <table class="admin-table">
+                        <thead><tr>
+                            <th>"Rule Name"</th>
+                            <th>"Stale Device IDs"</th>
+                        </tr></thead>
+                        <tbody>
+                            {rules.into_iter().map(|rule| {
+                                let name = rule["rule_name"].as_str().unwrap_or("?").to_string();
+                                let rule_id = rule["rule_id"].as_str().unwrap_or("").to_string();
+                                let stale_ids: Vec<String> = rule["stale_device_ids"]
+                                    .as_array()
+                                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                                    .unwrap_or_default();
+                                view! {
+                                    <tr>
+                                        <td>
+                                            <a href=format!("/rules/{rule_id}") style="color:var(--hc-accent)">{name}</a>
+                                        </td>
+                                        <td>
+                                            {stale_ids.into_iter().map(|id| view! {
+                                                <code style="margin-right:0.5rem;color:var(--hc-danger,#e53935)">{id}</code>
+                                            }).collect_view()}
+                                        </td>
+                                    </tr>
+                                }
+                            }).collect_view()}
+                        </tbody>
+                    </table>
+                }.into_any()
+            }
+        }}
+    }
+}
+
+// ── Device Cleanup Sub-Component ─────────────────────────────────────────
+
+#[component]
+fn DeviceCleanupSection() -> impl IntoView {
+    let auth = use_auth();
+    let device_ids_input = RwSignal::new(String::new());
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(Option::<String>::None);
+    let notice = RwSignal::new(Option::<String>::None);
+
+    view! {
+        {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+        {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
+        <div class="edit-field">
+            <label>"Device IDs (comma-separated)"</label>
+            <Input
+                value=Signal::derive(move || device_ids_input.get())
+                on_change=Callback::new(move |v: String| device_ids_input.set(v))
+                placeholder="device_id_1, device_id_2, ..."
+            />
+        </div>
+        <div class="edit-actions" style="margin-top:0.5rem">
+            <Button
+                variant=ButtonVariant::Destructive
+                disabled=Signal::derive(move || busy.get() || device_ids_input.get().trim().is_empty())
+                on_click=Callback::new(move |_| {
+                    let token = auth.token_str().unwrap_or_default();
+                    let raw = device_ids_input.get();
+                    let ids: Vec<String> = raw.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if ids.is_empty() { return; }
+                    let count = ids.len();
+                    busy.set(true);
+                    error.set(None);
+                    notice.set(None);
+                    spawn_local(async move {
+                        match bulk_delete_devices(&token, &ids).await {
+                            Ok(resp) => {
+                                let deleted = resp["deleted"].as_u64().unwrap_or(0);
+                                let not_found = resp["not_found"].as_u64().unwrap_or(0);
+                                let affected = resp["affected_rules"]
+                                    .as_array()
+                                    .map(|a| a.len())
+                                    .unwrap_or(0);
+                                notice.set(Some(format!(
+                                    "Deleted {deleted}/{count} devices. {not_found} not found. {affected} rules affected."
+                                )));
+                                device_ids_input.set(String::new());
+                            }
+                            Err(e) => error.set(Some(format!("Bulk delete failed: {e}"))),
+                        }
+                        busy.set(false);
+                    });
+                })
+            >
+                {move || if busy.get() { "Deleting..." } else { "Delete Devices" }}
+            </Button>
         </div>
     }
 }

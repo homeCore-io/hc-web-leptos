@@ -576,3 +576,24 @@ pub async fn trigger_backup(token: &str) -> Result<Vec<u8>, String> {
 pub async fn fetch_me(token: &str) -> Result<Value, String> {
     get_json("/auth/me", token).await
 }
+
+pub async fn fetch_stale_refs(token: &str) -> Result<Vec<Value>, String> {
+    get_json("/automations/stale-refs", token).await
+}
+
+pub async fn bulk_delete_devices(token: &str, ids: &[String]) -> Result<Value, String> {
+    let body = serde_json::json!({ "ids": ids });
+    let url = format!("{}/devices", API_BASE);
+    let resp = Request::delete(&url)
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(serde_json::to_string(&body).unwrap())
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    resp.json().await.map_err(|e| e.to_string())
+}

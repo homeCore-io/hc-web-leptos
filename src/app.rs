@@ -3,6 +3,7 @@
 
 use crate::auth::{use_auth, AuthState};
 use crate::pages::{
+    admin::AdminPage,
     areas::AreasPage,
     device_cards::DeviceCardsPage,
     device_detail::DeviceDetailPage,
@@ -83,6 +84,9 @@ pub fn App() -> impl IntoView {
                 }/>
                 <Route path=path!("/rules/:id") view=move || view! {
                     <AuthGuard><EditRulePage /></AuthGuard>
+                }/>
+                <Route path=path!("/admin") view=move || view! {
+                    <AuthGuard><AdminPage /></AuthGuard>
                 }/>
             </Routes>
         </Router>
@@ -191,6 +195,10 @@ fn NavShell(children: Children) -> impl IntoView {
                     <a href="/dashboards" class=active("/dashboards")>
                         <span class="material-icons" style="font-size:18px">"dashboard"</span>
                         "Dashboards"
+                    </a>
+                    <a href="/admin" class=active("/admin")>
+                        <span class="material-icons" style="font-size:18px">"admin_panel_settings"</span>
+                        "Admin"
                     </a>
                 </nav>
             </aside>

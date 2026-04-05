@@ -89,6 +89,75 @@ async fn delete_no_body(path: &str, token: &str) -> Result<(), String> {
     Ok(())
 }
 
+async fn patch_json_with_response<T: serde::de::DeserializeOwned>(
+    path: &str,
+    token: &str,
+    body: &Value,
+) -> Result<T, String> {
+    let resp = Request::patch(&format!("{API_BASE}{path}"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.ok() {
+        return Err(format!("{} {}", resp.status(), resp.status_text()));
+    }
+
+    resp.json::<T>().await.map_err(|e| e.to_string())
+}
+
+async fn post_json_no_response(path: &str, token: &str, body: &Value) -> Result<(), String> {
+    let resp = Request::post(&format!("{API_BASE}{path}"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.ok() {
+        return Err(format!("{} {}", resp.status(), resp.status_text()));
+    }
+
+    Ok(())
+}
+
+async fn put_json_no_response(path: &str, token: &str, body: &Value) -> Result<(), String> {
+    let resp = Request::put(&format!("{API_BASE}{path}"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.ok() {
+        return Err(format!("{} {}", resp.status(), resp.status_text()));
+    }
+
+    Ok(())
+}
+
+async fn post_binary(path: &str, token: &str) -> Result<Vec<u8>, String> {
+    let resp = Request::post(&format!("{API_BASE}{path}"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.ok() {
+        return Err(format!("{} {}", resp.status(), resp.status_text()));
+    }
+
+    resp.binary().await.map_err(|e| e.to_string())
+}
+
 async fn put_json<T: serde::de::DeserializeOwned>(
     path: &str,
     token: &str,
@@ -431,4 +500,79 @@ pub async fn update_plugin_config(token: &str, id: &str, body: &serde_json::Valu
 
 pub async fn fetch_events(token: &str, limit: u32) -> Result<Vec<Value>, String> {
     get_json(&format!("/events?limit={limit}"), token).await
+}
+
+// ── Admin: Users API ────────────────────────────────────────────────────────
+
+use crate::models::{SystemStatus, UserInfo};
+
+pub async fn fetch_users(token: &str) -> Result<Vec<UserInfo>, String> {
+    get_json("/auth/users", token).await
+}
+
+pub async fn create_user(
+    token: &str,
+    username: &str,
+    password: &str,
+    role: &str,
+) -> Result<UserInfo, String> {
+    post_json(
+        "/auth/users",
+        token,
+        &serde_json::json!({ "username": username, "password": password, "role": role }),
+    )
+    .await
+}
+
+pub async fn delete_user(token: &str, id: &str) -> Result<(), String> {
+    delete_no_body(&format!("/auth/users/{id}"), token).await
+}
+
+pub async fn set_user_role(token: &str, id: &str, role: &str) -> Result<UserInfo, String> {
+    patch_json_with_response(
+        &format!("/auth/users/{id}/role"),
+        token,
+        &serde_json::json!({ "role": role }),
+    )
+    .await
+}
+
+pub async fn change_password(
+    token: &str,
+    current: &str,
+    new_pass: &str,
+) -> Result<(), String> {
+    post_json_no_response(
+        "/auth/change-password",
+        token,
+        &serde_json::json!({ "current_password": current, "new_password": new_pass }),
+    )
+    .await
+}
+
+// ── Admin: System API ───────────────────────────────────────────────────────
+
+pub async fn fetch_system_status(token: &str) -> Result<SystemStatus, String> {
+    get_json("/system/status", token).await
+}
+
+pub async fn get_log_level(token: &str) -> Result<Value, String> {
+    get_json("/system/log-level", token).await
+}
+
+pub async fn set_log_level(token: &str, level: &str) -> Result<(), String> {
+    put_json_no_response(
+        "/system/log-level",
+        token,
+        &serde_json::json!({ "level": level }),
+    )
+    .await
+}
+
+pub async fn trigger_backup(token: &str) -> Result<Vec<u8>, String> {
+    post_binary("/system/backup", token).await
+}
+
+pub async fn fetch_me(token: &str) -> Result<Value, String> {
+    get_json("/auth/me", token).await
 }

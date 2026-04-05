@@ -11,6 +11,27 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// ── Admin types ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UserInfo {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SystemStatus {
+    pub uptime_secs: u64,
+    pub version: String,
+    pub device_count: u64,
+    pub rule_count: u64,
+    pub plugin_count: u64,
+    pub state_db_size: u64,
+    pub history_db_size: u64,
+}
+
 // ── Core type ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

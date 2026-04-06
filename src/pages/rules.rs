@@ -4,7 +4,7 @@ use crate::api::{clone_rule, delete_rule, fetch_rules, patch_rule, rule_stale_re
 use crate::auth::use_auth;
 use crate::pages::shared::{
     json_str_set, load_pref_json, ls_set, set_to_json_array,
-    FilterToggleButton, MultiSelectDropdown, ResetFiltersButton, SearchField,
+    MultiSelectDropdown, ResetFiltersButton, SearchField,
     SortDir, SortDirToggle, SortSelect,
 };
 use leptos::prelude::*;
@@ -143,7 +143,7 @@ pub fn RulesPage() -> impl IntoView {
     let tag_filter: RwSignal<HashSet<String>> = RwSignal::new(json_str_set(&prefs, "tags"));
     let sort_by = RwSignal::new(sort_key_from_str(prefs["sort"].as_str()));
     let sort_dir = RwSignal::new(if prefs["sort_dir"].as_str() == Some("desc") { SortDir::Desc } else { SortDir::Asc });
-    let filter_open = RwSignal::new(false);
+
 
     let confirm_delete: RwSignal<Option<String>> = RwSignal::new(None);
     let row_busy: RwSignal<Option<String>> = RwSignal::new(None);
@@ -305,41 +305,38 @@ pub fn RulesPage() -> impl IntoView {
                         on_change=Callback::new(move |v: String| sort_by.set(sort_key_from_str(Some(&v))))
                     />
                     <SortDirToggle sort_dir />
-                    <FilterToggleButton filter_open />
                 </div>
 
-                {move || filter_open.get().then(|| view! {
-                    <div class="filter-body">
-                        <div class="filter-multisel-row">
-                            <MultiSelectDropdown
-                                label="statuses"
-                                placeholder="All statuses"
-                                options=status_options
-                                selected=status_filter
-                            />
-                            <MultiSelectDropdown
-                                label="triggers"
-                                placeholder="All triggers"
-                                options=trigger_options
-                                selected=trigger_filter
-                            />
-                            <MultiSelectDropdown
-                                label="tags"
-                                placeholder="All tags"
-                                options=tag_options
-                                selected=tag_filter
-                            />
-                            <ResetFiltersButton on_reset=Callback::new(move |_| {
-                                search.set(String::new());
-                                status_filter.set(HashSet::new());
-                                trigger_filter.set(HashSet::new());
-                                tag_filter.set(HashSet::new());
-                                sort_by.set(SortKey::Name);
-                                sort_dir.set(SortDir::Asc);
-                            }) />
-                        </div>
+                <div class="filter-body">
+                    <div class="filter-multisel-row">
+                        <MultiSelectDropdown
+                            label="statuses"
+                            placeholder="All statuses"
+                            options=status_options
+                            selected=status_filter
+                        />
+                        <MultiSelectDropdown
+                            label="triggers"
+                            placeholder="All triggers"
+                            options=trigger_options
+                            selected=trigger_filter
+                        />
+                        <MultiSelectDropdown
+                            label="tags"
+                            placeholder="All tags"
+                            options=tag_options
+                            selected=tag_filter
+                        />
+                        <ResetFiltersButton on_reset=Callback::new(move |_| {
+                            search.set(String::new());
+                            status_filter.set(HashSet::new());
+                            trigger_filter.set(HashSet::new());
+                            tag_filter.set(HashSet::new());
+                            sort_by.set(SortKey::Name);
+                            sort_dir.set(SortDir::Asc);
+                        }) />
                     </div>
-                })}
+                </div>
             </div>
 
             // ── Bulk action bar ───────────────────────────────────────────────

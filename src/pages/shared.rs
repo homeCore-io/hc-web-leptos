@@ -219,19 +219,6 @@ pub fn SortDirToggle(sort_dir: RwSignal<SortDir>) -> impl IntoView {
 }
 
 #[component]
-pub fn FilterToggleButton(filter_open: RwSignal<bool>) -> impl IntoView {
-    view! {
-        <button
-            class="filter-toggle"
-            on:click=move |_| filter_open.update(|v| *v = !*v)
-        >
-            <span class="material-icons" style="font-size:16px;vertical-align:middle">"tune"</span>
-            {move || if filter_open.get() { " Less" } else { " Filters" }}
-        </button>
-    }
-}
-
-#[component]
 pub fn ResetFiltersButton(on_reset: Callback<()>) -> impl IntoView {
     view! {
         <button

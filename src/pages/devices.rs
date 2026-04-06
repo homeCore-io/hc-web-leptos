@@ -194,7 +194,7 @@ pub fn DevicesPage() -> impl IntoView {
 
     let density = RwSignal::new(prefs.density);
     let show_media = RwSignal::new(prefs.show_media);
-    let filter_open = RwSignal::new(false);
+
     let page = RwSignal::new(0usize);
     let page_size = RwSignal::new(prefs.page_size);
 
@@ -526,15 +526,6 @@ fn DeviceFiltersPanel(
                     on:input=move |ev| search.set(event_target_value(&ev))
                     placeholder="Search name, area, type, plugin, status…"
                 />
-                <button
-                    class="btn btn-outline"
-                    on:click=move |_| filter_open.update(|v| *v = !*v)
-                >
-                    <span class="material-icons" style="font-size:16px;vertical-align:middle">
-                        {move || if filter_open.get() { "expand_less" } else { "tune" }}
-                    </span>
-                    {move || if filter_open.get() { " Less" } else { " Filters" }}
-                </button>
             </div>
 
             <div class="filter-summary">
@@ -556,7 +547,6 @@ fn DeviceFiltersPanel(
                 </div>
             </div>
 
-            {move || filter_open.get().then(|| view! {
                 <div class="filter-body">
                     <div class="toolbar-row toolbar-grid">
                         <select
@@ -700,7 +690,6 @@ fn DeviceFiltersPanel(
                         </button>
                     </div>
                 </div>
-            })}
         </div>
     }
 }

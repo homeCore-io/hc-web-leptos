@@ -10,7 +10,7 @@ use crate::models::*;
 use crate::pages::shared::{
     card_size_canvas_class, common_card_prefs_map, json_str_set, load_common_card_prefs,
     load_pref_json, ls_set, set_to_json_array, CardSize, CardSizeSelect, CommonCardPrefs,
-    FilterToggleButton, LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField,
+    LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField,
     SortDir, SortDirToggle, SortSelect,
 };
 use crate::ws::use_ws;
@@ -1683,7 +1683,7 @@ pub fn ModesPage() -> impl IntoView {
     let type_filter = RwSignal::new(prefs.type_filter);
     let sort_by = RwSignal::new(prefs.sort_by);
     let sort_dir = RwSignal::new(prefs.sort_dir);
-    let filter_open = RwSignal::new(false);
+
 
     let create_name = RwSignal::new(String::new());
     let create_id = RwSignal::new(String::new());
@@ -2047,7 +2047,6 @@ pub fn ModesPage() -> impl IntoView {
 
                     <SortDirToggle sort_dir />
 
-                    <FilterToggleButton filter_open />
                 </div>
 
                 <div class="filter-summary">
@@ -2066,31 +2065,29 @@ pub fn ModesPage() -> impl IntoView {
                     </div>
                 </div>
 
-                {move || filter_open.get().then(|| view! {
-                    <div class="filter-body">
-                        <div class="filter-multisel-row">
-                            <MultiSelectDropdown
-                                label="statuses"
-                                placeholder="All statuses"
-                                options=status_options
-                                selected=status_filter
-                            />
-                            <MultiSelectDropdown
-                                label="types"
-                                placeholder="All types"
-                                options=type_options
-                                selected=type_filter
-                            />
-                            <ResetFiltersButton on_reset=Callback::new(move |_| {
-                                search.set(String::new());
-                                status_filter.set(HashSet::new());
-                                type_filter.set(HashSet::new());
-                                sort_by.set(SortKey::Name);
-                                sort_dir.set(SortDir::Asc);
-                            }) />
-                        </div>
+                <div class="filter-body">
+                    <div class="filter-multisel-row">
+                        <MultiSelectDropdown
+                            label="statuses"
+                            placeholder="All statuses"
+                            options=status_options
+                            selected=status_filter
+                        />
+                        <MultiSelectDropdown
+                            label="types"
+                            placeholder="All types"
+                            options=type_options
+                            selected=type_filter
+                        />
+                        <ResetFiltersButton on_reset=Callback::new(move |_| {
+                            search.set(String::new());
+                            status_filter.set(HashSet::new());
+                            type_filter.set(HashSet::new());
+                            sort_by.set(SortKey::Name);
+                            sort_dir.set(SortDir::Asc);
+                        }) />
                     </div>
-                })}
+                </div>
             </div>
 
             {move || {

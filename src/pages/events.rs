@@ -12,7 +12,7 @@ use crate::api::fetch_events;
 use crate::auth::{events_ws_url, logs_ws_url, use_auth};
 use crate::ws::use_ws;
 use crate::pages::shared::{
-    FilterToggleButton, MultiSelectDropdown, ResetFiltersButton, SearchField,
+    MultiSelectDropdown, ResetFiltersButton, SearchField,
     SortDir, SortDirToggle,
 };
 use leptos::prelude::*;
@@ -186,7 +186,7 @@ pub fn EventsPage() -> impl IntoView {
     let source_filter: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
     let severity_filter: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
     let type_filter: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
-    let filter_open = RwSignal::new(false);
+
     let sort_dir = RwSignal::new(SortDir::Desc);
     let ws_status: RwSignal<&'static str> = RwSignal::new("connecting");
     let log_counter: RwSignal<u64> = RwSignal::new(0);
@@ -393,39 +393,36 @@ pub fn EventsPage() -> impl IntoView {
                 <div class="filter-bar">
                     <SearchField search=search placeholder="Search activity…" />
                     <SortDirToggle sort_dir />
-                    <FilterToggleButton filter_open />
                 </div>
 
-                {move || filter_open.get().then(|| view! {
-                    <div class="filter-body">
-                        <div class="filter-multisel-row">
-                            <MultiSelectDropdown
-                                label="sources"
-                                placeholder="All sources"
-                                options=source_options
-                                selected=source_filter
-                            />
-                            <MultiSelectDropdown
-                                label="severity"
-                                placeholder="All levels"
-                                options=severity_options
-                                selected=severity_filter
-                            />
-                            <MultiSelectDropdown
-                                label="types"
-                                placeholder="All types"
-                                options=type_options
-                                selected=type_filter
-                            />
-                            <ResetFiltersButton on_reset=Callback::new(move |_| {
-                                search.set(String::new());
-                                source_filter.set(HashSet::new());
-                                severity_filter.set(HashSet::new());
-                                type_filter.set(HashSet::new());
-                            }) />
-                        </div>
+                <div class="filter-body">
+                    <div class="filter-multisel-row">
+                        <MultiSelectDropdown
+                            label="sources"
+                            placeholder="All sources"
+                            options=source_options
+                            selected=source_filter
+                        />
+                        <MultiSelectDropdown
+                            label="severity"
+                            placeholder="All levels"
+                            options=severity_options
+                            selected=severity_filter
+                        />
+                        <MultiSelectDropdown
+                            label="types"
+                            placeholder="All types"
+                            options=type_options
+                            selected=type_filter
+                        />
+                        <ResetFiltersButton on_reset=Callback::new(move |_| {
+                            search.set(String::new());
+                            source_filter.set(HashSet::new());
+                            severity_filter.set(HashSet::new());
+                            type_filter.set(HashSet::new());
+                        }) />
                     </div>
-                })}
+                </div>
             </div>
 
             // ── Timeline ─────────────────────────────────────────────────────

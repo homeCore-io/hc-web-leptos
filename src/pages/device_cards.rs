@@ -291,6 +291,9 @@ fn DeviceCard(device_id: String) -> impl IntoView {
                 let is_media  = is_media_player(&d);
                 let is_scene  = is_scene_like(&d);
                 let can_toggle = supports_inline_toggle(&d);
+                let has_brightness = d.attributes.get("brightness_pct").and_then(|v| v.as_f64()).is_some();
+                let brightness_pct = d.attributes.get("brightness_pct")
+                    .and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
 
                 let cur_on  = bool_attr(d.attributes.get("on")).unwrap_or(false);
                 let pb      = playback_state(&d);
@@ -439,6 +442,7 @@ fn DeviceCard(device_id: String) -> impl IntoView {
                     // ── Standard Card ─────────────────────────────────────────
                     let send_on  = send.clone();
                     let send_off = send.clone();
+                    let send_bri = send.clone();
 
                     view! {
                         <div
@@ -517,6 +521,29 @@ fn DeviceCard(device_id: String) -> impl IntoView {
                                         </button>
                                     })}
                                 </div>
+
+                                // Brightness slider for dimmer devices
+                                {has_brightness.then(move || view! {
+                                    <div class="card-brightness-row">
+                                        <span class="material-icons card-brightness-icon">"light_mode"</span>
+                                        <input
+                                            type="range"
+                                            class="card-brightness-slider"
+                                            min="0" max="100"
+                                            value=brightness_pct.to_string()
+                                            disabled=move || busy.get() || !avail
+                                            on:change=move |ev| {
+                                                let el = ev.target()
+                                                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok());
+                                                if let Some(el) = el {
+                                                    let v: u64 = el.value().parse().unwrap_or(0);
+                                                    send_bri(serde_json::json!({"brightness_pct": v}));
+                                                }
+                                            }
+                                        />
+                                        <span class="card-brightness-pct">{format!("{}%", brightness_pct)}</span>
+                                    </div>
+                                })}
                             </div>
 
                             // ── Footer ────────────────────────────────────────

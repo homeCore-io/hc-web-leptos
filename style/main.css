@@ -3183,3 +3183,34 @@ a.cell-link:hover { text-decoration: underline; }
   border-color: var(--hc-border);
   color: var(--hc-text);
 }
+
+/* ── Brightness slider (dimmer cards) ──────────────────────────────── */
+.card-brightness-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.75rem 0.35rem;
+}
+.card-brightness-icon {
+  font-size: 18px !important;
+  color: var(--hc-warn);
+  flex-shrink: 0;
+}
+.card-brightness-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--hc-warn);
+  height: 4px;
+  cursor: pointer;
+}
+.card-brightness-slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.card-brightness-pct {
+  font-size: 0.72rem;
+  color: var(--hc-text-muted);
+  width: 2.6rem;
+  text-align: right;
+  flex-shrink: 0;
+}

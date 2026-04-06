@@ -613,6 +613,55 @@ pub fn presentation_device_type_label(d: &DeviceState) -> &'static str {
     }
 }
 
+/// Return the MDI icon class for a device based on its type and current state.
+/// Uses Material Design Icons (mdi-*) — requires @mdi/font CSS.
+pub fn device_mdi_icon(d: &DeviceState) -> &'static str {
+    let key = presentation_device_type_key(d);
+    let on = bool_attr(d.attributes.get("on")).unwrap_or(false);
+    let open = bool_attr(d.attributes.get("open")).unwrap_or(false);
+    let locked = bool_attr(d.attributes.get("locked")).unwrap_or(true);
+    let occupied = bool_attr(d.attributes.get("occupied"))
+        .or_else(|| bool_attr(d.attributes.get("occupancy")))
+        .unwrap_or(false);
+    let motion = bool_attr(d.attributes.get("motion")).unwrap_or(false);
+
+    match key {
+        "light" | "dimmer" => if on { "mdi-lightbulb-on" } else { "mdi-lightbulb-outline" },
+        "switch" => if on { "mdi-toggle-switch" } else { "mdi-toggle-switch-off-outline" },
+        "virtual_switch" => if on { "mdi-toggle-switch" } else { "mdi-toggle-switch-off-outline" },
+        "lock" => if locked { "mdi-lock" } else { "mdi-lock-open" },
+        "shade" => if open { "mdi-blinds-open" } else { "mdi-blinds" },
+        "media_player" => "mdi-speaker",
+        "motion_sensor" => if motion { "mdi-motion-sensor" } else { "mdi-motion-sensor-off" },
+        "occupancy_sensor" => if occupied { "mdi-home-account" } else { "mdi-home-outline" },
+        "contact_sensor" => {
+            // Check if it's a door-type sensor by name
+            let name = d.name.to_lowercase();
+            if name.contains("garage") || name.contains("oh1") || name.contains("oh2") || name.contains("overhead") {
+                if open { "mdi-garage-open" } else { "mdi-garage" }
+            } else if name.contains("door") {
+                if open { "mdi-door-open" } else { "mdi-door-closed" }
+            } else if name.contains("window") {
+                if open { "mdi-window-open" } else { "mdi-window-closed" }
+            } else {
+                if open { "mdi-door-open" } else { "mdi-door-closed" }
+            }
+        }
+        "leak_sensor" => "mdi-water-alert",
+        "vibration_sensor" => "mdi-vibrate",
+        "temperature_sensor" => "mdi-thermometer",
+        "humidity_sensor" => "mdi-water-percent",
+        "environment_sensor" => "mdi-thermometer-lines",
+        "keypad" => "mdi-dialpad",
+        "remote" => "mdi-remote",
+        "timer" => "mdi-timer-outline",
+        "power_monitor" => "mdi-flash",
+        "sensor" => "mdi-eye",
+        "vcrx" => "mdi-garage-variant",
+        _ => "mdi-devices",
+    }
+}
+
 pub fn raw_device_type_label(d: &DeviceState) -> String {
     d.device_type
         .as_deref()

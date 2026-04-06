@@ -1779,6 +1779,10 @@ a.cell-link:hover { text-decoration: underline; }
   flex-shrink: 0;
   margin-top: 1px;
 }
+.card-mdi-icon {
+  font-size: 20px;
+  line-height: 1;
+}
 .card-header-text {
   flex: 1;
   min-width: 0;

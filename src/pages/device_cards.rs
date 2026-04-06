@@ -284,7 +284,8 @@ fn DeviceCard(device_id: String) -> impl IntoView {
                 let type_label = presentation_device_type_label(&d).to_string();
                 let avail   = d.available;
                 let tone    = status_tone(&d);
-                let icon    = status_icon_name(&d);
+                let _icon   = status_icon_name(&d);
+                let mdi     = device_mdi_icon(&d);
                 let last    = last_change_time(&d).copied();
 
                 let is_timer  = is_timer_device(&d);
@@ -453,7 +454,7 @@ fn DeviceCard(device_id: String) -> impl IntoView {
                             // ── Header ────────────────────────────────────────
                             <div class="card-header">
                                 <span class=format!("card-status-icon status-badge-sm {}", tone.css_class())>
-                                    <span class="material-icons" style="font-size:18px">{icon}</span>
+                                    <i class=format!("mdi {} card-mdi-icon", mdi)></i>
                                 </span>
                                 <div class="card-header-text">
                                     <p class="card-name" title=name.clone()>{name.clone()}</p>

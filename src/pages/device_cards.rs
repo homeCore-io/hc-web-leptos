@@ -486,7 +486,8 @@ fn DeviceCard(device_id: String) -> impl IntoView {
                                 })}
 
                                 // Sensor / switch / generic state badge
-                                {(!is_timer && !is_scene).then(|| view! {
+                                // Hidden for devices with a toggle button (state is shown on the button)
+                                {(!is_timer && !is_scene && !can_toggle).then(|| view! {
                                     <div class="card-state-row">
                                         <span class=format!(
                                             "card-state-badge card-state-badge--tone-{}",

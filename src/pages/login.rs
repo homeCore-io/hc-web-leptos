@@ -4,7 +4,6 @@ use crate::auth::{api_login, use_auth};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
-use leptos_shadcn_ui::Input;
 
 #[component]
 pub fn LoginPage() -> impl IntoView {
@@ -63,22 +62,24 @@ pub fn LoginPage() -> impl IntoView {
                     <div style="display:grid;gap:0.85rem;">
                         <div class="login-field">
                             <label for="username">"Username"</label>
-                            <Input
+                            <input
                                 id="username"
-                                value=Signal::derive(move || username.get())
-                                on_change=Callback::new(move |value| username.set(value))
+                                class="input"
+                                type="text"
+                                prop:value=move || username.get()
+                                on:input=move |ev| username.set(event_target_value(&ev))
                                 placeholder="admin"
                                 disabled=is_loading
-                                input_type="text"
                             />
                         </div>
                         <div class="login-field">
                             <label for="password">"Password"</label>
-                            <Input
+                            <input
                                 id="password"
-                                value=Signal::derive(move || password.get())
-                                on_change=Callback::new(move |value| password.set(value))
-                                input_type="password"
+                                class="input"
+                                type="password"
+                                prop:value=move || password.get()
+                                on:input=move |ev| password.set(event_target_value(&ev))
                                 disabled=is_loading
                             />
                         </div>

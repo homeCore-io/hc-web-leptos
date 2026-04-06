@@ -10,7 +10,6 @@ use crate::ws::{use_ws, WsStatus};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_params_map;
-use leptos_shadcn_ui::{Button, ButtonVariant, Input};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -379,13 +378,13 @@ pub fn DeviceDetailPage() -> impl IntoView {
                             </div>
                         </div>
                         <div class="detail-heading-actions">
-                            <Button
-                                variant=ButtonVariant::Secondary
-                                on_click=Callback::new(move |_| show_edit.update(|v| *v = !*v))
+                            <button
+                                class="btn btn-outline"
+                                on:click=move |_| show_edit.update(|v| *v = !*v)
                             >
                                 <span class="material-icons" style="font-size:16px;vertical-align:middle">"edit"</span>
                                 {move || if show_edit.get() { " Close editor" } else { " Edit" }}
-                            </Button>
+                            </button>
                         </div>
                     </div>
                 }
@@ -511,9 +510,11 @@ pub fn DeviceDetailPage() -> impl IntoView {
                             <div class="edit-grid">
                                 <div class="edit-field">
                                     <label>"Display Name"</label>
-                                    <Input
-                                        value=Signal::derive(move || edit_name.get())
-                                        on_change=Callback::new(move |value| edit_name.set(value))
+                                    <input
+                                        class="input"
+                                        type="text"
+                                        prop:value=move || edit_name.get()
+                                        on:input=move |ev| edit_name.set(event_target_value(&ev))
                                         placeholder="Display name"
                                     />
                                 </div>
@@ -548,32 +549,36 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                 </div>
                                 <div class="edit-field">
                                     <label>"Canonical Name"</label>
-                                    <Input
-                                        value=Signal::derive(move || edit_canonical.get())
-                                        on_change=Callback::new(move |value| edit_canonical.set(value))
+                                    <input
+                                        class="input"
+                                        type="text"
+                                        prop:value=move || edit_canonical.get()
+                                        on:input=move |ev| edit_canonical.set(event_target_value(&ev))
                                         placeholder="e.g. living_room.floor_lamp (blank to clear)"
                                     />
                                 </div>
                                 <div class="edit-field">
                                     <label>"Status Icon"</label>
-                                    <Input
-                                        value=Signal::derive(move || edit_icon.get())
-                                        on_change=Callback::new(move |value| edit_icon.set(value))
+                                    <input
+                                        class="input"
+                                        type="text"
+                                        prop:value=move || edit_icon.get()
+                                        on:input=move |ev| edit_icon.set(event_target_value(&ev))
                                         placeholder="e.g. power, lock (blank to clear)"
                                     />
                                 </div>
                             </div>
                             <div class="edit-actions">
-                                <Button
-                                    variant=ButtonVariant::Default
-                                    on_click=Callback::new(move |_| save_trigger.update(|n| *n += 1))
-                                    disabled=Signal::derive(move || busy.get() || edit_name.get().trim().is_empty())
+                                <button
+                                    class="btn btn-primary"
+                                    on:click=move |_| save_trigger.update(|n| *n += 1)
+                                    disabled=move || busy.get() || edit_name.get().trim().is_empty()
                                 >
                                     {move || if busy.get() { "Saving…" } else { "Save" }}
-                                </Button>
-                                <Button
-                                    variant=ButtonVariant::Outline
-                                    on_click=Callback::new(move |_| {
+                                </button>
+                                <button
+                                    class="btn btn-outline"
+                                    on:click=move |_| {
                                         if let Some(current) = device.get() {
                                             sync_edit_fields(
                                                 &current,
@@ -584,13 +589,13 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                             );
                                         }
                                         delete_confirm.set(String::new());
-                                    })
+                                    }
                                 >
                                     "Reset fields"
-                                </Button>
-                                <Button
-                                    variant=ButtonVariant::Outline
-                                    on_click=Callback::new(move |_| {
+                                </button>
+                                <button
+                                    class="btn btn-outline"
+                                    on:click=move |_| {
                                         if let Some(current) = device.get() {
                                             sync_edit_fields(
                                                 &current,
@@ -602,10 +607,10 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                         }
                                         delete_confirm.set(String::new());
                                         show_edit.set(false);
-                                    })
+                                    }
                                 >
                                     "Cancel"
-                                </Button>
+                                </button>
                             </div>
 
                             <div class="danger-zone">
@@ -618,9 +623,11 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                 <div class="danger-zone-controls">
                                     <div class="edit-field">
                                         <label>{format!("Type {} to confirm", delete_confirm_label)}</label>
-                                        <Input
-                                            value=Signal::derive(move || delete_confirm.get())
-                                            on_change=Callback::new(move |value| delete_confirm.set(value))
+                                        <input
+                                            class="input"
+                                            type="text"
+                                            prop:value=move || delete_confirm.get()
+                                            on:input=move |ev| delete_confirm.set(event_target_value(&ev))
                                             placeholder="Device ID confirmation"
                                         />
                                     </div>
@@ -1331,10 +1338,11 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                     <div class="control-row">
                                         <span class="control-label">"Duration (seconds)"</span>
                                         <div class="timer-start-row">
-                                            <Input
-                                                value=Signal::derive(move || timer_secs.get())
-                                                on_change=Callback::new(move |value| timer_secs.set(value))
-                                                input_type="number"
+                                            <input
+                                                class="input"
+                                                type="number"
+                                                prop:value=move || timer_secs.get()
+                                                on:input=move |ev| timer_secs.set(event_target_value(&ev))
                                                 placeholder="60"
                                             />
                                             <button disabled=move || busy.get()
@@ -1393,13 +1401,13 @@ pub fn DeviceDetailPage() -> impl IntoView {
                             <h2 class="card-title">"State History"
                                 <span class="card-subtitle">" — last 25 changes"</span>
                             </h2>
-                            <Button
-                                variant=ButtonVariant::Outline
-                                on_click=Callback::new(move |_| hist_trigger.update(|n| *n += 1))
-                                disabled=Signal::derive(move || hist_loading.get())
+                            <button
+                                class="btn btn-outline"
+                                on:click=move |_| hist_trigger.update(|n| *n += 1)
+                                disabled=move || hist_loading.get()
                             >
                                 {move || if hist_loading.get() { "Reloading…" } else { "Reload" }}
-                            </Button>
+                            </button>
                         </div>
                         {move || {
                             let h = sorted_history.get();

@@ -24,13 +24,22 @@ use leptos_router::{
     hooks::use_location,
     path,
 };
-use leptos_shadcn_ui::{Button, ButtonVariant};
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 #[component]
 pub fn App() -> impl IntoView {
     provide_context(AuthState::new());
+
+    // Restore saved theme preference on load.
+    if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
+        if let Ok(Some(theme)) = storage.get_item("hc-leptos:theme") {
+            if !theme.is_empty() {
+                let doc = web_sys::window().unwrap().document().unwrap();
+                let _ = doc.document_element().unwrap().set_attribute("data-theme", &theme);
+            }
+        }
+    }
 
     view! {
         <Router>
@@ -200,6 +209,23 @@ fn NavShell(children: Children) -> impl IntoView {
                         <span class="material-icons" style="font-size:18px">"admin_panel_settings"</span>
                         "Admin"
                     </a>
+                    <button
+                        class="sidebar-theme-toggle"
+                        on:click=move |_| {
+                            let doc = web_sys::window().unwrap().document().unwrap();
+                            let root = doc.document_element().unwrap();
+                            let current = root.get_attribute("data-theme").unwrap_or_default();
+                            let next = if current == "dark" { "" } else { "dark" };
+                            let _ = root.set_attribute("data-theme", next);
+                            // Persist preference
+                            if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
+                                let _ = storage.set_item("hc-leptos:theme", next);
+                            }
+                        }
+                    >
+                        <span class="material-icons" style="font-size:18px">"dark_mode"</span>
+                        "Theme"
+                    </button>
                 </nav>
             </aside>
 
@@ -212,12 +238,12 @@ fn NavShell(children: Children) -> impl IntoView {
                             (!r.is_empty()).then(|| view! { <span class="role">{r}</span> })
                         }}
                     </div>
-                    <Button
-                        variant=ButtonVariant::Outline
-                        on_click=Callback::new(move |_| auth.logout())
+                    <button
+                        class="btn btn-outline"
+                        on:click=move |_| auth.logout()
                     >
                         "Logout"
-                    </Button>
+                    </button>
                 </header>
                 <main class="content">
                     {children()}

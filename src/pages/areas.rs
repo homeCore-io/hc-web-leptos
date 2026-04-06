@@ -9,7 +9,6 @@ use crate::auth::use_auth;
 use crate::models::*;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_shadcn_ui::{Button, ButtonVariant, Input};
 
 #[component]
 pub fn AreasPage() -> impl IntoView {
@@ -174,13 +173,13 @@ pub fn AreasPage() -> impl IntoView {
                         "Manage HomeCore-defined areas. Names are stored internally as snake_case and displayed as human-readable room labels."
                     </p>
                 </div>
-                <Button
-                    variant=ButtonVariant::Outline
-                    on_click=Callback::new(move |_| refresh())
-                    disabled=Signal::derive(move || loading.get())
+                <button
+                    class="btn btn-outline"
+                    on:click=move |_| refresh()
+                    disabled=move || loading.get()
                 >
                     {move || if loading.get() { "Refreshing…" } else { "Refresh" }}
-                </Button>
+                </button>
             </div>
 
             {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
@@ -192,15 +191,17 @@ pub fn AreasPage() -> impl IntoView {
                     <span class="cell-subtle">"Input can be natural text; HomeCore will normalize it."</span>
                 </div>
                 <div class="areas-create-row">
-                    <Input
-                        value=Signal::derive(move || create_name.get())
-                        on_change=Callback::new(move |value| create_name.set(value))
+                    <input
+                        class="input"
+                        type="text"
+                        prop:value=move || create_name.get()
+                        on:input=move |ev| create_name.set(event_target_value(&ev))
                         placeholder="e.g. Dining Room"
                     />
-                    <Button
-                        variant=ButtonVariant::Default
-                        disabled=Signal::derive(move || busy.get() || create_name.get().trim().is_empty())
-                        on_click=Callback::new(move |_| {
+                    <button
+                        class="btn btn-primary"
+                        disabled=move || busy.get() || create_name.get().trim().is_empty()
+                        on:click=move |_| {
                             let token = auth.token_str().unwrap_or_default();
                             let name = create_name.get();
                             busy.set(true);
@@ -219,10 +220,10 @@ pub fn AreasPage() -> impl IntoView {
                                 }
                                 busy.set(false);
                             });
-                        })
+                        }
                     >
                         {move || if busy.get() { "Creating…" } else { "Create area" }}
-                    </Button>
+                    </button>
                 </div>
             </div>
 
@@ -297,9 +298,11 @@ pub fn AreasPage() -> impl IntoView {
                                 <div class="edit-grid">
                                     <div class="edit-field">
                                         <label>"Display Name"</label>
-                                        <Input
-                                            value=Signal::derive(move || edit_name.get())
-                                            on_change=Callback::new(move |value| edit_name.set(value))
+                                        <input
+                                            class="input"
+                                            type="text"
+                                            prop:value=move || edit_name.get()
+                                            on:input=move |ev| edit_name.set(event_target_value(&ev))
                                             placeholder="e.g. Dining Room"
                                         />
                                         <span class="cell-subtle">
@@ -309,10 +312,10 @@ pub fn AreasPage() -> impl IntoView {
                                 </div>
 
                                 <div class="edit-actions">
-                                    <Button
-                                        variant=ButtonVariant::Default
-                                        disabled=Signal::derive(move || busy.get() || edit_name.get().trim().is_empty())
-                                        on_click=Callback::new(move |_| {
+                                    <button
+                                        class="btn btn-primary"
+                                        disabled=move || busy.get() || edit_name.get().trim().is_empty()
+                                        on:click=move |_| {
                                             let token = auth.token_str().unwrap_or_default();
                                             let name = edit_name.get();
                                             let current_id = rename_area_id.clone();
@@ -331,10 +334,10 @@ pub fn AreasPage() -> impl IntoView {
                                                 }
                                                 busy.set(false);
                                             });
-                                        })
+                                        }
                                     >
                                         {move || if busy.get() { "Saving…" } else { "Save name" }}
-                                    </Button>
+                                    </button>
                                 </div>
 
                                 <div class="card-title-row">
@@ -343,16 +346,17 @@ pub fn AreasPage() -> impl IntoView {
                                 </div>
 
                                 <div class="areas-create-row">
-                                    <Input
-                                        value=Signal::derive(move || assignment_search.get())
-                                        on_change=Callback::new(move |value| assignment_search.set(value))
-                                        input_type="search"
+                                    <input
+                                        class="input"
+                                        type="search"
+                                        prop:value=move || assignment_search.get()
+                                        on:input=move |ev| assignment_search.set(event_target_value(&ev))
                                         placeholder="Filter devices by name, type, plugin, area…"
                                     />
-                                    <Button
-                                        variant=ButtonVariant::Outline
-                                        disabled=Signal::derive(move || busy.get())
-                                        on_click=Callback::new(move |_| {
+                                    <button
+                                        class="btn btn-outline"
+                                        disabled=move || busy.get()
+                                        on:click=move |_| {
                                             let token = auth.token_str().unwrap_or_default();
                                             let current_id = assign_area_id.clone();
                                             let desired = assigned_ids.get();
@@ -370,10 +374,10 @@ pub fn AreasPage() -> impl IntoView {
                                                 }
                                                 busy.set(false);
                                             });
-                                        })
+                                        }
                                     >
                                         {move || if busy.get() { "Saving…" } else { "Save assignments" }}
-                                    </Button>
+                                    </button>
                                 </div>
 
                                 <div class="areas-transfer">
@@ -417,10 +421,10 @@ pub fn AreasPage() -> impl IntoView {
                                     </div>
 
                                     <div class="areas-transfer-actions">
-                                        <Button
-                                            variant=ButtonVariant::Outline
-                                            disabled=Signal::derive(move || available_selection.get().is_empty())
-                                            on_click=Callback::new(move |_| {
+                                        <button
+                                            class="btn btn-outline"
+                                            disabled=move || available_selection.get().is_empty()
+                                            on:click=move |_| {
                                                 let moved = available_selection.get();
                                                 assigned_ids.update(|ids| {
                                                     for id in &moved {
@@ -431,23 +435,23 @@ pub fn AreasPage() -> impl IntoView {
                                                     ids.sort();
                                                 });
                                                 available_selection.set(vec![]);
-                                            })
+                                            }
                                         >
                                             "Add →"
-                                        </Button>
-                                        <Button
-                                            variant=ButtonVariant::Outline
-                                            disabled=Signal::derive(move || assigned_selection.get().is_empty())
-                                            on_click=Callback::new(move |_| {
+                                        </button>
+                                        <button
+                                            class="btn btn-outline"
+                                            disabled=move || assigned_selection.get().is_empty()
+                                            on:click=move |_| {
                                                 let moved = assigned_selection.get();
                                                 assigned_ids.update(|ids| {
                                                     ids.retain(|id| !moved.contains(id));
                                                 });
                                                 assigned_selection.set(vec![]);
-                                            })
+                                            }
                                         >
                                             "← Remove"
-                                        </Button>
+                                        </button>
                                     </div>
 
                                     <div class="areas-transfer-col">
@@ -501,9 +505,11 @@ pub fn AreasPage() -> impl IntoView {
                                     <div class="danger-zone-controls">
                                         <div class="edit-field">
                                             <label>{format!("Type {} to confirm", area_code)}</label>
-                                            <Input
-                                                value=Signal::derive(move || delete_confirm.get())
-                                                on_change=Callback::new(move |value| delete_confirm.set(value))
+                                            <input
+                                                class="input"
+                                                type="text"
+                                                prop:value=move || delete_confirm.get()
+                                                on:input=move |ev| delete_confirm.set(event_target_value(&ev))
                                                 placeholder="snake_case area code"
                                             />
                                         </div>

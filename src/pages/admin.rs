@@ -10,7 +10,6 @@ use crate::auth::use_auth;
 use crate::models::*;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_shadcn_ui::{Button, ButtonVariant, Input};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -186,13 +185,13 @@ pub fn AdminPage() -> impl IntoView {
             <div class="detail-card">
                 <div class="card-title-row">
                     <h2 class="card-title">"System Status"</h2>
-                    <Button
-                        variant=ButtonVariant::Outline
-                        on_click=Callback::new(move |_| refresh_system())
-                        disabled=Signal::derive(move || sys_loading.get())
+                    <button
+                        class="btn btn-outline"
+                        on:click=move |_| refresh_system()
+                        disabled=move || sys_loading.get()
                     >
                         {move || if sys_loading.get() { "Refreshing..." } else { "Refresh" }}
-                    </Button>
+                    </button>
                 </div>
                 {move || {
                     if let Some(status) = system_status.get() {
@@ -238,13 +237,13 @@ pub fn AdminPage() -> impl IntoView {
             <div class="detail-card">
                 <div class="card-title-row">
                     <h2 class="card-title">"User Management"</h2>
-                    <Button
-                        variant=ButtonVariant::Outline
-                        on_click=Callback::new(move |_| refresh_users())
-                        disabled=Signal::derive(move || loading.get())
+                    <button
+                        class="btn btn-outline"
+                        on:click=move |_| refresh_users()
+                        disabled=move || loading.get()
                     >
                         {move || if loading.get() { "Refreshing..." } else { "Refresh" }}
-                    </Button>
+                    </button>
                 </div>
 
                 // User table
@@ -338,10 +337,10 @@ pub fn AdminPage() -> impl IntoView {
                                                                                 </div>
                                                                             </div>
                                                                             <div class="edit-actions">
-                                                                                <Button
-                                                                                    variant=ButtonVariant::Default
-                                                                                    disabled=Signal::derive(move || busy.get())
-                                                                                    on_click=Callback::new({
+                                                                                <button
+                                                                                    class="btn btn-primary"
+                                                                                    disabled=move || busy.get()
+                                                                                    on:click={
                                                                                         let uid_save = uid_save.clone();
                                                                                         move |_| {
                                                                                             let token = auth.token_str().unwrap_or_default();
@@ -361,10 +360,10 @@ pub fn AdminPage() -> impl IntoView {
                                                                                                 busy.set(false);
                                                                                             });
                                                                                         }
-                                                                                    })
+                                                                                    }
                                                                                 >
                                                                                     {move || if busy.get() { "Saving..." } else { "Save role" }}
-                                                                                </Button>
+                                                                                </button>
                                                                             </div>
                                                                             {if !is_self {
                                                                                 let uid_del = uid_del.clone();
@@ -377,9 +376,11 @@ pub fn AdminPage() -> impl IntoView {
                                                                                         <div class="danger-zone-controls">
                                                                                             <div class="edit-field">
                                                                                                 <label>"Type DELETE to confirm"</label>
-                                                                                                <Input
-                                                                                                    value=Signal::derive(move || delete_confirm.get())
-                                                                                                    on_change=Callback::new(move |value| delete_confirm.set(value))
+                                                                                                <input
+                                                                                                    class="input"
+                                                                                                    type="text"
+                                                                                                    prop:value=move || delete_confirm.get()
+                                                                                                    on:input=move |ev| delete_confirm.set(event_target_value(&ev))
                                                                                                     placeholder="DELETE"
                                                                                                 />
                                                                                             </div>
@@ -437,15 +438,18 @@ pub fn AdminPage() -> impl IntoView {
                     <h3 class="card-title">"Create User"</h3>
                 </div>
                 <div class="admin-create-row">
-                    <Input
-                        value=Signal::derive(move || create_username.get())
-                        on_change=Callback::new(move |value| create_username.set(value))
+                    <input
+                        class="input"
+                        type="text"
+                        prop:value=move || create_username.get()
+                        on:input=move |ev| create_username.set(event_target_value(&ev))
                         placeholder="Username"
                     />
-                    <Input
-                        value=Signal::derive(move || create_password.get())
-                        on_change=Callback::new(move |value| create_password.set(value))
-                        input_type="password"
+                    <input
+                        class="input"
+                        type="password"
+                        prop:value=move || create_password.get()
+                        on:input=move |ev| create_password.set(event_target_value(&ev))
                         placeholder="Password"
                     />
                     <select
@@ -456,14 +460,14 @@ pub fn AdminPage() -> impl IntoView {
                         <option value="user" selected=true>"User"</option>
                         <option value="read_only">"Read Only"</option>
                     </select>
-                    <Button
-                        variant=ButtonVariant::Default
-                        disabled=Signal::derive(move || {
+                    <button
+                        class="btn btn-primary"
+                        disabled=move || {
                             busy.get()
                                 || create_username.get().trim().is_empty()
                                 || create_password.get().trim().is_empty()
-                        })
-                        on_click=Callback::new(move |_| {
+                        }
+                        on:click=move |_| {
                             let token = auth.token_str().unwrap_or_default();
                             let username = create_username.get();
                             let password = create_password.get();
@@ -484,10 +488,10 @@ pub fn AdminPage() -> impl IntoView {
                                 }
                                 busy.set(false);
                             });
-                        })
+                        }
                     >
                         {move || if busy.get() { "Creating..." } else { "Create" }}
-                    </Button>
+                    </button>
                 </div>
             </div>
 
@@ -499,42 +503,45 @@ pub fn AdminPage() -> impl IntoView {
                 <div class="edit-grid">
                     <div class="edit-field">
                         <label>"Current Password"</label>
-                        <Input
-                            value=Signal::derive(move || pw_current.get())
-                            on_change=Callback::new(move |value| pw_current.set(value))
-                            input_type="password"
+                        <input
+                            class="input"
+                            type="password"
+                            prop:value=move || pw_current.get()
+                            on:input=move |ev| pw_current.set(event_target_value(&ev))
                             placeholder="Current password"
                         />
                     </div>
                     <div class="edit-field">
                         <label>"New Password"</label>
-                        <Input
-                            value=Signal::derive(move || pw_new.get())
-                            on_change=Callback::new(move |value| pw_new.set(value))
-                            input_type="password"
+                        <input
+                            class="input"
+                            type="password"
+                            prop:value=move || pw_new.get()
+                            on:input=move |ev| pw_new.set(event_target_value(&ev))
                             placeholder="Minimum 8 characters"
                         />
                     </div>
                     <div class="edit-field">
                         <label>"Confirm New Password"</label>
-                        <Input
-                            value=Signal::derive(move || pw_confirm.get())
-                            on_change=Callback::new(move |value| pw_confirm.set(value))
-                            input_type="password"
+                        <input
+                            class="input"
+                            type="password"
+                            prop:value=move || pw_confirm.get()
+                            on:input=move |ev| pw_confirm.set(event_target_value(&ev))
                             placeholder="Repeat new password"
                         />
                     </div>
                 </div>
                 <div class="edit-actions">
-                    <Button
-                        variant=ButtonVariant::Default
-                        disabled=Signal::derive(move || {
+                    <button
+                        class="btn btn-primary"
+                        disabled=move || {
                             busy.get()
                                 || pw_current.get().is_empty()
                                 || pw_new.get().len() < 8
                                 || pw_new.get() != pw_confirm.get()
-                        })
-                        on_click=Callback::new(move |_| {
+                        }
+                        on:click=move |_| {
                             let token = auth.token_str().unwrap_or_default();
                             let current = pw_current.get();
                             let new_pass = pw_new.get();
@@ -565,10 +572,10 @@ pub fn AdminPage() -> impl IntoView {
                                 }
                                 busy.set(false);
                             });
-                        })
+                        }
                     >
                         {move || if busy.get() { "Changing..." } else { "Change Password" }}
-                    </Button>
+                    </button>
                 </div>
             </div>
 
@@ -577,10 +584,10 @@ pub fn AdminPage() -> impl IntoView {
                 <h2 class="card-title">"Backup"</h2>
                 <p class="cell-subtle">"Download a zip archive of the current HomeCore configuration and state databases."</p>
                 <div class="edit-actions">
-                    <Button
-                        variant=ButtonVariant::Default
-                        disabled=Signal::derive(move || busy.get())
-                        on_click=Callback::new(move |_| {
+                    <button
+                        class="btn btn-primary"
+                        disabled=move || busy.get()
+                        on:click=move |_| {
                             let token = auth.token_str().unwrap_or_default();
                             busy.set(true);
                             error.set(None);
@@ -617,10 +624,10 @@ pub fn AdminPage() -> impl IntoView {
                                 }
                                 busy.set(false);
                             });
-                        })
+                        }
                     >
                         {move || if busy.get() { "Downloading..." } else { "Download Backup" }}
-                    </Button>
+                    </button>
                 </div>
             </div>
 
@@ -642,10 +649,10 @@ pub fn AdminPage() -> impl IntoView {
                         <option value="warn" selected=move || log_level_edit.get() == "warn">"warn"</option>
                         <option value="error" selected=move || log_level_edit.get() == "error">"error"</option>
                     </select>
-                    <Button
-                        variant=ButtonVariant::Default
-                        disabled=Signal::derive(move || busy.get() || log_level_edit.get() == log_level.get())
-                        on_click=Callback::new(move |_| {
+                    <button
+                        class="btn btn-primary"
+                        disabled=move || busy.get() || log_level_edit.get() == log_level.get()
+                        on:click=move |_| {
                             let token = auth.token_str().unwrap_or_default();
                             let level = log_level_edit.get();
                             busy.set(true);
@@ -661,10 +668,10 @@ pub fn AdminPage() -> impl IntoView {
                                 }
                                 busy.set(false);
                             });
-                        })
+                        }
                     >
                         {move || if busy.get() { "Applying..." } else { "Apply" }}
-                    </Button>
+                    </button>
                 </div>
             </div>
         </div>
@@ -712,9 +719,9 @@ fn StaleRefsSection() -> impl IntoView {
     view! {
         {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
         <div style="margin-bottom:0.5rem">
-            <Button variant=ButtonVariant::Outline on_click=Callback::new(move |_| refresh())>
+            <button class="btn btn-outline" on:click=move |_| refresh()>
                 {move || if loading.get() { "Checking..." } else { "Check Now" }}
-            </Button>
+            </button>
         </div>
         {move || {
             let rules = stale_rules.get();
@@ -773,17 +780,19 @@ fn DeviceCleanupSection() -> impl IntoView {
         {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
         <div class="edit-field">
             <label>"Device IDs (comma-separated)"</label>
-            <Input
-                value=Signal::derive(move || device_ids_input.get())
-                on_change=Callback::new(move |v: String| device_ids_input.set(v))
+            <input
+                class="input"
+                type="text"
+                prop:value=move || device_ids_input.get()
+                on:input=move |ev| device_ids_input.set(event_target_value(&ev))
                 placeholder="device_id_1, device_id_2, ..."
             />
         </div>
         <div class="edit-actions" style="margin-top:0.5rem">
-            <Button
-                variant=ButtonVariant::Destructive
-                disabled=Signal::derive(move || busy.get() || device_ids_input.get().trim().is_empty())
-                on_click=Callback::new(move |_| {
+            <button
+                class="btn btn-danger"
+                disabled=move || busy.get() || device_ids_input.get().trim().is_empty()
+                on:click=move |_| {
                     let token = auth.token_str().unwrap_or_default();
                     let raw = device_ids_input.get();
                     let ids: Vec<String> = raw.split(',')
@@ -813,10 +822,10 @@ fn DeviceCleanupSection() -> impl IntoView {
                         }
                         busy.set(false);
                     });
-                })
+                }
             >
                 {move || if busy.get() { "Deleting..." } else { "Delete Devices" }}
-            </Button>
+            </button>
         </div>
     }
 }

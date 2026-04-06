@@ -13,7 +13,6 @@ use crate::models::*;
 use crate::ws::{WsStatus, use_ws};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use leptos_shadcn_ui::{Button, ButtonVariant, Input};
 use std::collections::HashSet;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -520,21 +519,22 @@ fn DeviceFiltersPanel(
     view! {
         <div class="filter-panel panel">
             <div class="filter-bar">
-                <Input
-                    value=Signal::derive(move || search.get())
-                    on_change=Callback::new(move |value| search.set(value))
-                    input_type="search"
+                <input
+                    class="input"
+                    type="search"
+                    prop:value=move || search.get()
+                    on:input=move |ev| search.set(event_target_value(&ev))
                     placeholder="Search name, area, type, plugin, status…"
                 />
-                <Button
-                    variant=ButtonVariant::Secondary
-                    on_click=Callback::new(move |_| filter_open.update(|v| *v = !*v))
+                <button
+                    class="btn btn-outline"
+                    on:click=move |_| filter_open.update(|v| *v = !*v)
                 >
                     <span class="material-icons" style="font-size:16px;vertical-align:middle">
                         {move || if filter_open.get() { "expand_less" } else { "tune" }}
                     </span>
                     {move || if filter_open.get() { " Less" } else { " Filters" }}
-                </Button>
+                </button>
             </div>
 
             <div class="filter-summary">
@@ -682,9 +682,9 @@ fn DeviceFiltersPanel(
                             "Show media details"
                         </label>
 
-                        <Button
-                            variant=ButtonVariant::Outline
-                            on_click=Callback::new(move |_| {
+                        <button
+                            class="btn btn-outline"
+                            on:click=move |_| {
                                 search.set(String::new());
                                 availability.set(Availability::All);
                                 area_filter.set("all".to_string());
@@ -694,10 +694,10 @@ fn DeviceFiltersPanel(
                                 sort_dir.set(SortDir::Asc);
                                 density.set(Density::Comfortable);
                                 show_media.set(false);
-                            })
+                            }
                         >
                             "Reset view"
-                        </Button>
+                        </button>
                     </div>
                 </div>
             })}

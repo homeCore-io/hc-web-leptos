@@ -182,6 +182,58 @@ pub fn AdminPage() -> impl IntoView {
             {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
             {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
 
+            // ── System Status ────────────────────────────────────────────────
+            <div class="detail-card">
+                <div class="card-title-row">
+                    <h2 class="card-title">"System Status"</h2>
+                    <Button
+                        variant=ButtonVariant::Outline
+                        on_click=Callback::new(move |_| refresh_system())
+                        disabled=Signal::derive(move || sys_loading.get())
+                    >
+                        {move || if sys_loading.get() { "Refreshing..." } else { "Refresh" }}
+                    </Button>
+                </div>
+                {move || {
+                    if let Some(status) = system_status.get() {
+                        view! {
+                            <div class="admin-status-grid">
+                                <div class="admin-stat">
+                                    <span class="admin-stat-label">"Uptime"</span>
+                                    <span class="admin-stat-value">{format_uptime(status.uptime_seconds as u64)}</span>
+                                </div>
+                                <div class="admin-stat">
+                                    <span class="admin-stat-label">"Version"</span>
+                                    <span class="admin-stat-value">{status.version.clone()}</span>
+                                </div>
+                                <div class="admin-stat">
+                                    <span class="admin-stat-label">"Devices"</span>
+                                    <span class="admin-stat-value">{status.devices_total.to_string()}</span>
+                                </div>
+                                <div class="admin-stat">
+                                    <span class="admin-stat-label">"Rules"</span>
+                                    <span class="admin-stat-value">{format!("{} / {}", status.rules_enabled, status.rules_total)}</span>
+                                </div>
+                                <div class="admin-stat">
+                                    <span class="admin-stat-label">"Plugins"</span>
+                                    <span class="admin-stat-value">{status.plugins_active.to_string()}</span>
+                                </div>
+                                <div class="admin-stat">
+                                    <span class="admin-stat-label">"State DB"</span>
+                                    <span class="admin-stat-value">{format_bytes(status.state_db_bytes)}</span>
+                                </div>
+                                <div class="admin-stat">
+                                    <span class="admin-stat-label">"History DB"</span>
+                                    <span class="admin-stat-value">{format_bytes(status.history_db_bytes)}</span>
+                                </div>
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! { <p class="no-controls-msg">"Loading system status..."</p> }.into_any()
+                    }
+                }}
+            </div>
+
             // ── A. User Management ───────────────────────────────────────────
             <div class="detail-card">
                 <div class="card-title-row">
@@ -518,58 +570,6 @@ pub fn AdminPage() -> impl IntoView {
                         {move || if busy.get() { "Changing..." } else { "Change Password" }}
                     </Button>
                 </div>
-            </div>
-
-            // ── C. System Status ─────────────────────────────────────────────
-            <div class="detail-card">
-                <div class="card-title-row">
-                    <h2 class="card-title">"System Status"</h2>
-                    <Button
-                        variant=ButtonVariant::Outline
-                        on_click=Callback::new(move |_| refresh_system())
-                        disabled=Signal::derive(move || sys_loading.get())
-                    >
-                        {move || if sys_loading.get() { "Refreshing..." } else { "Refresh" }}
-                    </Button>
-                </div>
-                {move || {
-                    if let Some(status) = system_status.get() {
-                        view! {
-                            <div class="admin-status-grid">
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"Uptime"</span>
-                                    <span class="admin-stat-value">{format_uptime(status.uptime_secs)}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"Version"</span>
-                                    <span class="admin-stat-value">{status.version.clone()}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"Devices"</span>
-                                    <span class="admin-stat-value">{status.device_count.to_string()}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"Rules"</span>
-                                    <span class="admin-stat-value">{status.rule_count.to_string()}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"Plugins"</span>
-                                    <span class="admin-stat-value">{status.plugin_count.to_string()}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"State DB"</span>
-                                    <span class="admin-stat-value">{format_bytes(status.state_db_size)}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"History DB"</span>
-                                    <span class="admin-stat-value">{format_bytes(status.history_db_size)}</span>
-                                </div>
-                            </div>
-                        }.into_any()
-                    } else {
-                        view! { <p class="no-controls-msg">"Loading system status..."</p> }.into_any()
-                    }
-                }}
             </div>
 
             // ── D. Backup ────────────────────────────────────────────────────

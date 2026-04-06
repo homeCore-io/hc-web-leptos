@@ -23,13 +23,15 @@ pub struct UserInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SystemStatus {
-    pub uptime_secs: u64,
     pub version: String,
-    pub device_count: u64,
-    pub rule_count: u64,
-    pub plugin_count: u64,
-    pub state_db_size: u64,
-    pub history_db_size: u64,
+    pub uptime_seconds: i64,
+    pub started_at: String,
+    pub rules_total: u64,
+    pub rules_enabled: u64,
+    pub devices_total: u64,
+    pub plugins_active: u64,
+    pub state_db_bytes: u64,
+    pub history_db_bytes: u64,
 }
 
 // ── Core type ────────────────────────────────────────────────────────────────

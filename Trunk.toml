@@ -1,6 +1,10 @@
 [build]
 target = "index.html"
 
+[serve]
+addresses = ["0.0.0.0"]
+port = 3000
+
 # Proxy /api (HTTP) and /api/v1/events/stream (WebSocket) to the HomeCore server.
 # Default: http://10.0.10.200:8080
 [[proxy]]

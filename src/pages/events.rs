@@ -42,7 +42,6 @@ fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
     let t = ev["type"].as_str().unwrap_or("unknown");
     let severity = match t {
         "action_failed" | "system_alert" => "error",
-        "rule_evaluation_failed" => "warn",
         _ => "info",
     };
     // Use device_name from event if available, fall back to device_id.
@@ -96,6 +95,7 @@ fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
         }
         "plugin_registered" => format!("Plugin registered: {}", ev["plugin_id"].as_str().unwrap_or("")),
         "plugin_offline" => format!("Plugin offline: {}", ev["plugin_id"].as_str().unwrap_or("")),
+        "plugin_heartbeat" => format!("Plugin heartbeat: {}", ev["plugin_id"].as_str().unwrap_or("")),
         "custom" => format!("Custom: {}", ev["event_type"].as_str().unwrap_or("")),
         "system_alert" => format!("Alert: {}", ev["message"].as_str().unwrap_or("")),
         _ => t.to_string(),

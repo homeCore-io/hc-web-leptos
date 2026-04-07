@@ -169,7 +169,7 @@ button:hover {
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 button.primary {
   background: var(--hc-accent);
-  color: #fff;
+  color: var(--hc-bg);
   border-color: var(--hc-accent);
 }
 button.primary:hover { background: #27272a; }
@@ -1202,7 +1202,7 @@ a.cell-link:hover { text-decoration: underline; }
 .toggle-group button:last-child  { border-radius: 0 0.45rem 0.45rem 0; border-left: none; }
 .toggle-group button.active {
   background: var(--hc-accent);
-  color: #fff;
+  color: var(--hc-bg);
   border-color: var(--hc-accent);
   z-index: 1;
 }
@@ -1210,7 +1210,7 @@ a.cell-link:hover { text-decoration: underline; }
 .btn-group { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .btn-group button.active {
   background: var(--hc-accent);
-  color: #fff;
+  color: var(--hc-bg);
   border-color: var(--hc-accent);
 }
 
@@ -2237,7 +2237,7 @@ a.cell-link:hover { text-decoration: underline; }
   height: 2.6rem;
   background: var(--hc-accent);
   border-color: var(--hc-accent);
-  color: #fff;
+  color: var(--hc-bg);
 }
 .card-media-ctrl--primary .material-icons { font-size: 24px; }
 .card-media-ctrl--primary:hover:not(:disabled) {
@@ -2351,7 +2351,7 @@ a.cell-link:hover { text-decoration: underline; }
 .card-ctrl-btn--primary {
   background: var(--hc-accent);
   border-color: var(--hc-accent);
-  color: #fff;
+  color: var(--hc-bg);
 }
 .card-ctrl-btn--primary:hover:not(:disabled) {
   opacity: 0.88;
@@ -2454,7 +2454,7 @@ a.cell-link:hover { text-decoration: underline; }
 .filter-chip:hover { background: var(--hc-surface-soft); color: var(--hc-text); }
 .filter-chip--active {
   background: var(--hc-accent);
-  color: #fff;
+  color: var(--hc-bg);
   border-color: var(--hc-accent);
 }
 
@@ -2711,7 +2711,7 @@ a.cell-link:hover { text-decoration: underline; }
 }
 .action-cat-btn:hover { background: var(--hc-surface-soft); color: var(--hc-text); }
 .action-cat-btn--active {
-  background: var(--hc-accent); color: #fff; border-color: var(--hc-accent);
+  background: var(--hc-accent); color: var(--hc-bg); border-color: var(--hc-accent);
 }
 .action-cat-label { white-space: nowrap; }
 
@@ -3046,7 +3046,7 @@ a.cell-link:hover { text-decoration: underline; }
 
 .btn-primary {
   background: var(--hc-accent);
-  color: #fff;
+  color: var(--hc-bg);
   border-color: var(--hc-accent);
 }
 .btn-primary:hover:not(:disabled) {

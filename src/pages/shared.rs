@@ -1,4 +1,5 @@
 use crate::ws::WsStatus;
+use gloo_timers::callback::Timeout;
 use leptos::prelude::*;
 use serde_json::{Map, Value};
 use std::collections::HashSet;
@@ -163,13 +164,30 @@ pub fn CardSizeSelect(card_size: RwSignal<CardSize>) -> impl IntoView {
 
 #[component]
 pub fn SearchField(search: RwSignal<String>, placeholder: &'static str) -> impl IntoView {
+    // Internal signal updates immediately for responsive typing.
+    // External signal is debounced by 250ms to avoid excessive re-filtering.
+    let local = RwSignal::new(search.get_untracked());
+    let pending = std::rc::Rc::new(std::cell::Cell::new(None::<Timeout>));
+
     view! {
         <input
             type="search"
             class="search-input"
             placeholder=placeholder
-            prop:value=move || search.get()
-            on:input=move |ev| search.set(event_target_value(&ev))
+            prop:value=move || local.get()
+            on:input={
+                let pending = pending.clone();
+                move |ev| {
+                    let val = event_target_value(&ev);
+                    local.set(val.clone());
+                    // Cancel any pending timeout and schedule a new one.
+                    pending.take();
+                    let timeout = Timeout::new(250, move || {
+                        search.set(val);
+                    });
+                    pending.set(Some(timeout));
+                }
+            }
         />
     }
 }
@@ -326,6 +344,39 @@ pub fn MultiSelectDropdown(
                     </div>
                 }
             })}
+        </div>
+    }
+}
+
+// ── ErrorBanner ─────────────────────────────────────────────────────────────
+
+/// Renders a `<p class="msg-error">` when the signal contains `Some(message)`.
+/// Replaces the inline `{move || err.get().map(|e| view! { ... })}` pattern.
+#[component]
+pub fn ErrorBanner(#[prop(into)] error: Signal<Option<String>>) -> impl IntoView {
+    view! {
+        {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+    }
+}
+
+// ── Loading Skeletons ───────────────────────────────────────────────────────
+
+/// Renders `count` skeleton row placeholders using existing CSS classes.
+#[component]
+pub fn SkeletonRows(#[prop(default = 6)] count: usize) -> impl IntoView {
+    view! {
+        <div class="skeleton-container">
+            {(0..count).map(|_| view! { <div class="skeleton skeleton-row"></div> }).collect_view()}
+        </div>
+    }
+}
+
+/// Renders `count` skeleton card placeholders using existing CSS classes.
+#[component]
+pub fn SkeletonCards(#[prop(default = 6)] count: usize) -> impl IntoView {
+    view! {
+        <div class="skeleton-container" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.75rem;">
+            {(0..count).map(|_| view! { <div class="skeleton skeleton-card"></div> }).collect_view()}
         </div>
     }
 }

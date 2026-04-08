@@ -2,7 +2,7 @@
 
 use crate::api::{create_glue, delete_glue, fetch_glue, fetch_glue_device, send_glue_command, update_device_meta};
 use crate::auth::use_auth;
-use crate::pages::shared::SearchField;
+use crate::pages::shared::{ErrorBanner, SearchField};
 use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -230,7 +230,7 @@ pub fn GluePage() -> impl IntoView {
                 >{move || if show_create.get() { "Cancel" } else { "+ New" }}</button>
             </div>
 
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
 
             // ── Create form ──────────────────────────────────────────────────
             <Show when=move || show_create.get()>
@@ -445,7 +445,7 @@ pub fn GlueDetailPage() -> impl IntoView {
                 </div>
             </div>
 
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
             {move || loading.get().then(|| view! { <p class="msg-muted">"Loading…"</p> })}
 
             // ── Device info + controls ────────────────────────────────────────

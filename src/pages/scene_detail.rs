@@ -1,5 +1,6 @@
 //! Scene detail pages — native scene editor and plugin scene detail.
 
+use crate::pages::shared::ErrorBanner;
 use crate::api::{
     activate_scene, create_scene, delete_scene, fetch_device, fetch_devices, fetch_scene,
     set_device_state, update_scene,
@@ -1053,7 +1054,7 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
                 </div>
             </div>
 
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
             {move || notice.get().map(|m| view! { <p class="msg-success">{m}</p> })}
 
             <div class="detail-grid">
@@ -1292,7 +1293,7 @@ pub fn PluginSceneDetailPage() -> impl IntoView {
                 </a>
             </div>
 
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
             {move || notice.get().map(|m| view! { <p class="msg-success">{m}</p> })}
 
             {move || {

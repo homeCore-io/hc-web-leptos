@@ -6,6 +6,7 @@ use crate::api::{
 use crate::auth::use_auth;
 use crate::models::*;
 use crate::pages::shared::{
+    ErrorBanner,
     card_size_canvas_class, common_card_prefs_map, json_str_set, load_common_card_prefs,
     load_pref_json, ls_set, set_to_json_array, CardSize, CardSizeSelect, CommonCardPrefs,
     LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField,
@@ -823,7 +824,7 @@ pub fn ScenesPage() -> impl IntoView {
 
             <LiveStatusBanner status=Signal::derive(move || ws.status.get()) />
 
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
 
             <div class="filter-panel panel">
                 <div class="filter-bar">

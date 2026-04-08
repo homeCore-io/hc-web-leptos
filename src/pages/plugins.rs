@@ -7,7 +7,7 @@ use crate::api::{
 };
 use crate::auth::use_auth;
 use crate::models::PluginInfo;
-use crate::pages::shared::SearchField;
+use crate::pages::shared::{ErrorBanner, SearchField};
 use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -138,7 +138,7 @@ pub fn PluginsPage() -> impl IntoView {
                 </div>
             </div>
 
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
 
             // ── Filters ─────────────────────────────────────────────────────
             <div class="filter-panel panel">
@@ -454,7 +454,7 @@ pub fn PluginDetailPage() -> impl IntoView {
                 </div>
             </div>
 
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
             {move || notice.get().map(|n| view! {
                 <div class="msg-warning" style="display:flex; align-items:center; gap:0.5rem">
                     <span>{n}</span>

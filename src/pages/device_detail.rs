@@ -1,5 +1,6 @@
 //! Device detail page — `/devices/:id`
 
+use crate::pages::shared::ErrorBanner;
 use crate::api::{
     delete_device as delete_device_request, fetch_areas, fetch_device, fetch_device_history,
     set_device_state, update_device_meta,
@@ -405,7 +406,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                     view! { <p class="msg-warning">{msg}</p> }
                 })
             }}
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
             {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
 
             // Main content

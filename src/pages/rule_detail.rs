@@ -10,6 +10,7 @@
 //!   Reference data (devices, areas, scenes, modes) is fetched once on page load
 //!   and provided as read-only signals for searchable dropdowns.
 
+use crate::pages::shared::ErrorBanner;
 use crate::api::{
     clone_rule, create_rule, delete_rule, fetch_areas, fetch_devices, fetch_modes,
     fetch_rule, fetch_rules, fetch_scenes, rule_fire_history, test_rule, update_rule,
@@ -186,7 +187,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
             </div>
 
             // ── Status banners ───────────────────────────────────────────────
-            {move || save_err.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=save_err />
             {move || save_ok.get().then(|| view! {
                 <p class="msg-ok save-ok-banner">
                     <span class="material-icons" style="font-size:16px;vertical-align:middle">"check_circle"</span>
@@ -662,7 +663,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                         <p class="msg-muted" style="font-size:0.78rem">
                             "Evaluates conditions and shows which actions would fire, without executing them."
                         </p>
-                        {move || test_err.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+                        <ErrorBanner error=test_err />
                         {move || test_result.get().map(|r| {
                             let pretty = serde_json::to_string_pretty(&r).unwrap_or_default();
                             view! { <pre class="test-result-pre">{pretty}</pre> }
@@ -693,7 +694,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                             >{move || if history_loading.get() { "Loading…" } else { "Load History" }}</button>
                         </div>
                         <Show when=move || history_open.get()>
-                            {move || history_err.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+                            <ErrorBanner error=history_err />
                             {move || history_data.get().map(|data| {
                                 let entries = data.as_array().cloned().unwrap_or_default();
                                 if entries.is_empty() {

@@ -7,6 +7,7 @@
 //!  - Passes `timer_tick` only to `DeviceListRow` for the time-display cell.
 //!  - Uses `<For>` (keyed by device_id) so only changed rows re-render on WS events.
 
+use crate::pages::shared::{ErrorBanner, SkeletonCards};
 use crate::api::{fetch_devices, set_device_state};
 use crate::auth::use_auth;
 use crate::models::*;
@@ -474,7 +475,7 @@ pub fn DevicesPage() -> impl IntoView {
                 result_count=Signal::derive(move || sorted_filtered.get().len())
             />
 
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
             {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
 
             <DevicesListSection
@@ -717,7 +718,7 @@ fn DevicesListSection(
             {move || {
                 let is_loading = loading.get();
                 if is_loading && !has_source_devices.get() {
-                    return view! { <p class="device-list-empty">"Loading devices…"</p> }.into_any();
+                    return view! { <SkeletonCards count=12 /> }.into_any();
                 }
                 if total_filtered.get() == 0 {
                     return view! { <p class="device-list-empty">"No devices match the current filters."</p> }.into_any();

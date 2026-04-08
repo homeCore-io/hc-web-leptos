@@ -4,6 +4,7 @@ use crate::api::{clone_rule, delete_rule, fetch_rules, patch_rule, rule_stale_re
 use crate::auth::use_auth;
 use crate::models::Rule;
 use crate::pages::shared::{
+    ErrorBanner, SkeletonRows,
     json_str_set, load_pref_json, ls_set, set_to_json_array,
     MultiSelectDropdown, ResetFiltersButton, SearchField,
     SortDir, SortDirToggle, SortSelect,
@@ -414,7 +415,7 @@ pub fn RulesPage() -> impl IntoView {
             }}
 
             // ── Page error ────────────────────────────────────────────────────
-            {move || page_error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=page_error />
 
             // ── Stale-ref warnings ───────────────────────────────────────────
             {move || {
@@ -441,7 +442,7 @@ pub fn RulesPage() -> impl IntoView {
             }}
 
             // ── Loading ───────────────────────────────────────────────────────
-            {move || loading.get().then(|| view! { <p class="msg-muted">"Loading rules…"</p> })}
+            {move || loading.get().then(|| view! { <SkeletonRows count=8 /> })}
 
             // ── Empty ─────────────────────────────────────────────────────────
             {move || {

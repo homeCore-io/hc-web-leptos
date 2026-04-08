@@ -1,5 +1,6 @@
 //! Areas page — room and zone management.
 
+use crate::pages::shared::ErrorBanner;
 use crate::api::{
     create_area as create_area_request, delete_area as delete_area_request, fetch_areas,
     fetch_devices, set_area_devices as set_area_devices_request,
@@ -182,7 +183,7 @@ pub fn AreasPage() -> impl IntoView {
                 </button>
             </div>
 
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
             {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
 
             <div class="detail-card">

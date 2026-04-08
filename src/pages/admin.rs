@@ -1,6 +1,7 @@
 //! Admin page — user management, password change, system status, backup, log level,
 //! stale device references, device cleanup.
 
+use crate::pages::shared::ErrorBanner;
 use crate::api::{
     bulk_delete_devices, change_password, create_user, delete_user, fetch_me,
     fetch_stale_refs, fetch_system_status, fetch_users, get_log_level, set_log_level,
@@ -178,7 +179,7 @@ pub fn AdminPage() -> impl IntoView {
                 </div>
             </div>
 
-            {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+            <ErrorBanner error=error />
             {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
 
             // ── System Status ────────────────────────────────────────────────
@@ -498,7 +499,7 @@ pub fn AdminPage() -> impl IntoView {
             // ── B. Change Password ───────────────────────────────────────────
             <div class="detail-card">
                 <h2 class="card-title">"Change Password"</h2>
-                {move || pw_error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+                <ErrorBanner error=pw_error />
                 {move || pw_notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
                 <div class="edit-grid">
                     <div class="edit-field">
@@ -717,7 +718,7 @@ fn StaleRefsSection() -> impl IntoView {
     Effect::new(move |_| refresh());
 
     view! {
-        {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+        <ErrorBanner error=error />
         <div style="margin-bottom:0.5rem">
             <button class="btn btn-outline" on:click=move |_| refresh()>
                 {move || if loading.get() { "Checking..." } else { "Check Now" }}
@@ -776,7 +777,7 @@ fn DeviceCleanupSection() -> impl IntoView {
     let notice = RwSignal::new(Option::<String>::None);
 
     view! {
-        {move || error.get().map(|e| view! { <p class="msg-error">{e}</p> })}
+        <ErrorBanner error=error />
         {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
         <div class="edit-field">
             <label>"Device IDs (comma-separated)"</label>

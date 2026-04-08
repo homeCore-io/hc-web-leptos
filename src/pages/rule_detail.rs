@@ -10,7 +10,7 @@
 //!   Reference data (devices, areas, scenes, modes) is fetched once on page load
 //!   and provided as read-only signals for searchable dropdowns.
 
-use crate::pages::shared::ErrorBanner;
+use crate::pages::shared::{ErrorBanner, use_toast};
 use crate::api::{
     clone_rule, create_rule, delete_rule, fetch_areas, fetch_devices, fetch_modes,
     fetch_rule, fetch_rules, fetch_scenes, rule_fire_history, test_rule, update_rule,
@@ -96,7 +96,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
     let loading = RwSignal::new(!is_new);
     let saving  = RwSignal::new(false);
     let save_err: RwSignal<Option<String>> = RwSignal::new(None);
-    let save_ok  = RwSignal::new(false);
+    let toast = use_toast();
     let advanced_open  = RwSignal::new(false);
     let confirm_delete = RwSignal::new(false);
     let tag_input: RwSignal<String> = RwSignal::new(String::new());
@@ -216,12 +216,6 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
 
             // ── Status banners ───────────────────────────────────────────────
             <ErrorBanner error=save_err />
-            {move || save_ok.get().then(|| view! {
-                <p class="msg-ok save-ok-banner">
-                    <span class="material-icons" style="font-size:16px;vertical-align:middle">"check_circle"</span>
-                    " Saved successfully"
-                </p>
-            })}
             {move || loading.get().then(|| view! { <p class="msg-muted">"Loading…"</p> })}
 
             // ── Editor (hidden while loading) ────────────────────────────────
@@ -250,7 +244,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                             let token = match auth.token.get_untracked() { Some(t) => t, None => return };
                                             let typed = build_save_rule(rule);
                                             if typed.name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
-                                            save_err.set(None); save_ok.set(false); saving.set(true);
+                                            save_err.set(None); saving.set(true);
                                             let nav = nav_save_top.clone();
                                             let rule_id_str = id.map(|s| s.get_untracked()).unwrap_or_default();
                                             spawn_local(async move {
@@ -264,11 +258,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                         } else {
                                                             saved_rule.set(Some(saved.clone()));
                                                             rule.set(saved);
-                                                            save_ok.set(true);
-                                                            spawn_local(async move {
-                                                                gloo_timers::future::TimeoutFuture::new(3000).await;
-                                                                save_ok.set(false);
-                                                            });
+                                                            toast.success("Saved successfully");
                                                         }
                                                     }
                                                     Err(e) => save_err.set(Some(e)),
@@ -564,7 +554,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                     let token = match auth.token.get_untracked() { Some(t) => t, None => return };
                                     let typed = build_save_rule(rule);
                                     if typed.name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
-                                    save_err.set(None); save_ok.set(false); saving.set(true);
+                                    save_err.set(None); saving.set(true);
                                     let nav = nav_save.clone();
                                     let rule_id_str = id.map(|s| s.get_untracked()).unwrap_or_default();
                                     spawn_local(async move {
@@ -577,11 +567,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                     if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                 } else {
                                                     rule.set(saved);
-                                                    save_ok.set(true);
-                                                    spawn_local(async move {
-                                                        gloo_timers::future::TimeoutFuture::new(3000).await;
-                                                        save_ok.set(false);
-                                                    });
+                                                    toast.success("Saved successfully");
                                                 }
                                             }
                                             Err(e) => save_err.set(Some(e)),

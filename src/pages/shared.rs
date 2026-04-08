@@ -1,6 +1,7 @@
 use crate::ws::WsStatus;
 use gloo_timers::callback::Timeout;
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 
@@ -377,6 +378,100 @@ pub fn SkeletonCards(#[prop(default = 6)] count: usize) -> impl IntoView {
     view! {
         <div class="skeleton-container" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.75rem;">
             {(0..count).map(|_| view! { <div class="skeleton skeleton-card"></div> }).collect_view()}
+        </div>
+    }
+}
+
+// ── Toast notifications ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToastLevel {
+    Success,
+    Error,
+    Warning,
+}
+
+#[derive(Debug, Clone)]
+struct ToastMessage {
+    id: u64,
+    text: String,
+    level: ToastLevel,
+}
+
+/// Global toast notification context. Provide once in the app root.
+#[derive(Clone, Copy)]
+pub struct ToastContext {
+    messages: RwSignal<Vec<ToastMessage>>,
+    next_id: RwSignal<u64>,
+}
+
+impl ToastContext {
+    pub fn new() -> Self {
+        Self {
+            messages: RwSignal::new(vec![]),
+            next_id: RwSignal::new(1),
+        }
+    }
+
+    fn push(&self, text: impl Into<String>, level: ToastLevel) {
+        let id = self.next_id.get_untracked();
+        self.next_id.set(id + 1);
+        let msg = ToastMessage { id, text: text.into(), level };
+        self.messages.update(|list| list.push(msg));
+
+        // Auto-dismiss after 4 seconds.
+        let messages = self.messages;
+        spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(4000).await;
+            messages.update(|list| list.retain(|m| m.id != id));
+        });
+    }
+
+    pub fn success(&self, text: impl Into<String>) { self.push(text, ToastLevel::Success); }
+    pub fn error(&self, text: impl Into<String>) { self.push(text, ToastLevel::Error); }
+    pub fn warning(&self, text: impl Into<String>) { self.push(text, ToastLevel::Warning); }
+}
+
+/// Retrieve the toast context from Leptos context.
+pub fn use_toast() -> ToastContext {
+    use_context::<ToastContext>().expect("ToastContext not provided — wrap with ToastContainer")
+}
+
+/// Renders active toasts as a fixed overlay. Mount once in the app root.
+#[component]
+pub fn ToastContainer() -> impl IntoView {
+    let ctx = use_context::<ToastContext>().unwrap_or_else(|| {
+        let ctx = ToastContext::new();
+        provide_context(ctx);
+        ctx
+    });
+
+    view! {
+        <div class="toast-container">
+            {move || {
+                ctx.messages.get().into_iter().map(|msg| {
+                    let class = match msg.level {
+                        ToastLevel::Success => "toast toast--success",
+                        ToastLevel::Error   => "toast toast--error",
+                        ToastLevel::Warning => "toast toast--warning",
+                    };
+                    let icon = match msg.level {
+                        ToastLevel::Success => "check_circle",
+                        ToastLevel::Error   => "error",
+                        ToastLevel::Warning => "warning",
+                    };
+                    let id = msg.id;
+                    view! {
+                        <div class=class>
+                            <span class="material-icons toast-icon">{icon}</span>
+                            <span class="toast-text">{msg.text}</span>
+                            <button class="toast-close"
+                                on:click=move |_| ctx.messages.update(|list| list.retain(|m| m.id != id))
+                            >"×"</button>
+                        </div>
+                    }
+                }).collect_view()
+            }}
         </div>
     }
 }

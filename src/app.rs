@@ -2,6 +2,7 @@
 //! and the nav shell wrapper.
 
 use crate::auth::{use_auth, AuthState};
+use crate::pages::shared::{ToastContainer, ToastContext};
 use crate::pages::{
     admin::AdminPage,
     areas::AreasPage,
@@ -30,6 +31,7 @@ use leptos_router::{
 #[component]
 pub fn App() -> impl IntoView {
     provide_context(AuthState::new());
+    provide_context(ToastContext::new());
 
     // Restore saved theme preference on load.
     if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
@@ -99,6 +101,7 @@ pub fn App() -> impl IntoView {
                 }/>
             </Routes>
         </Router>
+        <ToastContainer />
     }
 }
 

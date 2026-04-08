@@ -2099,6 +2099,36 @@ fn TypedActionEditor(
                                             on:input=move |ev| { let mut a = get.get_untracked(); if let Action::WaitForExpression { ref mut timeout_ms, .. } = a { *timeout_ms = event_target_value(&ev).parse::<u64>().ok(); } set.run(a); } />
                                     }.into_any()
                                 },
+                                Action::WaitForEvent { device_id, attribute, event_type, timeout_ms } => {
+                                    let did = device_id.clone().unwrap_or_default();
+                                    let attr = attribute.clone().unwrap_or_default();
+                                    let et = event_type.clone().unwrap_or_default();
+                                    let tms = timeout_ms.map(|n| n.to_string()).unwrap_or_default();
+                                    view! {
+                                        <label class="field-label">"Event type (blank = any)"</label>
+                                        <input type="text" class="hc-input" placeholder="e.g. custom_event_name" prop:value=et
+                                            on:input=move |ev| { let v = event_target_value(&ev); let mut a = get.get_untracked();
+                                                if let Action::WaitForEvent { ref mut event_type, .. } = a { *event_type = if v.is_empty() { None } else { Some(v) }; } set.run(a); } />
+                                        <label class="field-label">"Device (blank = any)"</label>
+                                        <DeviceSelect value=did on_select=Callback::new(move |id: String| {
+                                            let mut a = get.get_untracked();
+                                            if let Action::WaitForEvent { ref mut device_id, .. } = a { *device_id = if id.is_empty() { None } else { Some(id) }; }
+                                            set.run(a);
+                                        }) />
+                                        <label class="field-label">"Attribute (blank = any)"</label>
+                                        <AttributeSelect device_id={device_id.clone().unwrap_or_default()} value=attr
+                                            on_select=Callback::new(move |a_str: String| {
+                                                let mut a = get.get_untracked();
+                                                if let Action::WaitForEvent { ref mut attribute, .. } = a { *attribute = if a_str.is_empty() { None } else { Some(a_str) }; }
+                                                set.run(a);
+                                            }) />
+                                        <label class="field-label">"Timeout (ms, blank = no timeout)"</label>
+                                        <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="none" prop:value=tms
+                                            on:input=move |ev| { let mut a = get.get_untracked();
+                                                if let Action::WaitForEvent { ref mut timeout_ms, .. } = a { *timeout_ms = event_target_value(&ev).parse::<u64>().ok(); }
+                                                set.run(a); } />
+                                    }.into_any()
+                                },
                                 _ => view! { <span /> }.into_any(),
                             }}
                         </div>
@@ -2213,6 +2243,45 @@ fn TypedActionEditor(
                                             on:input=move |ev| { if let Ok(p) = serde_json::from_str::<Value>(&event_target_value(&ev)) {
                                                 let mut a = get.get_untracked(); if let Action::FireEvent { ref mut payload, .. } = a { *payload = p; } set.run(a);
                                             }} />
+                                    }.into_any()
+                                },
+                                Action::CallService { url, method, body, timeout_ms, retries, .. } => {
+                                    let u = url.clone();
+                                    let m = method.clone();
+                                    let b = serde_json::to_string_pretty(body).unwrap_or_default();
+                                    let tms = timeout_ms.map(|n| n.to_string()).unwrap_or_default();
+                                    let ret = retries.map(|n| n.to_string()).unwrap_or_default();
+                                    view! {
+                                        <label class="field-label">"URL"</label>
+                                        <input type="text" class="hc-input" prop:value=u
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::CallService { ref mut url, .. } = a { *url = event_target_value(&ev); } set.run(a); } />
+                                        <label class="field-label">"Method"</label>
+                                        <select class="hc-select" on:change=move |ev| {
+                                            let mut a = get.get_untracked(); if let Action::CallService { ref mut method, .. } = a { *method = event_target_value(&ev); } set.run(a);
+                                        }>
+                                            {["GET","POST","PUT","PATCH","DELETE"].map(|v| view! { <option value=v selected=m==v>{v}</option> }).collect_view()}
+                                        </select>
+                                        <label class="field-label">"Body (JSON, optional)"</label>
+                                        <textarea class="hc-textarea hc-textarea--code" rows="3" prop:value=b
+                                            on:input=move |ev| { if let Ok(p) = serde_json::from_str::<Value>(&event_target_value(&ev)) {
+                                                let mut a = get.get_untracked(); if let Action::CallService { ref mut body, .. } = a { *body = p; } set.run(a);
+                                            }} />
+                                        <div class="trigger-row-2">
+                                            <div>
+                                                <label class="field-label">"Timeout (ms)"</label>
+                                                <input type="number" class="hc-input hc-input--sm" placeholder="none" prop:value=tms
+                                                    on:input=move |ev| { let mut a = get.get_untracked();
+                                                        if let Action::CallService { ref mut timeout_ms, .. } = a { *timeout_ms = event_target_value(&ev).parse::<u64>().ok(); }
+                                                        set.run(a); } />
+                                            </div>
+                                            <div>
+                                                <label class="field-label">"Retries"</label>
+                                                <input type="number" class="hc-input hc-input--sm" placeholder="0" prop:value=ret
+                                                    on:input=move |ev| { let mut a = get.get_untracked();
+                                                        if let Action::CallService { ref mut retries, .. } = a { *retries = event_target_value(&ev).parse::<u32>().ok(); }
+                                                        set.run(a); } />
+                                            </div>
+                                        </div>
                                     }.into_any()
                                 },
                                 Action::PublishMqtt { topic, payload, .. } => {

@@ -21,7 +21,7 @@ use crate::models::{
     Area, DeviceState, ModeRecord, Rule, RunMode, Scene, Trigger,
 };
 use hc_types::rule::{
-    ButtonEventType, PeriodicUnit, SunEventType, ThresholdOp,
+    ButtonEventType, CompareOp, Condition, PeriodicUnit, SunEventType, ThresholdOp,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -139,18 +139,15 @@ fn default_action(t: &str) -> Value {
 
 // ── Bridge: merge typed metadata with sub-editor Value data for save ────────
 
-/// Build a Rule for saving by taking metadata from the typed signal and
-/// trigger/conditions/actions from the Value-based sub-editor signal.
+/// Build a Rule for saving by taking metadata + trigger + conditions from the
+/// typed signal and actions from the Value-based sub-editor signal.
 fn build_save_rule(rule: RwSignal<Rule>, rule_json: RwSignal<Value>) -> Rule {
     let mut r = rule.get_untracked();
-    // The sub-editors (trigger, conditions, actions) write to rule_json.
-    // Merge those back into the typed Rule.
+    // Actions still use the Value-based sub-editor (rule_json).
+    // Merge actions back from JSON bridge.
     let json = rule_json.get_untracked();
     if !json.is_null() {
-        // Deserialize sub-fields from the JSON bridge.
         if let Ok(bridge) = serde_json::from_value::<Rule>(json) {
-            r.trigger = bridge.trigger;
-            r.conditions = bridge.conditions;
             r.actions = bridge.actions;
         }
     }
@@ -558,13 +555,12 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                     <div class="rule-section-header">
                         <h3 class="detail-card-title">"Conditions"</h3>
                         <button class="hc-btn hc-btn--sm hc-btn--outline"
-                            on:click=move |_| rule_json.update(|v| {
-                                let arr = v["conditions"].as_array_mut().expect("conditions array");
-                                arr.push(default_condition("device_state"));
+                            on:click=move |_| rule.update(|r| {
+                                r.conditions.push(default_condition_typed("device_state"));
                             })
                         >"+ Add"</button>
                     </div>
-                    <ItemList rule=rule_json key="conditions" item_kind="condition" />
+                    <ConditionList rule=rule />
                 </section>
 
                 // ── Actions ──────────────────────────────────────────────────
@@ -1425,7 +1421,463 @@ fn TriggerEditor(rule: RwSignal<Rule>) -> impl IntoView {
     }
 }
 
-// ── ConditionEditor ──────────────────────────────────────────────────────────
+// ── Typed Condition Editor ───────────────────────────────────────────────────
+
+fn condition_variant_key(c: &Condition) -> &'static str {
+    match c {
+        Condition::DeviceState { .. } => "device_state",
+        Condition::TimeWindow { .. } => "time_window",
+        Condition::ScriptExpression { .. } => "script_expression",
+        Condition::TimeElapsed { .. } => "time_elapsed",
+        Condition::DeviceLastChange { .. } => "device_last_change",
+        Condition::Not { .. } => "not",
+        Condition::And { .. } => "and",
+        Condition::Or { .. } => "or",
+        Condition::Xor { .. } => "xor",
+        Condition::PrivateBooleanIs { .. } => "private_boolean_is",
+        Condition::HubVariable { .. } => "hub_variable",
+        Condition::ModeIs { .. } => "mode_is",
+    }
+}
+
+fn default_condition_typed(key: &str) -> Condition {
+    match key {
+        "device_state" => Condition::DeviceState {
+            device_id: String::new(), attribute: "on".into(), op: CompareOp::Eq, value: json!(true),
+        },
+        "time_window" => Condition::TimeWindow {
+            start: chrono::NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+            end: chrono::NaiveTime::from_hms_opt(22, 0, 0).unwrap(),
+        },
+        "script_expression" => Condition::ScriptExpression { script: String::new() },
+        "time_elapsed" => Condition::TimeElapsed { device_id: String::new(), attribute: String::new(), duration_secs: 60 },
+        "device_last_change" => Condition::DeviceLastChange { device_id: String::new(), kind: None, source: None, actor_id: None, actor_name: None },
+        "not" => Condition::Not { condition: Box::new(default_condition_typed("device_state")) },
+        "and" => Condition::And { conditions: vec![] },
+        "or" => Condition::Or { conditions: vec![] },
+        "xor" => Condition::Xor { conditions: vec![] },
+        "private_boolean_is" => Condition::PrivateBooleanIs { name: String::new(), value: true },
+        "hub_variable" => Condition::HubVariable { name: String::new(), op: CompareOp::Eq, value: json!("") },
+        "mode_is" => Condition::ModeIs { mode_id: String::new(), on: true },
+        _ => Condition::DeviceState { device_id: String::new(), attribute: "on".into(), op: CompareOp::Eq, value: json!(true) },
+    }
+}
+
+/// Top-level condition list that reads/writes `rule.conditions`.
+#[component]
+fn ConditionList(rule: RwSignal<Rule>) -> impl IntoView {
+    view! {
+        {move || {
+            let conditions = rule.get().conditions.clone();
+            if conditions.is_empty() {
+                view! { <p class="msg-muted" style="font-size:0.85rem">"No conditions — rule fires unconditionally."</p> }.into_any()
+            } else {
+                let total = conditions.len();
+                conditions.into_iter().enumerate().map(|(i, _cond)| {
+                    let is_first = i == 0;
+                    let is_last = i + 1 >= total;
+                    view! {
+                        <div class="json-row">
+                            <div class="json-row-controls">
+                                <span class="json-row-index">{i + 1}</span>
+                                <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move up" disabled=is_first
+                                    on:click=move |_| rule.update(|r| { if i > 0 { r.conditions.swap(i - 1, i); } })
+                                ><span class="material-icons" style="font-size:14px">"arrow_upward"</span></button>
+                                <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move down" disabled=is_last
+                                    on:click=move |_| rule.update(|r| { if i + 1 < r.conditions.len() { r.conditions.swap(i, i + 1); } })
+                                ><span class="material-icons" style="font-size:14px">"arrow_downward"</span></button>
+                                <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
+                                    on:click=move |_| rule.update(|r| { r.conditions.remove(i); })
+                                ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                            </div>
+                            <TypedConditionEditor
+                                get=Signal::derive(move || rule.get().conditions.get(i).cloned().unwrap_or_else(|| default_condition_typed("device_state")))
+                                set=Callback::new(move |c: Condition| rule.update(|r| { if i < r.conditions.len() { r.conditions[i] = c; } }))
+                            />
+                        </div>
+                    }
+                }).collect_view().into_any()
+            }
+        }}
+    }
+}
+
+/// Typed condition editor — takes get/set callbacks, works at any nesting depth.
+#[component]
+fn TypedConditionEditor(
+    get: Signal<Condition>,
+    set: Callback<Condition>,
+) -> impl IntoView {
+    view! {
+        <div class="condition-editor">
+            <label class="field-label">"Condition type"</label>
+            <select class="hc-select"
+                on:change=move |ev| {
+                    let t = event_target_value(&ev);
+                    set.run(default_condition_typed(&t));
+                }
+            >
+                {[("device_state","Device state"),("time_window","Time window"),("script_expression","Script (Rhai)"),
+                  ("time_elapsed","Time elapsed"),("device_last_change","Device last change"),("private_boolean_is","Private boolean"),
+                  ("hub_variable","Hub variable"),("mode_is","Mode is on/off"),
+                  ("not","NOT"),("and","AND"),("or","OR"),("xor","XOR")]
+                    .map(|(v,l)| view! { <option value=v selected=move || condition_variant_key(&get.get()) == v>{l}</option> }).collect_view()}
+            </select>
+
+            {move || {
+                let c = get.get();
+                match c {
+                    Condition::DeviceState { ref device_id, ref attribute, ref op, ref value } => {
+                        let did = device_id.clone();
+                        let attr = attribute.clone();
+                        let op_str = format!("{:?}", op);
+                        let val = value.clone();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Device"</label>
+                                <DeviceSelect value=did.clone() on_select=Callback::new(move |id: String| {
+                                    let mut c = get.get_untracked(); if let Condition::DeviceState { ref mut device_id, .. } = c { *device_id = id; } set.run(c);
+                                }) />
+                                <div class="trigger-row-2">
+                                    <div>
+                                        <label class="field-label">"Attribute"</label>
+                                        <AttributeSelect device_id=did.clone() value=attr.clone()
+                                            on_select=Callback::new(move |a: String| {
+                                                let mut c = get.get_untracked(); if let Condition::DeviceState { ref mut attribute, .. } = c { *attribute = a; } set.run(c);
+                                            }) />
+                                    </div>
+                                    <div>
+                                        <label class="field-label">"Operator"</label>
+                                        <select class="hc-select" on:change=move |ev| {
+                                            let raw = event_target_value(&ev);
+                                            let mut c = get.get_untracked();
+                                            if let Condition::DeviceState { ref mut op, .. } = c {
+                                                *op = match raw.as_str() { "Ne" => CompareOp::Ne, "Gt" => CompareOp::Gt, "Gte" => CompareOp::Gte, "Lt" => CompareOp::Lt, "Lte" => CompareOp::Lte, _ => CompareOp::Eq };
+                                            }
+                                            set.run(c);
+                                        }>
+                                            {[("Eq","="),("Ne","≠"),("Gt",">"),("Gte","≥"),("Lt","<"),("Lte","≤")]
+                                                .map(|(v,l)| view! { <option value=v selected=op_str==v>{l}</option> }).collect_view()}
+                                        </select>
+                                    </div>
+                                </div>
+                                <AttrValueSelect device_id=did attribute=attr value=val label="Value"
+                                    on_select=Callback::new(move |raw: String| {
+                                        let mut c = get.get_untracked();
+                                        if let Condition::DeviceState { ref mut value, .. } = c {
+                                            *value = if raw.trim().is_empty() { json!(true) } else {
+                                                serde_json::from_str(&raw).unwrap_or_else(|_| json!(raw))
+                                            };
+                                        }
+                                        set.run(c);
+                                    }) />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Condition::TimeWindow { ref start, ref end } => {
+                        let s = start.format("%H:%M").to_string();
+                        let e = end.format("%H:%M").to_string();
+                        view! {
+                            <div class="trigger-fields">
+                                <div class="trigger-row-2">
+                                    <div>
+                                        <label class="field-label">"Start (HH:MM)"</label>
+                                        <input type="time" class="hc-input hc-input--sm" prop:value=s
+                                            on:input=move |ev| {
+                                                let hm = event_target_value(&ev);
+                                                if let Ok(t) = chrono::NaiveTime::parse_from_str(&format!("{hm}:00"), "%H:%M:%S") {
+                                                    let mut c = get.get_untracked(); if let Condition::TimeWindow { ref mut start, .. } = c { *start = t; } set.run(c);
+                                                }
+                                            } />
+                                    </div>
+                                    <div>
+                                        <label class="field-label">"End (HH:MM)"</label>
+                                        <input type="time" class="hc-input hc-input--sm" prop:value=e
+                                            on:input=move |ev| {
+                                                let hm = event_target_value(&ev);
+                                                if let Ok(t) = chrono::NaiveTime::parse_from_str(&format!("{hm}:00"), "%H:%M:%S") {
+                                                    let mut c = get.get_untracked(); if let Condition::TimeWindow { ref mut end, .. } = c { *end = t; } set.run(c);
+                                                }
+                                            } />
+                                    </div>
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
+
+                    Condition::ScriptExpression { ref script } => {
+                        let s = script.clone();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Rhai expression (→ bool)"</label>
+                                <textarea class="hc-textarea hc-textarea--code" rows="4" prop:value=s
+                                    on:input=move |ev| { let mut c = get.get_untracked(); if let Condition::ScriptExpression { ref mut script } = c { *script = event_target_value(&ev); } set.run(c); } />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Condition::TimeElapsed { ref device_id, ref attribute, duration_secs } => {
+                        let did = device_id.clone();
+                        let attr = attribute.clone();
+                        let dur = duration_secs;
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Device"</label>
+                                <DeviceSelect value=did.clone() on_select=Callback::new(move |id: String| {
+                                    let mut c = get.get_untracked(); if let Condition::TimeElapsed { ref mut device_id, .. } = c { *device_id = id; } set.run(c);
+                                }) />
+                                <label class="field-label">"Attribute"</label>
+                                <AttributeSelect device_id=did value=attr on_select=Callback::new(move |a: String| {
+                                    let mut c = get.get_untracked(); if let Condition::TimeElapsed { ref mut attribute, .. } = c { *attribute = a; } set.run(c);
+                                }) />
+                                <label class="field-label">"Duration (seconds)"</label>
+                                <input type="number" class="hc-input hc-input--sm" style="width:8rem" prop:value=dur.to_string()
+                                    on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u64>() {
+                                        let mut c = get.get_untracked(); if let Condition::TimeElapsed { ref mut duration_secs, .. } = c { *duration_secs = n; } set.run(c);
+                                    }} />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Condition::DeviceLastChange { ref device_id, ref source, .. } => {
+                        let did = device_id.clone();
+                        let src = source.clone().unwrap_or_default();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Device"</label>
+                                <DeviceSelect value=did on_select=Callback::new(move |id: String| {
+                                    let mut c = get.get_untracked(); if let Condition::DeviceLastChange { ref mut device_id, .. } = c { *device_id = id; } set.run(c);
+                                }) />
+                                <label class="field-label">"Source (blank = any)"</label>
+                                <input type="text" class="hc-input" prop:value=src
+                                    on:input=move |ev| { let v = event_target_value(&ev);
+                                        let mut c = get.get_untracked(); if let Condition::DeviceLastChange { ref mut source, .. } = c { *source = if v.is_empty() { None } else { Some(v) }; } set.run(c);
+                                    } />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Condition::PrivateBooleanIs { ref name, value } => {
+                        let n = name.clone();
+                        let v = value;
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Boolean name"</label>
+                                <input type="text" class="hc-input" prop:value=n
+                                    on:input=move |ev| { let mut c = get.get_untracked(); if let Condition::PrivateBooleanIs { ref mut name, .. } = c { *name = event_target_value(&ev); } set.run(c); } />
+                                <label class="field-label">"Expected value"</label>
+                                <select class="hc-select" on:change=move |ev| {
+                                    let mut c = get.get_untracked(); if let Condition::PrivateBooleanIs { ref mut value, .. } = c { *value = event_target_value(&ev) == "true"; } set.run(c);
+                                }>
+                                    <option value="true" selected=v>"True"</option>
+                                    <option value="false" selected=!v>"False"</option>
+                                </select>
+                            </div>
+                        }.into_any()
+                    },
+
+                    Condition::HubVariable { ref name, ref op, ref value } => {
+                        let n = name.clone();
+                        let op_str = format!("{:?}", op);
+                        let val_str = if value.is_string() { value.as_str().unwrap_or("").to_string() } else { value.to_string() };
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Variable name"</label>
+                                <input type="text" class="hc-input" prop:value=n
+                                    on:input=move |ev| { let mut c = get.get_untracked(); if let Condition::HubVariable { ref mut name, .. } = c { *name = event_target_value(&ev); } set.run(c); } />
+                                <div class="trigger-row-2">
+                                    <div>
+                                        <label class="field-label">"Operator"</label>
+                                        <select class="hc-select" on:change=move |ev| {
+                                            let raw = event_target_value(&ev);
+                                            let mut c = get.get_untracked();
+                                            if let Condition::HubVariable { ref mut op, .. } = c {
+                                                *op = match raw.as_str() { "Ne" => CompareOp::Ne, "Gt" => CompareOp::Gt, "Gte" => CompareOp::Gte, "Lt" => CompareOp::Lt, "Lte" => CompareOp::Lte, _ => CompareOp::Eq };
+                                            }
+                                            set.run(c);
+                                        }>
+                                            {[("Eq","="),("Ne","≠"),("Gt",">"),("Gte","≥"),("Lt","<"),("Lte","≤")]
+                                                .map(|(v,l)| view! { <option value=v selected=op_str==v>{l}</option> }).collect_view()}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="field-label">"Value (JSON)"</label>
+                                        <input type="text" class="hc-input" prop:value=val_str
+                                            on:input=move |ev| { let raw = event_target_value(&ev);
+                                                let mut c = get.get_untracked();
+                                                if let Condition::HubVariable { ref mut value, .. } = c {
+                                                    *value = serde_json::from_str(&raw).unwrap_or_else(|_| json!(raw));
+                                                }
+                                                set.run(c);
+                                            } />
+                                    </div>
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
+
+                    Condition::ModeIs { ref mode_id, on } => {
+                        let mid = mode_id.clone();
+                        let is_on = on;
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Mode"</label>
+                                <ModeSelect value=mid on_select=Callback::new(move |id: String| {
+                                    let mut c = get.get_untracked(); if let Condition::ModeIs { ref mut mode_id, .. } = c { *mode_id = id; } set.run(c);
+                                }) />
+                                <label class="field-label">"Expected state"</label>
+                                <select class="hc-select" on:change=move |ev| {
+                                    let mut c = get.get_untracked(); if let Condition::ModeIs { ref mut on, .. } = c { *on = event_target_value(&ev) == "true"; } set.run(c);
+                                }>
+                                    <option value="true" selected=is_on>"On"</option>
+                                    <option value="false" selected=!is_on>"Off"</option>
+                                </select>
+                            </div>
+                        }.into_any()
+                    },
+
+                    // ── OR / AND / XOR — nested condition list ─────────
+                    Condition::Or { ref conditions } | Condition::And { ref conditions } | Condition::Xor { ref conditions } => {
+                        let variant_key = condition_variant_key(&c);
+                        let label = match variant_key {
+                            "or"  => "ANY of these must be true (OR)",
+                            "and" => "ALL of these must be true (AND)",
+                            _     => "EXACTLY ONE must be true (XOR)",
+                        };
+                        let border_class = match variant_key {
+                            "or"  => "cond-group cond-group--or",
+                            "and" => "cond-group cond-group--and",
+                            _     => "cond-group cond-group--xor",
+                        };
+                        let total = conditions.len();
+                        let vk = variant_key.to_string();
+                        view! {
+                            <div class=border_class>
+                                <p class="cond-group-label">{label}</p>
+                                {(0..total).map(|ci| {
+                                    let is_first = ci == 0;
+                                    let is_last = ci + 1 >= total;
+                                    view! {
+                                        <div class="json-row">
+                                            <div class="json-row-controls">
+                                                <span class="json-row-index">{ci + 1}</span>
+                                                <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move up" disabled=is_first
+                                                    on:click=move |_| {
+                                                        let mut c = get.get_untracked();
+                                                        match &mut c {
+                                                            Condition::Or { ref mut conditions } | Condition::And { ref mut conditions } | Condition::Xor { ref mut conditions } => {
+                                                                if ci > 0 { conditions.swap(ci - 1, ci); }
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                        set.run(c);
+                                                    }
+                                                ><span class="material-icons" style="font-size:14px">"arrow_upward"</span></button>
+                                                <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move down" disabled=is_last
+                                                    on:click=move |_| {
+                                                        let mut c = get.get_untracked();
+                                                        match &mut c {
+                                                            Condition::Or { ref mut conditions } | Condition::And { ref mut conditions } | Condition::Xor { ref mut conditions } => {
+                                                                if ci + 1 < conditions.len() { conditions.swap(ci, ci + 1); }
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                        set.run(c);
+                                                    }
+                                                ><span class="material-icons" style="font-size:14px">"arrow_downward"</span></button>
+                                                <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
+                                                    on:click=move |_| {
+                                                        let mut c = get.get_untracked();
+                                                        match &mut c {
+                                                            Condition::Or { ref mut conditions } | Condition::And { ref mut conditions } | Condition::Xor { ref mut conditions } => {
+                                                                conditions.remove(ci);
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                        set.run(c);
+                                                    }
+                                                ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                            </div>
+                                            <TypedConditionEditor
+                                                get=Signal::derive(move || {
+                                                    match &get.get() {
+                                                        Condition::Or { conditions } | Condition::And { conditions } | Condition::Xor { conditions } => {
+                                                            conditions.get(ci).cloned().unwrap_or_else(|| default_condition_typed("device_state"))
+                                                        }
+                                                        _ => default_condition_typed("device_state"),
+                                                    }
+                                                })
+                                                set=Callback::new(move |new_child: Condition| {
+                                                    let mut c = get.get_untracked();
+                                                    match &mut c {
+                                                        Condition::Or { ref mut conditions } | Condition::And { ref mut conditions } | Condition::Xor { ref mut conditions } => {
+                                                            if ci < conditions.len() { conditions[ci] = new_child; }
+                                                        }
+                                                        _ => {}
+                                                    }
+                                                    set.run(c);
+                                                })
+                                            />
+                                        </div>
+                                    }
+                                }).collect_view()}
+                                <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin-top:0.25rem"
+                                    on:click={
+                                        let vk = vk.clone();
+                                        move |_| {
+                                            let mut c = get.get_untracked();
+                                            match &mut c {
+                                                Condition::Or { ref mut conditions } | Condition::And { ref mut conditions } | Condition::Xor { ref mut conditions } => {
+                                                    conditions.push(default_condition_typed("device_state"));
+                                                }
+                                                _ => {}
+                                            }
+                                            set.run(c);
+                                        }
+                                    }
+                                >"+ Add condition"</button>
+                            </div>
+                        }.into_any()
+                    },
+
+                    // ── NOT — single wrapped condition ───────────────────
+                    Condition::Not { ref condition } => {
+                        let has_inner = true; // NOT always has an inner condition
+                        view! {
+                            <div class="cond-group cond-group--not">
+                                <p class="cond-group-label">"NOT — inverts the result"</p>
+                                <div class="json-row">
+                                    <div class="json-row-controls">
+                                        <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Reset inner"
+                                            on:click=move |_| {
+                                                set.run(Condition::Not { condition: Box::new(default_condition_typed("device_state")) });
+                                            }
+                                        ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                    </div>
+                                    <TypedConditionEditor
+                                        get=Signal::derive(move || {
+                                            match &get.get() {
+                                                Condition::Not { condition } => *condition.clone(),
+                                                _ => default_condition_typed("device_state"),
+                                            }
+                                        })
+                                        set=Callback::new(move |inner: Condition| {
+                                            set.run(Condition::Not { condition: Box::new(inner) });
+                                        })
+                                    />
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
+                }
+            }}
+        </div>
+    }
+}
+
+// ── Legacy ConditionEditor (kept for reference during migration) ─────────────
+// TODO: Remove once all callers use TypedConditionEditor
 
 #[component]
 fn ConditionEditor(

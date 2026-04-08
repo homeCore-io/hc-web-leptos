@@ -21,7 +21,8 @@ use crate::models::{
     Area, DeviceState, ModeRecord, Rule, RunMode, Scene, Trigger,
 };
 use hc_types::rule::{
-    ButtonEventType, CompareOp, Condition, PeriodicUnit, SunEventType, ThresholdOp,
+    Action, ButtonEventType, CompareOp, Condition, LogLevel, ModeCommand,
+    PeriodicUnit, RuleAction, SunEventType, ThresholdOp,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -139,19 +140,9 @@ fn default_action(t: &str) -> Value {
 
 // ── Bridge: merge typed metadata with sub-editor Value data for save ────────
 
-/// Build a Rule for saving by taking metadata + trigger + conditions from the
-/// typed signal and actions from the Value-based sub-editor signal.
-fn build_save_rule(rule: RwSignal<Rule>, rule_json: RwSignal<Value>) -> Rule {
-    let mut r = rule.get_untracked();
-    // Actions still use the Value-based sub-editor (rule_json).
-    // Merge actions back from JSON bridge.
-    let json = rule_json.get_untracked();
-    if !json.is_null() {
-        if let Ok(bridge) = serde_json::from_value::<Rule>(json) {
-            r.actions = bridge.actions;
-        }
-    }
-    r
+/// Build a Rule for saving. All fields are now on the typed signal directly.
+fn build_save_rule(rule: RwSignal<Rule>, _rule_json: RwSignal<Value>) -> Rule {
+    rule.get_untracked()
 }
 
 // ── JSON field helpers ───────────────────────────────────────────────────────
@@ -568,13 +559,15 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                     <div class="rule-section-header">
                         <h3 class="detail-card-title">"Actions"</h3>
                         <button class="hc-btn hc-btn--sm hc-btn--outline"
-                            on:click=move |_| rule_json.update(|v| {
-                                let arr = v["actions"].as_array_mut().expect("actions array");
-                                arr.push(default_action("log_message"));
+                            on:click=move |_| rule.update(|r| {
+                                r.actions.push(RuleAction {
+                                    enabled: true,
+                                    action: default_action_typed("log_message"),
+                                });
                             })
                         >"+ Add"</button>
                     </div>
-                    <ItemList rule=rule_json key="actions" item_kind="action" />
+                    <ActionList rule=rule />
                 </section>
 
                 // ── Advanced (collapsible) ───────────────────────────────────
@@ -2284,7 +2277,693 @@ fn ConditionEditor(
     }
 }
 
-// ── ActionEditor ─────────────────────────────────────────────────────────────
+// ── Typed Action Editor ──────────────────────────────────────────────────────
+
+fn action_variant_key(a: &Action) -> &'static str {
+    match a {
+        Action::SetDeviceState { .. } => "set_device_state",
+        Action::PublishMqtt { .. } => "publish_mqtt",
+        Action::CallService { .. } => "call_service",
+        Action::FireEvent { .. } => "fire_event",
+        Action::RunScript { .. } => "run_script",
+        Action::Notify { .. } => "notify",
+        Action::Delay { .. } => "delay",
+        Action::Parallel { .. } => "parallel",
+        Action::RepeatUntil { .. } => "repeat_until",
+        Action::RepeatWhile { .. } => "repeat_while",
+        Action::RepeatCount { .. } => "repeat_count",
+        Action::Conditional { .. } => "conditional",
+        Action::StopRuleChain => "stop_rule_chain",
+        Action::ExitRule => "exit_rule",
+        Action::Comment { .. } => "comment",
+        Action::WaitForEvent { .. } => "wait_for_event",
+        Action::WaitForExpression { .. } => "wait_for_expression",
+        Action::SetVariable { .. } => "set_variable",
+        Action::RunRuleActions { .. } => "run_rule_actions",
+        Action::PauseRule { .. } => "pause_rule",
+        Action::ResumeRule { .. } => "resume_rule",
+        Action::CancelDelays { .. } => "cancel_delays",
+        Action::CancelRuleTimers { .. } => "cancel_rule_timers",
+        Action::SetPrivateBoolean { .. } => "set_private_boolean",
+        Action::LogMessage { .. } => "log_message",
+        Action::SetDeviceStatePerMode { .. } => "set_device_state_per_mode",
+        Action::PingHost { .. } => "ping_host",
+        Action::CaptureDeviceState { .. } => "capture_device_state",
+        Action::RestoreDeviceState { .. } => "restore_device_state",
+        Action::DelayPerMode { .. } => "delay_per_mode",
+        Action::SetHubVariable { .. } => "set_hub_variable",
+        Action::ActivateScenePerMode { .. } => "activate_scene_per_mode",
+        Action::FadeDevice { .. } => "fade_device",
+        Action::SetMode { .. } => "set_mode",
+    }
+}
+
+fn action_category_typed(a: &Action) -> &'static str {
+    match a {
+        Action::SetDeviceState { .. } | Action::FadeDevice { .. } | Action::CaptureDeviceState { .. } | Action::RestoreDeviceState { .. } => "device",
+        Action::Conditional { .. } => "conditional",
+        Action::Notify { .. } => "notify",
+        Action::SetMode { .. } => "mode",
+        Action::Delay { .. } | Action::WaitForEvent { .. } | Action::WaitForExpression { .. } => "timing",
+        Action::RunScript { .. } => "script",
+        Action::RunRuleActions { .. } | Action::PauseRule { .. } | Action::ResumeRule { .. } | Action::CancelDelays { .. } | Action::CancelRuleTimers { .. } => "rule_ctrl",
+        _ => "more",
+    }
+}
+
+fn default_action_typed(key: &str) -> Action {
+    match key {
+        "set_device_state" => Action::SetDeviceState { device_id: String::new(), state: json!({}), track_event_value: false },
+        "publish_mqtt" => Action::PublishMqtt { topic: String::new(), payload: String::new(), retain: false },
+        "call_service" => Action::CallService { url: String::new(), method: "POST".into(), body: json!({}), timeout_ms: None, retries: None, response_event: None },
+        "fire_event" => Action::FireEvent { event_type: String::new(), payload: json!({}) },
+        "run_script" => Action::RunScript { script: String::new() },
+        "notify" => Action::Notify { channel: String::new(), message: String::new(), title: None },
+        "delay" => Action::Delay { duration_secs: 5, cancelable: false, cancel_key: None },
+        "set_variable" => Action::SetVariable { name: String::new(), value: json!(""), op: None },
+        "set_hub_variable" => Action::SetHubVariable { name: String::new(), value: json!(""), op: None },
+        "set_mode" => Action::SetMode { mode_id: String::new(), command: ModeCommand::On },
+        "run_rule_actions" => Action::RunRuleActions { rule_id: Uuid::nil() },
+        "pause_rule" => Action::PauseRule { rule_id: Uuid::nil() },
+        "resume_rule" => Action::ResumeRule { rule_id: Uuid::nil() },
+        "cancel_delays" => Action::CancelDelays { key: None },
+        "cancel_rule_timers" => Action::CancelRuleTimers { rule_id: None },
+        "set_private_boolean" => Action::SetPrivateBoolean { name: String::new(), value: true },
+        "log_message" => Action::LogMessage { message: String::new(), level: None },
+        "comment" => Action::Comment { text: String::new() },
+        "stop_rule_chain" => Action::StopRuleChain,
+        "exit_rule" => Action::ExitRule,
+        "wait_for_event" => Action::WaitForEvent { event_type: None, device_id: None, attribute: None, timeout_ms: None },
+        "wait_for_expression" => Action::WaitForExpression { expression: String::new(), poll_interval_ms: None, timeout_ms: None, hold_duration_ms: None },
+        "capture_device_state" => Action::CaptureDeviceState { key: String::new(), device_ids: vec![] },
+        "restore_device_state" => Action::RestoreDeviceState { key: String::new() },
+        "fade_device" => Action::FadeDevice { device_id: String::new(), target: json!({}), duration_secs: 30, steps: None },
+        "parallel" => Action::Parallel { actions: vec![] },
+        "conditional" => Action::Conditional { condition: String::new(), then_actions: vec![], else_if: vec![], else_actions: vec![] },
+        "repeat_until" => Action::RepeatUntil { condition: String::new(), actions: vec![], max_iterations: Some(10), interval_ms: None },
+        "repeat_while" => Action::RepeatWhile { condition: String::new(), actions: vec![], max_iterations: Some(10), interval_ms: None },
+        "repeat_count" => Action::RepeatCount { count: 3, actions: vec![], interval_ms: None },
+        "ping_host" => Action::PingHost { host: String::new(), count: None, timeout_ms: None, then_actions: vec![], else_actions: vec![], response_event: None },
+        _ => Action::LogMessage { message: String::new(), level: None },
+    }
+}
+
+/// Top-level action list — renders `rule.actions` (Vec<RuleAction>).
+#[component]
+fn ActionList(rule: RwSignal<Rule>) -> impl IntoView {
+    view! {
+        {move || {
+            let actions = rule.get().actions.clone();
+            if actions.is_empty() {
+                view! { <p class="msg-muted" style="font-size:0.85rem">"No actions."</p> }.into_any()
+            } else {
+                let total = actions.len();
+                actions.into_iter().enumerate().map(|(i, ra)| {
+                    let is_first = i == 0;
+                    let is_last = i + 1 >= total;
+                    let disabled_class = if !ra.enabled { " json-row--disabled" } else { "" };
+                    view! {
+                        <div class=format!("json-row{disabled_class}")>
+                            <div class="json-row-controls">
+                                <span class="json-row-index">{i + 1}</span>
+                                <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move up" disabled=is_first
+                                    on:click=move |_| rule.update(|r| { if i > 0 { r.actions.swap(i - 1, i); } })
+                                ><span class="material-icons" style="font-size:14px">"arrow_upward"</span></button>
+                                <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move down" disabled=is_last
+                                    on:click=move |_| rule.update(|r| { if i + 1 < r.actions.len() { r.actions.swap(i, i + 1); } })
+                                ><span class="material-icons" style="font-size:14px">"arrow_downward"</span></button>
+                                <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
+                                    on:click=move |_| rule.update(|r| { r.actions.remove(i); })
+                                ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                            </div>
+                            <TypedRuleActionEditor
+                                get=Signal::derive(move || rule.get().actions.get(i).cloned().unwrap_or(RuleAction { enabled: true, action: default_action_typed("log_message") }))
+                                set=Callback::new(move |ra: RuleAction| rule.update(|r| { if i < r.actions.len() { r.actions[i] = ra; } }))
+                            />
+                        </div>
+                    }
+                }).collect_view().into_any()
+            }
+        }}
+    }
+}
+
+/// Wraps TypedActionEditor with an enabled toggle (for top-level RuleAction).
+#[component]
+fn TypedRuleActionEditor(
+    get: Signal<RuleAction>,
+    set: Callback<RuleAction>,
+) -> impl IntoView {
+    view! {
+        <div class="action-editor">
+            <div class="action-header-row">
+                <label class="rule-meta-inline">
+                    <input type="checkbox"
+                        prop:checked=move || get.get().enabled
+                        on:change=move |ev| {
+                            use wasm_bindgen::JsCast;
+                            let checked = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()).map(|el| el.checked()).unwrap_or(true);
+                            let mut ra = get.get_untracked(); ra.enabled = checked; set.run(ra);
+                        }
+                    />
+                    " Enabled"
+                </label>
+            </div>
+            <TypedActionEditor
+                get=Signal::derive(move || get.get().action.clone())
+                set=Callback::new(move |a: Action| { let mut ra = get.get_untracked(); ra.action = a; set.run(ra); })
+            />
+        </div>
+    }
+}
+
+/// Typed action editor — takes get/set callbacks, works at any nesting depth.
+/// Handles all action types including recursive ones (Parallel, Conditional, Repeat).
+#[component]
+fn TypedActionEditor(
+    get: Signal<Action>,
+    set: Callback<Action>,
+) -> impl IntoView {
+    let category_for = move || action_category_typed(&get.get());
+    let variant_for = move || action_variant_key(&get.get());
+
+    view! {
+        // ── Category selector ────────────────────────────────────────
+        <div class="action-cat-row">
+            {ACTION_CATEGORIES.iter().map(|(key, label, icon)| {
+                view! {
+                    <button class="action-cat-btn"
+                        class:action-cat-btn--active=move || category_for() == *key
+                        on:click=move |_| {
+                            if category_for() == *key { return; }
+                            let def = category_default(key);
+                            set.run(default_action_typed(def));
+                        }
+                    >
+                        <span class="material-icons" style="font-size:16px">{*icon}</span>
+                        <span class="action-cat-label">{*label}</span>
+                    </button>
+                }
+            }).collect_view()}
+        </div>
+
+        // ── Action-specific editor ───────────────────────────────────
+        {move || {
+            let a = get.get();
+            let cat = action_category_typed(&a);
+
+            match cat {
+                "device" => {
+                    let vk = action_variant_key(&a);
+                    view! {
+                        <div class="trigger-fields">
+                            <select class="hc-select" on:change=move |ev| set.run(default_action_typed(&event_target_value(&ev)))>
+                                {[("set_device_state","Command device"),("fade_device","Fade device"),("capture_device_state","Capture state"),("restore_device_state","Restore state")]
+                                    .map(|(v,l)| view! { <option value=v selected=vk==v>{l}</option> }).collect_view()}
+                            </select>
+                            {match &a {
+                                Action::SetDeviceState { device_id, state, .. } | Action::FadeDevice { device_id, target: state, .. } => {
+                                    let did = device_id.clone();
+                                    let st = state.clone();
+                                    let is_fade = matches!(&a, Action::FadeDevice { .. });
+                                    let dur = if let Action::FadeDevice { duration_secs, .. } = &a { *duration_secs } else { 30 };
+                                    view! {
+                                        <label class="field-label">"Device"</label>
+                                        <DeviceSelect value=did on_select=Callback::new(move |id: String| {
+                                            let mut a = get.get_untracked();
+                                            match &mut a {
+                                                Action::SetDeviceState { ref mut device_id, .. } | Action::FadeDevice { ref mut device_id, .. } => *device_id = id,
+                                                _ => {}
+                                            }
+                                            set.run(a);
+                                        }) />
+                                        <label class="field-label">"State (JSON)"</label>
+                                        <textarea class="hc-textarea hc-textarea--code" rows="3"
+                                            prop:value=serde_json::to_string_pretty(&st).unwrap_or_default()
+                                            on:input=move |ev| {
+                                                if let Ok(parsed) = serde_json::from_str::<Value>(&event_target_value(&ev)) {
+                                                    let mut a = get.get_untracked();
+                                                    match &mut a {
+                                                        Action::SetDeviceState { ref mut state, .. } => *state = parsed,
+                                                        Action::FadeDevice { ref mut target, .. } => *target = parsed,
+                                                        _ => {}
+                                                    }
+                                                    set.run(a);
+                                                }
+                                            } />
+                                        {is_fade.then(|| view! {
+                                            <label class="field-label">"Duration (seconds)"</label>
+                                            <input type="number" class="hc-input hc-input--sm" style="width:8rem" prop:value=dur.to_string()
+                                                on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u64>() {
+                                                    let mut a = get.get_untracked();
+                                                    if let Action::FadeDevice { ref mut duration_secs, .. } = a { *duration_secs = n; }
+                                                    set.run(a);
+                                                }} />
+                                        })}
+                                    }.into_any()
+                                },
+                                Action::CaptureDeviceState { key, device_ids } => {
+                                    let k = key.clone();
+                                    let ids_str = device_ids.join(", ");
+                                    view! {
+                                        <label class="field-label">"Snapshot key"</label>
+                                        <input type="text" class="hc-input" prop:value=k
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::CaptureDeviceState { ref mut key, .. } = a { *key = event_target_value(&ev); } set.run(a); } />
+                                        <label class="field-label">"Devices (comma-separated)"</label>
+                                        <input type="text" class="hc-input" prop:value=ids_str
+                                            on:input=move |ev| {
+                                                let ids: Vec<String> = event_target_value(&ev).split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                                                let mut a = get.get_untracked(); if let Action::CaptureDeviceState { ref mut device_ids, .. } = a { *device_ids = ids; } set.run(a);
+                                            } />
+                                    }.into_any()
+                                },
+                                Action::RestoreDeviceState { key } => {
+                                    let k = key.clone();
+                                    view! {
+                                        <label class="field-label">"Snapshot key"</label>
+                                        <input type="text" class="hc-input" prop:value=k
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::RestoreDeviceState { ref mut key } = a { *key = event_target_value(&ev); } set.run(a); } />
+                                    }.into_any()
+                                },
+                                _ => view! { <span /> }.into_any(),
+                            }}
+                        </div>
+                    }.into_any()
+                },
+
+                "conditional" => {
+                    let cond = if let Action::Conditional { condition, .. } = &a { condition.clone() } else { String::new() };
+                    view! {
+                        <div class="trigger-fields">
+                            <div class="cond-branch cond-branch--if">
+                                <span class="cond-branch-label">"IF"</span>
+                                <label class="field-label">"Condition (Rhai expression)"</label>
+                                <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=cond
+                                    on:input=move |ev| { let mut a = get.get_untracked(); if let Action::Conditional { ref mut condition, .. } = a { *condition = event_target_value(&ev); } set.run(a); } />
+                                <label class="field-label">"THEN actions:"</label>
+                                <TypedNestedActionList
+                                    get_actions=Signal::derive(move || match &get.get() { Action::Conditional { then_actions, .. } => then_actions.clone(), _ => vec![] })
+                                    set_actions=Callback::new(move |acts: Vec<Action>| { let mut a = get.get_untracked(); if let Action::Conditional { ref mut then_actions, .. } = a { *then_actions = acts; } set.run(a); })
+                                />
+                            </div>
+                            <div class="cond-branch cond-branch--else">
+                                <span class="cond-branch-label">"ELSE"</span>
+                                <TypedNestedActionList
+                                    get_actions=Signal::derive(move || match &get.get() { Action::Conditional { else_actions, .. } => else_actions.clone(), _ => vec![] })
+                                    set_actions=Callback::new(move |acts: Vec<Action>| { let mut a = get.get_untracked(); if let Action::Conditional { ref mut else_actions, .. } = a { *else_actions = acts; } set.run(a); })
+                                />
+                            </div>
+                        </div>
+                    }.into_any()
+                },
+
+                "notify" => {
+                    let ch = if let Action::Notify { channel, .. } = &a { channel.clone() } else { String::new() };
+                    let ti = if let Action::Notify { title, .. } = &a { title.clone().unwrap_or_default() } else { String::new() };
+                    let msg = if let Action::Notify { message, .. } = &a { message.clone() } else { String::new() };
+                    view! {
+                        <div class="trigger-fields">
+                            <label class="field-label">"Channel"</label>
+                            <select class="hc-select" on:change=move |ev| { let mut a = get.get_untracked(); if let Action::Notify { ref mut channel, .. } = a { *channel = event_target_value(&ev); } set.run(a); }>
+                                {[("all","All channels"),("telegram","Telegram"),("pushover","Pushover"),("email","Email")]
+                                    .map(|(v,l)| view! { <option value=v selected=ch==v>{l}</option> }).collect_view()}
+                            </select>
+                            <label class="field-label">"Title (optional)"</label>
+                            <input type="text" class="hc-input" prop:value=ti
+                                on:input=move |ev| { let v = event_target_value(&ev); let mut a = get.get_untracked(); if let Action::Notify { ref mut title, .. } = a { *title = if v.is_empty() { None } else { Some(v) }; } set.run(a); } />
+                            <label class="field-label">"Message"</label>
+                            <textarea class="hc-textarea" rows="2" prop:value=msg
+                                on:input=move |ev| { let mut a = get.get_untracked(); if let Action::Notify { ref mut message, .. } = a { *message = event_target_value(&ev); } set.run(a); } />
+                        </div>
+                    }.into_any()
+                },
+
+                "mode" => {
+                    let mid = if let Action::SetMode { mode_id, .. } = &a { mode_id.clone() } else { String::new() };
+                    let cmd = if let Action::SetMode { command, .. } = &a { format!("{:?}", command) } else { "On".into() };
+                    view! {
+                        <div class="trigger-fields">
+                            <label class="field-label">"Mode"</label>
+                            <ModeSelect value=mid on_select=Callback::new(move |id: String| {
+                                let mut a = get.get_untracked(); if let Action::SetMode { ref mut mode_id, .. } = a { *mode_id = id; } set.run(a);
+                            }) />
+                            <label class="field-label">"Command"</label>
+                            <div class="toggle-group">
+                                <button class:active=cmd=="On" on:click=move |_| { let mut a = get.get_untracked(); if let Action::SetMode { ref mut command, .. } = a { *command = ModeCommand::On; } set.run(a); }>"On"</button>
+                                <button class:active=cmd=="Off" on:click=move |_| { let mut a = get.get_untracked(); if let Action::SetMode { ref mut command, .. } = a { *command = ModeCommand::Off; } set.run(a); }>"Off"</button>
+                                <button class:active=cmd=="Toggle" on:click=move |_| { let mut a = get.get_untracked(); if let Action::SetMode { ref mut command, .. } = a { *command = ModeCommand::Toggle; } set.run(a); }>"Toggle"</button>
+                            </div>
+                        </div>
+                    }.into_any()
+                },
+
+                "timing" => {
+                    let vk = action_variant_key(&a);
+                    view! {
+                        <div class="trigger-fields">
+                            <select class="hc-select" on:change=move |ev| set.run(default_action_typed(&event_target_value(&ev)))>
+                                {[("delay","Delay"),("wait_for_event","Wait for event"),("wait_for_expression","Wait for expression")]
+                                    .map(|(v,l)| view! { <option value=v selected=vk==v>{l}</option> }).collect_view()}
+                            </select>
+                            {match &a {
+                                Action::Delay { duration_secs, cancelable, .. } => {
+                                    let dur = *duration_secs;
+                                    let canc = *cancelable;
+                                    view! {
+                                        <div class="control-row">
+                                            <span class="control-label">"Duration"</span>
+                                            <div class="state-slider-row">
+                                                <input type="range" class="state-slider" min="1" max="300" step="1" prop:value=dur.to_string()
+                                                    on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u64>() {
+                                                        let mut a = get.get_untracked(); if let Action::Delay { ref mut duration_secs, .. } = a { *duration_secs = n; } set.run(a);
+                                                    }} />
+                                                <span class="state-slider-val">{format!("{dur}s")}</span>
+                                            </div>
+                                        </div>
+                                        <div class="control-row">
+                                            <span class="control-label">"Cancelable"</span>
+                                            <div class="toggle-group">
+                                                <button class:active=canc on:click=move |_| { let mut a = get.get_untracked(); if let Action::Delay { ref mut cancelable, .. } = a { *cancelable = true; } set.run(a); }>"Yes"</button>
+                                                <button class:active=!canc on:click=move |_| { let mut a = get.get_untracked(); if let Action::Delay { ref mut cancelable, .. } = a { *cancelable = false; } set.run(a); }>"No"</button>
+                                            </div>
+                                        </div>
+                                    }.into_any()
+                                },
+                                Action::WaitForExpression { expression, timeout_ms, .. } => {
+                                    let expr = expression.clone();
+                                    let tms = timeout_ms.map(|n| n.to_string()).unwrap_or_default();
+                                    view! {
+                                        <label class="field-label">"Rhai expression"</label>
+                                        <textarea class="hc-textarea hc-textarea--code" rows="3" prop:value=expr
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::WaitForExpression { ref mut expression, .. } = a { *expression = event_target_value(&ev); } set.run(a); } />
+                                        <label class="field-label">"Timeout (ms, blank = none)"</label>
+                                        <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="none" prop:value=tms
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::WaitForExpression { ref mut timeout_ms, .. } = a { *timeout_ms = event_target_value(&ev).parse::<u64>().ok(); } set.run(a); } />
+                                    }.into_any()
+                                },
+                                _ => view! { <span /> }.into_any(),
+                            }}
+                        </div>
+                    }.into_any()
+                },
+
+                "script" => {
+                    let s = if let Action::RunScript { script } = &a { script.clone() } else { String::new() };
+                    view! {
+                        <div class="trigger-fields">
+                            <label class="field-label">"Rhai script"</label>
+                            <textarea class="hc-textarea hc-textarea--code" rows="6" prop:value=s
+                                on:input=move |ev| { let mut a = get.get_untracked(); if let Action::RunScript { ref mut script } = a { *script = event_target_value(&ev); } set.run(a); } />
+                        </div>
+                    }.into_any()
+                },
+
+                "rule_ctrl" => {
+                    let vk = action_variant_key(&a);
+                    view! {
+                        <div class="trigger-fields">
+                            <select class="hc-select" on:change=move |ev| set.run(default_action_typed(&event_target_value(&ev)))>
+                                {[("run_rule_actions","Run rule actions"),("pause_rule","Pause rule"),("resume_rule","Resume rule"),
+                                  ("cancel_delays","Cancel delays"),("cancel_rule_timers","Cancel rule timers")]
+                                    .map(|(v,l)| view! { <option value=v selected=vk==v>{l}</option> }).collect_view()}
+                            </select>
+                            {match &a {
+                                Action::RunRuleActions { rule_id } | Action::PauseRule { rule_id } | Action::ResumeRule { rule_id } => {
+                                    let rid = rule_id.to_string();
+                                    view! {
+                                        <label class="field-label">"Rule"</label>
+                                        <RuleSelect value=rid on_select=Callback::new(move |id: String| {
+                                            if let Ok(uid) = id.parse::<Uuid>() {
+                                                let mut a = get.get_untracked();
+                                                match &mut a {
+                                                    Action::RunRuleActions { ref mut rule_id } | Action::PauseRule { ref mut rule_id } | Action::ResumeRule { ref mut rule_id } => *rule_id = uid,
+                                                    _ => {}
+                                                }
+                                                set.run(a);
+                                            }
+                                        }) />
+                                    }.into_any()
+                                },
+                                Action::CancelDelays { key } => {
+                                    let k = key.clone().unwrap_or_default();
+                                    view! {
+                                        <label class="field-label">"Cancel key (blank = all)"</label>
+                                        <input type="text" class="hc-input" prop:value=k
+                                            on:input=move |ev| { let v = event_target_value(&ev); let mut a = get.get_untracked(); if let Action::CancelDelays { ref mut key } = a { *key = if v.is_empty() { None } else { Some(v) }; } set.run(a); } />
+                                    }.into_any()
+                                },
+                                _ => view! { <span /> }.into_any(),
+                            }}
+                        </div>
+                    }.into_any()
+                },
+
+                // ── MORE (remaining action types) ─────────────────────
+                _ => {
+                    let vk = action_variant_key(&a);
+                    view! {
+                        <div class="trigger-fields">
+                            <select class="hc-select" on:change=move |ev| set.run(default_action_typed(&event_target_value(&ev)))>
+                                {[("log_message","Log message"),("comment","Comment"),("fire_event","Fire event"),
+                                  ("publish_mqtt","Publish MQTT"),("call_service","HTTP request"),
+                                  ("set_variable","Set variable"),("set_hub_variable","Set hub variable"),
+                                  ("set_private_boolean","Set private boolean"),
+                                  ("stop_rule_chain","Stop rule chain"),("exit_rule","Exit rule"),
+                                  ("parallel","Parallel"),("repeat_count","Repeat N times"),
+                                  ("repeat_until","Repeat until"),("repeat_while","Repeat while"),
+                                  ("ping_host","Ping host")]
+                                    .map(|(v,l)| view! { <option value=v selected=vk==v>{l}</option> }).collect_view()}
+                            </select>
+                            {match &a {
+                                Action::LogMessage { message, level } => {
+                                    let msg = message.clone();
+                                    let lvl = level.as_ref().map(|l| format!("{:?}", l)).unwrap_or_default();
+                                    view! {
+                                        <label class="field-label">"Level"</label>
+                                        <select class="hc-select" on:change=move |ev| {
+                                            let raw = event_target_value(&ev);
+                                            let mut a = get.get_untracked();
+                                            if let Action::LogMessage { ref mut level, .. } = a {
+                                                *level = match raw.as_str() { "Debug" => Some(LogLevel::Debug), "Warn" => Some(LogLevel::Warn), "Error" => Some(LogLevel::Error), _ => None };
+                                            }
+                                            set.run(a);
+                                        }>
+                                            {[("","Info (default)"),("Debug","Debug"),("Warn","Warning"),("Error","Error")]
+                                                .map(|(v,l)| view! { <option value=v selected=lvl==v>{l}</option> }).collect_view()}
+                                        </select>
+                                        <label class="field-label">"Message"</label>
+                                        <textarea class="hc-textarea" rows="2" prop:value=msg
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::LogMessage { ref mut message, .. } = a { *message = event_target_value(&ev); } set.run(a); } />
+                                    }.into_any()
+                                },
+                                Action::Comment { text } => {
+                                    let t = text.clone();
+                                    view! {
+                                        <textarea class="hc-textarea" rows="2" placeholder="Comment text" prop:value=t
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::Comment { ref mut text } = a { *text = event_target_value(&ev); } set.run(a); } />
+                                    }.into_any()
+                                },
+                                Action::FireEvent { event_type, payload } => {
+                                    let et = event_type.clone();
+                                    let pl = serde_json::to_string_pretty(payload).unwrap_or_default();
+                                    view! {
+                                        <label class="field-label">"Event type"</label>
+                                        <input type="text" class="hc-input" prop:value=et
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::FireEvent { ref mut event_type, .. } = a { *event_type = event_target_value(&ev); } set.run(a); } />
+                                        <label class="field-label">"Payload (JSON)"</label>
+                                        <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=pl
+                                            on:input=move |ev| { if let Ok(p) = serde_json::from_str::<Value>(&event_target_value(&ev)) {
+                                                let mut a = get.get_untracked(); if let Action::FireEvent { ref mut payload, .. } = a { *payload = p; } set.run(a);
+                                            }} />
+                                    }.into_any()
+                                },
+                                Action::PublishMqtt { topic, payload, .. } => {
+                                    let tp = topic.clone();
+                                    let pl = payload.clone();
+                                    view! {
+                                        <label class="field-label">"Topic"</label>
+                                        <input type="text" class="hc-input hc-textarea--code" prop:value=tp
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::PublishMqtt { ref mut topic, .. } = a { *topic = event_target_value(&ev); } set.run(a); } />
+                                        <label class="field-label">"Payload"</label>
+                                        <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=pl
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::PublishMqtt { ref mut payload, .. } = a { *payload = event_target_value(&ev); } set.run(a); } />
+                                    }.into_any()
+                                },
+                                Action::SetVariable { name, value, .. } | Action::SetHubVariable { name, value, .. } => {
+                                    let n = name.clone();
+                                    let val = if value.is_string() { value.as_str().unwrap_or("").to_string() } else { value.to_string() };
+                                    view! {
+                                        <label class="field-label">"Variable name"</label>
+                                        <input type="text" class="hc-input" prop:value=n
+                                            on:input=move |ev| { let mut a = get.get_untracked();
+                                                match &mut a { Action::SetVariable { ref mut name, .. } | Action::SetHubVariable { ref mut name, .. } => *name = event_target_value(&ev), _ => {} }
+                                                set.run(a); } />
+                                        <label class="field-label">"Value (JSON)"</label>
+                                        <input type="text" class="hc-input" prop:value=val
+                                            on:input=move |ev| { let raw = event_target_value(&ev); let v = serde_json::from_str(&raw).unwrap_or_else(|_| json!(raw));
+                                                let mut a = get.get_untracked();
+                                                match &mut a { Action::SetVariable { ref mut value, .. } | Action::SetHubVariable { ref mut value, .. } => *value = v, _ => {} }
+                                                set.run(a); } />
+                                    }.into_any()
+                                },
+                                Action::SetPrivateBoolean { name, value } => {
+                                    let n = name.clone(); let v = *value;
+                                    view! {
+                                        <label class="field-label">"Name"</label>
+                                        <input type="text" class="hc-input" prop:value=n
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::SetPrivateBoolean { ref mut name, .. } = a { *name = event_target_value(&ev); } set.run(a); } />
+                                        <div class="toggle-group">
+                                            <button class:active=v on:click=move |_| { let mut a = get.get_untracked(); if let Action::SetPrivateBoolean { ref mut value, .. } = a { *value = true; } set.run(a); }>"True"</button>
+                                            <button class:active=!v on:click=move |_| { let mut a = get.get_untracked(); if let Action::SetPrivateBoolean { ref mut value, .. } = a { *value = false; } set.run(a); }>"False"</button>
+                                        </div>
+                                    }.into_any()
+                                },
+                                Action::StopRuleChain | Action::ExitRule => {
+                                    let msg = if matches!(&a, Action::StopRuleChain) { "Stops lower-priority rules." } else { "Halts remaining actions." };
+                                    view! { <p class="msg-muted" style="font-size:0.85rem">{msg}</p> }.into_any()
+                                },
+                                Action::Parallel { actions } => {
+                                    view! {
+                                        <TypedNestedActionList
+                                            get_actions=Signal::derive(move || match &get.get() { Action::Parallel { actions } => actions.clone(), _ => vec![] })
+                                            set_actions=Callback::new(move |acts: Vec<Action>| { let mut a = get.get_untracked(); if let Action::Parallel { ref mut actions } = a { *actions = acts; } set.run(a); })
+                                        />
+                                    }.into_any()
+                                },
+                                Action::RepeatCount { count, .. } => {
+                                    let c = *count;
+                                    view! {
+                                        <label class="field-label">"Count"</label>
+                                        <input type="number" class="hc-input hc-input--sm" min="1" prop:value=c.to_string()
+                                            on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u32>() {
+                                                let mut a = get.get_untracked(); if let Action::RepeatCount { ref mut count, .. } = a { *count = n; } set.run(a);
+                                            }} />
+                                        <TypedNestedActionList
+                                            get_actions=Signal::derive(move || match &get.get() { Action::RepeatCount { actions, .. } => actions.clone(), _ => vec![] })
+                                            set_actions=Callback::new(move |acts: Vec<Action>| { let mut a = get.get_untracked(); if let Action::RepeatCount { ref mut actions, .. } = a { *actions = acts; } set.run(a); })
+                                        />
+                                    }.into_any()
+                                },
+                                Action::RepeatUntil { condition, max_iterations, .. } | Action::RepeatWhile { condition, max_iterations, .. } => {
+                                    let cond = condition.clone();
+                                    let mi = max_iterations.map(|n| n.to_string()).unwrap_or_default();
+                                    let is_until = matches!(&a, Action::RepeatUntil { .. });
+                                    view! {
+                                        <label class="field-label">"Condition (Rhai)"</label>
+                                        <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=cond
+                                            on:input=move |ev| { let mut a = get.get_untracked();
+                                                match &mut a { Action::RepeatUntil { ref mut condition, .. } | Action::RepeatWhile { ref mut condition, .. } => *condition = event_target_value(&ev), _ => {} }
+                                                set.run(a); } />
+                                        <label class="field-label">"Max iterations"</label>
+                                        <input type="number" class="hc-input hc-input--sm" placeholder="unlimited" prop:value=mi
+                                            on:input=move |ev| { let mut a = get.get_untracked();
+                                                let v = event_target_value(&ev).parse::<u32>().ok();
+                                                match &mut a { Action::RepeatUntil { ref mut max_iterations, .. } | Action::RepeatWhile { ref mut max_iterations, .. } => *max_iterations = v, _ => {} }
+                                                set.run(a); } />
+                                        <TypedNestedActionList
+                                            get_actions=Signal::derive(move || match &get.get() { Action::RepeatUntil { actions, .. } | Action::RepeatWhile { actions, .. } => actions.clone(), _ => vec![] })
+                                            set_actions=Callback::new(move |acts: Vec<Action>| { let mut a = get.get_untracked();
+                                                match &mut a { Action::RepeatUntil { ref mut actions, .. } | Action::RepeatWhile { ref mut actions, .. } => *actions = acts, _ => {} }
+                                                set.run(a); })
+                                        />
+                                    }.into_any()
+                                },
+                                Action::PingHost { host, .. } => {
+                                    let h = host.clone();
+                                    view! {
+                                        <label class="field-label">"Host"</label>
+                                        <input type="text" class="hc-input" prop:value=h
+                                            on:input=move |ev| { let mut a = get.get_untracked(); if let Action::PingHost { ref mut host, .. } = a { *host = event_target_value(&ev); } set.run(a); } />
+                                        <div class="cond-branch cond-branch--if">
+                                            <span class="cond-branch-label">"Reachable"</span>
+                                            <TypedNestedActionList
+                                                get_actions=Signal::derive(move || match &get.get() { Action::PingHost { then_actions, .. } => then_actions.clone(), _ => vec![] })
+                                                set_actions=Callback::new(move |acts: Vec<Action>| { let mut a = get.get_untracked(); if let Action::PingHost { ref mut then_actions, .. } = a { *then_actions = acts; } set.run(a); })
+                                            />
+                                        </div>
+                                        <div class="cond-branch cond-branch--else">
+                                            <span class="cond-branch-label">"Unreachable"</span>
+                                            <TypedNestedActionList
+                                                get_actions=Signal::derive(move || match &get.get() { Action::PingHost { else_actions, .. } => else_actions.clone(), _ => vec![] })
+                                                set_actions=Callback::new(move |acts: Vec<Action>| { let mut a = get.get_untracked(); if let Action::PingHost { ref mut else_actions, .. } = a { *else_actions = acts; } set.run(a); })
+                                            />
+                                        </div>
+                                    }.into_any()
+                                },
+                                // Fallback: JSON editor
+                                _ => {
+                                    let json_str = serde_json::to_string_pretty(&a).unwrap_or_default();
+                                    view! {
+                                        <textarea class="hc-textarea hc-textarea--code" rows="6" prop:value=json_str
+                                            on:input=move |ev| {
+                                                if let Ok(parsed) = serde_json::from_str::<Action>(&event_target_value(&ev)) { set.run(parsed); }
+                                            } />
+                                    }.into_any()
+                                },
+                            }}
+                        </div>
+                    }.into_any()
+                },
+            }
+        }}
+    }
+}
+
+/// Renders a nested list of plain `Action`s (not `RuleAction` — no enabled toggle).
+/// Used inside Parallel, Conditional, RepeatUntil, etc.
+#[component]
+fn TypedNestedActionList(
+    get_actions: Signal<Vec<Action>>,
+    set_actions: Callback<Vec<Action>>,
+) -> impl IntoView {
+    view! {
+        <div class="nested-action-list">
+            {move || {
+                let actions = get_actions.get();
+                if actions.is_empty() {
+                    view! { <p class="msg-muted" style="font-size:0.78rem">"No actions."</p> }.into_any()
+                } else {
+                    let total = actions.len();
+                    actions.into_iter().enumerate().map(|(i, _)| {
+                        view! {
+                            <div class="json-row nested-action-row">
+                                <div class="json-row-controls">
+                                    <span class="json-row-index">{i + 1}</span>
+                                    <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
+                                        on:click=move |_| {
+                                            let mut acts = get_actions.get_untracked();
+                                            acts.remove(i);
+                                            set_actions.run(acts);
+                                        }
+                                    ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                </div>
+                                <TypedActionEditor
+                                    get=Signal::derive(move || get_actions.get().get(i).cloned().unwrap_or_else(|| default_action_typed("log_message")))
+                                    set=Callback::new(move |a: Action| {
+                                        let mut acts = get_actions.get_untracked();
+                                        if i < acts.len() { acts[i] = a; }
+                                        set_actions.run(acts);
+                                    })
+                                />
+                            </div>
+                        }
+                    }).collect_view().into_any()
+                }
+            }}
+            <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin-top:0.25rem"
+                on:click=move |_| {
+                    let mut acts = get_actions.get_untracked();
+                    acts.push(default_action_typed("log_message"));
+                    set_actions.run(acts);
+                }
+            >"+ Add action"</button>
+        </div>
+    }
+}
+
+// ── Legacy ActionEditor (still referenced by ItemList for bridge) ────────────
+// TODO: Remove along with ItemList, NestedItemList, NestedElseIfActions once
+// all callers migrated.
 
 /// Map action type to category key for the category selector.
 fn action_category(t: &str) -> &'static str {

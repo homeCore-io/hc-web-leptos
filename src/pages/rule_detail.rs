@@ -89,6 +89,10 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
     let auth    = use_auth();
     let is_new  = id.is_none();
     let rule: RwSignal<Rule> = RwSignal::new(default_rule());
+    let saved_rule: RwSignal<Option<Rule>> = RwSignal::new(None);
+    let is_dirty = Memo::new(move |_| {
+        saved_rule.get().map_or(false, |s| s != rule.get())
+    });
     let loading = RwSignal::new(!is_new);
     let saving  = RwSignal::new(false);
     let save_err: RwSignal<Option<String>> = RwSignal::new(None);
@@ -145,6 +149,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
             spawn_local(async move {
                 match fetch_rule(&token, &rule_id).await {
                     Ok(r) => {
+                        saved_rule.set(Some(r.clone()));
                         rule.set(r);
                         loading.set(false);
                     }
@@ -152,6 +157,26 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                 }
             });
         }
+    });
+
+    // ── Unsaved changes: beforeunload warning ─────────────────────────────────
+    Effect::new(move |_| {
+        use wasm_bindgen::prelude::*;
+        let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |ev: web_sys::Event| {
+            if is_dirty.get_untracked() {
+                ev.prevent_default();
+            }
+        });
+        if let Some(window) = web_sys::window() {
+            let _ = window.add_event_listener_with_callback("beforeunload", cb.as_ref().unchecked_ref());
+        }
+        let cb_ref = cb.as_ref().unchecked_ref::<js_sys::Function>().clone();
+        cb.forget();
+        on_cleanup(move || {
+            if let Some(window) = web_sys::window() {
+                let _ = window.remove_event_listener_with_callback("beforeunload", &cb_ref);
+            }
+        });
     });
 
     // ── Tag commit ───────────────────────────────────────────────────────────
@@ -182,6 +207,9 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                     }
                     <h2 style="flex:1; margin:0; font-size:1.1rem">
                         {if is_new { "New Rule" } else { "Edit Rule" }}
+                        {move || is_dirty.get().then(|| view! {
+                            <span class="unsaved-badge">" (unsaved)"</span>
+                        })}
                     </h2>
                 </div>
             </div>
@@ -234,6 +262,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                             let new_id = saved.id.to_string();
                                                             if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                         } else {
+                                                            saved_rule.set(Some(saved.clone()));
                                                             rule.set(saved);
                                                             save_ok.set(true);
                                                             spawn_local(async move {

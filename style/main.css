@@ -2575,6 +2575,12 @@ a.cell-link:hover { text-decoration: underline; }
 .save-ok-banner {
   animation: fade-in-out 3s ease-in-out;
 }
+.unsaved-badge {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--hc-warning);
+  vertical-align: middle;
+}
 @keyframes fade-in-out {
   0% { opacity: 0; }
   10% { opacity: 1; }

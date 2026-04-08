@@ -20,6 +20,7 @@ serde_json  = "1"
 # Shared types with core
 hc-types = { path = "../../core/crates/hc-types", features = ["wasm"] }
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
+uuid   = { version = "1", features = ["v4", "serde", "js"] }
 
 # WASM
 wasm-bindgen = "0.2"

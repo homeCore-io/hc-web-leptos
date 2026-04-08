@@ -1,9 +1,11 @@
 //! Rule editor pages — create a new rule or edit an existing one.
 //!
 //! Architecture:
-//!   One `RwSignal<Value>` holds the complete rule JSON.  Every editor component
-//!   reads fields via `rule.get()["path"]` and writes via `rule.update(|v| ...)`.
-//!   No inter-signal synchronisation, no nested signal materialisation.
+//!   One `RwSignal<Rule>` holds the complete typed rule.  The metadata section
+//!   (name, enabled, priority, tags, etc.) uses typed field access directly.
+//!
+//!   Sub-editors (trigger, conditions, actions) still use `RwSignal<Value>`
+//!   via a bridge layer and will be converted to typed signals incrementally.
 //!
 //!   Reference data (devices, areas, scenes, modes) is fetched once on page load
 //!   and provided as read-only signals for searchable dropdowns.
@@ -16,30 +18,39 @@ use crate::auth::use_auth;
 use crate::models::{
     is_media_player, is_scene_like, is_timer_device,
     media_available_favorites, media_available_playlists,
-    Area, DeviceState, ModeRecord, Scene,
+    Area, DeviceState, ModeRecord, Rule, RunMode, Scene,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::{use_navigate, use_params_map};
 use serde_json::{json, Value};
+use uuid::Uuid;
 
-// ── Default JSON skeletons ───────────────────────────────────────────────────
+// ── Defaults ─────────────────────────────────────────────────────────────────
 
-fn default_rule() -> Value {
-    json!({
-        "name": "",
-        "enabled": true,
-        "priority": 0,
-        "tags": [],
-        "trigger": {"type": "manual_trigger"},
-        "conditions": [],
-        "actions": [],
-        "run_mode": {"type": "parallel"},
-        "log_events": false,
-        "log_triggers": false,
-        "log_actions": false,
-        "cancel_on_false": false,
-    })
+fn default_rule() -> Rule {
+    use hc_types::rule::Trigger;
+    Rule {
+        id: Uuid::nil(),
+        name: String::new(),
+        enabled: true,
+        priority: 0,
+        tags: vec![],
+        trigger: Trigger::ManualTrigger,
+        conditions: vec![],
+        actions: vec![],
+        error: None,
+        cooldown_secs: None,
+        log_events: false,
+        log_triggers: false,
+        log_actions: false,
+        required_expression: None,
+        cancel_on_false: false,
+        trigger_condition: None,
+        variables: Default::default(),
+        trigger_label: None,
+        run_mode: RunMode::Parallel,
+    }
 }
 
 fn default_trigger(t: &str) -> Value {
@@ -123,19 +134,30 @@ fn default_action(t: &str) -> Value {
     base
 }
 
-// ── Value ↔ Rule conversion helpers (temporary, until editor uses typed signals)
-// These bridge the gap between the Value-based editor and the typed API.
+// ── Bridge: merge typed metadata with sub-editor Value data for save ────────
 
-fn value_to_rule(v: &Value) -> Result<crate::models::Rule, String> {
-    serde_json::from_value(v.clone()).map_err(|e| format!("Invalid rule data: {e}"))
-}
-
-fn rule_to_value(r: &crate::models::Rule) -> Value {
-    serde_json::to_value(r).unwrap_or_default()
+/// Build a Rule for saving by taking metadata from the typed signal and
+/// trigger/conditions/actions from the Value-based sub-editor signal.
+fn build_save_rule(rule: RwSignal<Rule>, rule_json: RwSignal<Value>) -> Rule {
+    let mut r = rule.get_untracked();
+    // The sub-editors (trigger, conditions, actions) write to rule_json.
+    // Merge those back into the typed Rule.
+    let json = rule_json.get_untracked();
+    if !json.is_null() {
+        // Deserialize sub-fields from the JSON bridge.
+        if let Ok(bridge) = serde_json::from_value::<Rule>(json) {
+            r.trigger = bridge.trigger;
+            r.conditions = bridge.conditions;
+            r.actions = bridge.actions;
+        }
+    }
+    r
 }
 
 // ── JSON field helpers ───────────────────────────────────────────────────────
 // These operate on a RwSignal<Value> at any path depth.
+// Used by sub-editors (trigger, condition, action) that still work with Value.
+// Will be removed as each sub-editor is converted to typed signals.
 
 fn jset(sig: RwSignal<Value>, path: &[&str], val: Value) {
     sig.update(|root| {
@@ -204,7 +226,12 @@ pub fn EditRulePage() -> impl IntoView {
 fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
     let auth    = use_auth();
     let is_new  = id.is_none();
-    let rule: RwSignal<Value> = RwSignal::new(default_rule());
+    let rule: RwSignal<Rule> = RwSignal::new(default_rule());
+    // Bridge signal for sub-editors still using Value (trigger, conditions, actions).
+    // Synced from `rule` on load; written back on save.
+    let rule_json: RwSignal<Value> = RwSignal::new(
+        serde_json::to_value(&default_rule()).unwrap_or_default()
+    );
     let loading = RwSignal::new(!is_new);
     let saving  = RwSignal::new(false);
     let save_err: RwSignal<Option<String>> = RwSignal::new(None);
@@ -261,10 +288,8 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
             spawn_local(async move {
                 match fetch_rule(&token, &rule_id).await {
                     Ok(r) => {
-                        // Convert Rule → Value for the legacy editor (will be removed
-                        // when the editor is rewritten with typed signals).
-                        let v = serde_json::to_value(&r).unwrap_or_default();
-                        rule.set(v);
+                        rule_json.set(serde_json::to_value(&r).unwrap_or_default());
+                        rule.set(r);
                         loading.set(false);
                     }
                     Err(e) => { save_err.set(Some(format!("Load failed: {e}"))); loading.set(false); }
@@ -277,9 +302,8 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
     let commit_tag = move || {
         let raw = tag_input.get_untracked().trim().to_string();
         if raw.is_empty() { return; }
-        rule.update(|v| {
-            let arr = v["tags"].as_array_mut().expect("tags is array");
-            if !arr.iter().any(|t| t.as_str() == Some(&raw)) { arr.push(json!(raw)); }
+        rule.update(|r| {
+            if !r.tags.contains(&raw) { r.tags.push(raw); }
         });
         tag_input.set(String::new());
     };
@@ -323,8 +347,11 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                 <section class="detail-card">
                     <div class="rule-header-row">
                         <input type="text" class="hc-input rule-name-input" placeholder="Rule name"
-                            prop:value=move || jget_str(&rule.get(), "name")
-                            on:input=move |ev| jset(rule, &["name"], json!(event_target_value(&ev)))
+                            prop:value=move || rule.get().name.clone()
+                            on:input=move |ev| {
+                                let v = event_target_value(&ev);
+                                rule.update(|r| r.name = v);
+                            }
                         />
                         <div class="rule-header-actions">
                             {
@@ -337,26 +364,22 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                         disabled=move || saving.get()
                                         on:click=move |_| {
                                             let token = match auth.token.get_untracked() { Some(t) => t, None => return };
-                                            let body = rule.get_untracked();
-                                            let name = body["name"].as_str().unwrap_or("");
-                                            if name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
-                                            let typed = match value_to_rule(&body) {
-                                                Ok(r) => r,
-                                                Err(e) => { save_err.set(Some(e)); return; }
-                                            };
+                                            let typed = build_save_rule(rule, rule_json);
+                                            if typed.name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
                                             save_err.set(None); save_ok.set(false); saving.set(true);
                                             let nav = nav_save_top.clone();
-                                            let rule_id = id.map(|s| s.get_untracked()).unwrap_or_default();
+                                            let rule_id_str = id.map(|s| s.get_untracked()).unwrap_or_default();
                                             spawn_local(async move {
-                                                let result = if rule_id.is_empty() { create_rule(&token, &typed).await }
-                                                             else { update_rule(&token, &rule_id, &typed).await };
+                                                let result = if rule_id_str.is_empty() { create_rule(&token, &typed).await }
+                                                             else { update_rule(&token, &rule_id_str, &typed).await };
                                                 match result {
                                                     Ok(saved) => {
-                                                        if rule_id.is_empty() {
+                                                        if rule_id_str.is_empty() {
                                                             let new_id = saved.id.to_string();
                                                             if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                         } else {
-                                                            rule.set(rule_to_value(&saved));
+                                                            rule_json.set(serde_json::to_value(&saved).unwrap_or_default());
+                                                            rule.set(saved);
                                                             save_ok.set(true);
                                                             spawn_local(async move {
                                                                 gloo_timers::future::TimeoutFuture::new(3000).await;
@@ -425,14 +448,24 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                     </div>
 
                     <div class="rule-meta-row">
-                        <CheckboxField label="Enabled" sig=rule key="enabled" />
+                        <label class="rule-meta-inline">
+                            <input type="checkbox"
+                                prop:checked=move || rule.get().enabled
+                                on:change=move |ev| {
+                                    use wasm_bindgen::JsCast;
+                                    let checked = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()).map(|el| el.checked()).unwrap_or(true);
+                                    rule.update(|r| r.enabled = checked);
+                                }
+                            />
+                            " Enabled"
+                        </label>
 
                         <label class="field-label" style="margin:0">"Priority"</label>
                         <input type="number" class="hc-input hc-input--sm" style="width:5rem"
-                            prop:value=move || rule.get()["priority"].as_i64().unwrap_or(0).to_string()
+                            prop:value=move || rule.get().priority.to_string()
                             on:input=move |ev| {
-                                if let Ok(n) = event_target_value(&ev).parse::<i64>() {
-                                    jset(rule, &["priority"], json!(n));
+                                if let Ok(n) = event_target_value(&ev).parse::<i32>() {
+                                    rule.update(|r| r.priority = n);
                                 }
                             }
                         />
@@ -442,15 +475,14 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                     <label class="field-label">"Tags"</label>
                     <div class="tag-input-row">
                         {move || {
-                            let tags = rule.get()["tags"].as_array().cloned().unwrap_or_default();
+                            let tags = rule.get().tags.clone();
                             tags.into_iter().enumerate().map(|(i, tag)| {
-                                let label = tag.as_str().unwrap_or("").to_string();
                                 view! {
                                     <span class="tag-chip">
-                                        {label}
+                                        {tag}
                                         <button class="tag-chip-remove"
-                                            on:click=move |_| rule.update(|v| {
-                                                if let Some(arr) = v["tags"].as_array_mut() { arr.remove(i); }
+                                            on:click=move |_| rule.update(|r| {
+                                                if i < r.tags.len() { r.tags.remove(i); }
                                             })
                                         >"×"</button>
                                     </span>
@@ -477,29 +509,36 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                         on:change=move |ev| {
                             let t = event_target_value(&ev);
                             let rm = match t.as_str() {
-                                "single"  => json!({"type":"single"}),
-                                "restart" => json!({"type":"restart"}),
-                                "queued"  => json!({"type":"queued","max_queue":10}),
-                                _         => json!({"type":"parallel"}),
+                                "single"  => RunMode::Single,
+                                "restart" => RunMode::Restart,
+                                "queued"  => RunMode::Queued { max_queue: 10 },
+                                _         => RunMode::Parallel,
                             };
-                            jset(rule, &["run_mode"], rm);
+                            rule.update(|r| r.run_mode = rm);
                         }
                     >
                         {[("parallel","Parallel (default)"),("single","Single — skip if running"),("restart","Restart — cancel and restart"),("queued","Queued")]
                             .map(|(v, label)| view! {
-                                <option value=v selected=move || rule.get()["run_mode"]["type"].as_str().unwrap_or("parallel") == v>{label}</option>
+                                <option value=v selected=move || {
+                                    let current = match &rule.get().run_mode {
+                                        RunMode::Parallel => "parallel",
+                                        RunMode::Single => "single",
+                                        RunMode::Restart => "restart",
+                                        RunMode::Queued { .. } => "queued",
+                                    };
+                                    current == v
+                                }>{label}</option>
                             }).collect_view()}
                     </select>
 
                     // ── Cooldown ─────────────────────────────────────────────
                     <label class="field-label">"Cooldown (seconds)"</label>
                     <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="None"
-                        prop:value=move || jget_u64_str(&rule.get(), "cooldown_secs")
+                        prop:value=move || rule.get().cooldown_secs.map(|n| n.to_string()).unwrap_or_default()
                         on:input=move |ev| {
                             let raw = event_target_value(&ev);
-                            rule.update(|v| {
-                                if raw.trim().is_empty() { if let Some(o) = v.as_object_mut() { o.remove("cooldown_secs"); } }
-                                else if let Ok(n) = raw.trim().parse::<u64>() { v["cooldown_secs"] = json!(n); }
+                            rule.update(|r| {
+                                r.cooldown_secs = raw.trim().parse::<u64>().ok();
                             });
                         }
                     />
@@ -508,7 +547,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                 // ── Trigger ──────────────────────────────────────────────────
                 <section class="detail-card">
                     <h3 class="detail-card-title">"Trigger"</h3>
-                    <TriggerEditor rule=rule />
+                    <TriggerEditor rule=rule_json />
                 </section>
 
                 // ── Conditions ───────────────────────────────────────────────
@@ -516,13 +555,13 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                     <div class="rule-section-header">
                         <h3 class="detail-card-title">"Conditions"</h3>
                         <button class="hc-btn hc-btn--sm hc-btn--outline"
-                            on:click=move |_| rule.update(|v| {
+                            on:click=move |_| rule_json.update(|v| {
                                 let arr = v["conditions"].as_array_mut().expect("conditions array");
                                 arr.push(default_condition("device_state"));
                             })
                         >"+ Add"</button>
                     </div>
-                    <ItemList rule=rule key="conditions" item_kind="condition" />
+                    <ItemList rule=rule_json key="conditions" item_kind="condition" />
                 </section>
 
                 // ── Actions ──────────────────────────────────────────────────
@@ -530,13 +569,13 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                     <div class="rule-section-header">
                         <h3 class="detail-card-title">"Actions"</h3>
                         <button class="hc-btn hc-btn--sm hc-btn--outline"
-                            on:click=move |_| rule.update(|v| {
+                            on:click=move |_| rule_json.update(|v| {
                                 let arr = v["actions"].as_array_mut().expect("actions array");
                                 arr.push(default_action("log_message"));
                             })
                         >"+ Add"</button>
                     </div>
-                    <ItemList rule=rule key="actions" item_kind="action" />
+                    <ItemList rule=rule_json key="actions" item_kind="action" />
                 </section>
 
                 // ── Advanced (collapsible) ───────────────────────────────────
@@ -551,49 +590,74 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                         <div class="rule-advanced-body">
                             <label class="field-label">"Trigger label"</label>
                             <input type="text" class="hc-input" placeholder="e.g. motion_hallway"
-                                prop:value=move || jget_opt_str(&rule.get(), "trigger_label")
-                                on:input=move |ev| jset_opt(rule, &["trigger_label"], &event_target_value(&ev))
+                                prop:value=move || rule.get().trigger_label.clone().unwrap_or_default()
+                                on:input=move |ev| {
+                                    let raw = event_target_value(&ev);
+                                    rule.update(|r| r.trigger_label = if raw.trim().is_empty() { None } else { Some(raw) });
+                                }
                             />
 
                             <label class="field-label">"Required expression (Rhai)"</label>
                             <textarea class="hc-textarea hc-textarea--code" rows="3"
                                 placeholder=r#"e.g. mode_is("mode_night")"#
-                                prop:value=move || jget_opt_str(&rule.get(), "required_expression")
-                                on:input=move |ev| jset_opt(rule, &["required_expression"], &event_target_value(&ev))
+                                prop:value=move || rule.get().required_expression.clone().unwrap_or_default()
+                                on:input=move |ev| {
+                                    let raw = event_target_value(&ev);
+                                    rule.update(|r| r.required_expression = if raw.trim().is_empty() { None } else { Some(raw) });
+                                }
                             />
 
-                            <CheckboxField label="Cancel pending delays when required expression is false" sig=rule key="cancel_on_false" />
+                            <label class="rule-meta-inline">
+                                <input type="checkbox"
+                                    prop:checked=move || rule.get().cancel_on_false
+                                    on:change=move |ev| {
+                                        use wasm_bindgen::JsCast;
+                                        let checked = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()).map(|el| el.checked()).unwrap_or(false);
+                                        rule.update(|r| r.cancel_on_false = checked);
+                                    }
+                                />
+                                " Cancel pending delays when required expression is false"
+                            </label>
 
                             <label class="field-label">"Trigger condition (Rhai)"</label>
                             <textarea class="hc-textarea hc-textarea--code" rows="3"
                                 placeholder="Per-event condition expression"
-                                prop:value=move || jget_opt_str(&rule.get(), "trigger_condition")
-                                on:input=move |ev| jset_opt(rule, &["trigger_condition"], &event_target_value(&ev))
+                                prop:value=move || rule.get().trigger_condition.clone().unwrap_or_default()
+                                on:input=move |ev| {
+                                    let raw = event_target_value(&ev);
+                                    rule.update(|r| r.trigger_condition = if raw.trim().is_empty() { None } else { Some(raw) });
+                                }
                             />
 
                             <label class="field-label">"Variables (JSON object)"</label>
                             <textarea class="hc-textarea hc-textarea--code" rows="4"
                                 prop:value=move || {
-                                    let v = &rule.get()["variables"];
-                                    if v.is_null() || v.as_object().map(|m| m.is_empty()).unwrap_or(true) {
+                                    let vars = &rule.get().variables;
+                                    if vars.is_empty() {
                                         "{}".to_string()
                                     } else {
-                                        serde_json::to_string_pretty(v).unwrap_or_default()
+                                        serde_json::to_string_pretty(vars).unwrap_or_default()
                                     }
                                 }
                                 on:input=move |ev| {
                                     let raw = event_target_value(&ev);
-                                    if let Ok(parsed) = serde_json::from_str::<Value>(&raw) {
-                                        jset(rule, &["variables"], parsed);
+                                    if let Ok(parsed) = serde_json::from_str::<std::collections::HashMap<String, Value>>(&raw) {
+                                        rule.update(|r| r.variables = parsed);
                                     }
                                 }
                             />
 
                             <div class="rule-logging-row">
                                 <span class="field-label" style="margin:0">"Logging:"</span>
-                                <CheckboxField label="Events"   sig=rule key="log_events" />
-                                <CheckboxField label="Triggers" sig=rule key="log_triggers" />
-                                <CheckboxField label="Actions"  sig=rule key="log_actions" />
+                                <TypedCheckbox label="Events"
+                                    checked=Signal::derive(move || rule.get().log_events)
+                                    on_change=move |v| rule.update(|r| r.log_events = v) />
+                                <TypedCheckbox label="Triggers"
+                                    checked=Signal::derive(move || rule.get().log_triggers)
+                                    on_change=move |v| rule.update(|r| r.log_triggers = v) />
+                                <TypedCheckbox label="Actions"
+                                    checked=Signal::derive(move || rule.get().log_actions)
+                                    on_change=move |v| rule.update(|r| r.log_actions = v) />
                             </div>
                         </div>
                     </Show>
@@ -613,26 +677,22 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                 disabled=move || saving.get()
                                 on:click=move |_| {
                                     let token = match auth.token.get_untracked() { Some(t) => t, None => return };
-                                    let body = rule.get_untracked();
-                                    let name = body["name"].as_str().unwrap_or("");
-                                    if name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
-                                    let typed = match value_to_rule(&body) {
-                                        Ok(r) => r,
-                                        Err(e) => { save_err.set(Some(e)); return; }
-                                    };
+                                    let typed = build_save_rule(rule, rule_json);
+                                    if typed.name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
                                     save_err.set(None); save_ok.set(false); saving.set(true);
                                     let nav = nav_save.clone();
-                                    let rule_id = id.map(|s| s.get_untracked()).unwrap_or_default();
+                                    let rule_id_str = id.map(|s| s.get_untracked()).unwrap_or_default();
                                     spawn_local(async move {
-                                        let result = if rule_id.is_empty() { create_rule(&token, &typed).await }
-                                                     else { update_rule(&token, &rule_id, &typed).await };
+                                        let result = if rule_id_str.is_empty() { create_rule(&token, &typed).await }
+                                                     else { update_rule(&token, &rule_id_str, &typed).await };
                                         match result {
                                             Ok(saved) => {
-                                                if rule_id.is_empty() {
+                                                if rule_id_str.is_empty() {
                                                     let new_id = saved.id.to_string();
                                                     if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                 } else {
-                                                    rule.set(rule_to_value(&saved));
+                                                    rule_json.set(serde_json::to_value(&saved).unwrap_or_default());
+                                                    rule.set(saved);
                                                     save_ok.set(true);
                                                     spawn_local(async move {
                                                         gloo_timers::future::TimeoutFuture::new(3000).await;
@@ -3136,6 +3196,32 @@ fn NestedElseIfActions(
     }
 }
 
+/// Typed checkbox — takes a getter and setter instead of Value path.
+#[component]
+fn TypedCheckbox(
+    label: &'static str,
+    checked: Signal<bool>,
+    on_change: impl Fn(bool) + 'static,
+) -> impl IntoView {
+    view! {
+        <label class="rule-meta-inline">
+            <input type="checkbox"
+                prop:checked=move || checked.get()
+                on:change=move |ev| {
+                    use wasm_bindgen::JsCast;
+                    let val = ev.target()
+                        .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                        .map(|el| el.checked())
+                        .unwrap_or(false);
+                    on_change(val);
+                }
+            />
+            " "{label}
+        </label>
+    }
+}
+
+/// Legacy checkbox for Value-based sub-editors (trigger, condition, action).
 #[component]
 fn CheckboxField(label: &'static str, sig: RwSignal<Value>, key: &'static str) -> impl IntoView {
     view! {

@@ -3130,14 +3130,14 @@ a.cell-link:hover { text-decoration: underline; }
   font-size: 0.9rem; margin-bottom: 0.5rem;
 }
 .test-overall--pass { background: var(--hc-success-soft); color: var(--hc-success); }
-.test-overall--fail { background: #fce4e4; color: var(--hc-danger); }
+.test-overall--fail { background: var(--hc-danger-soft); color: var(--hc-danger); }
 .test-conditions { display: flex; flex-direction: column; gap: 0.3rem; }
 .test-badge {
   display: flex; align-items: center; gap: 0.35rem;
   padding: 0.3rem 0.6rem; border-radius: 0.3rem; font-size: 0.82rem;
 }
 .test-badge--pass { background: var(--hc-success-soft); }
-.test-badge--fail { background: #fce4e4; }
+.test-badge--fail { background: var(--hc-danger-soft); }
 .test-badge--pass .material-icons { color: var(--hc-success); }
 .test-badge--fail .material-icons { color: var(--hc-danger); }
 .test-badge-label { font-weight: 500; }
@@ -3158,7 +3158,7 @@ a.cell-link:hover { text-decoration: underline; }
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 .toast--success { background: var(--hc-success-soft); border: 1px solid var(--hc-success); color: var(--hc-text); }
-.toast--error   { background: #fce4e4; border: 1px solid var(--hc-danger); color: var(--hc-text); }
+.toast--error   { background: var(--hc-danger-soft); border: 1px solid var(--hc-danger); color: var(--hc-text); }
 .toast--warning { background: var(--hc-warning-soft, #fff3cd); border: 1px solid var(--hc-warning); color: var(--hc-text); }
 .toast-icon { font-size: 18px; }
 .toast--success .toast-icon { color: var(--hc-success); }

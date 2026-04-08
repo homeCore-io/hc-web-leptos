@@ -140,8 +140,8 @@ fn default_action(t: &str) -> Value {
 
 // ── Bridge: merge typed metadata with sub-editor Value data for save ────────
 
-/// Build a Rule for saving. All fields are now on the typed signal directly.
-fn build_save_rule(rule: RwSignal<Rule>, _rule_json: RwSignal<Value>) -> Rule {
+/// Build a Rule for saving.
+fn build_save_rule(rule: RwSignal<Rule>) -> Rule {
     rule.get_untracked()
 }
 
@@ -218,11 +218,6 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
     let auth    = use_auth();
     let is_new  = id.is_none();
     let rule: RwSignal<Rule> = RwSignal::new(default_rule());
-    // Bridge signal for sub-editors still using Value (trigger, conditions, actions).
-    // Synced from `rule` on load; written back on save.
-    let rule_json: RwSignal<Value> = RwSignal::new(
-        serde_json::to_value(&default_rule()).unwrap_or_default()
-    );
     let loading = RwSignal::new(!is_new);
     let saving  = RwSignal::new(false);
     let save_err: RwSignal<Option<String>> = RwSignal::new(None);
@@ -279,7 +274,6 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
             spawn_local(async move {
                 match fetch_rule(&token, &rule_id).await {
                     Ok(r) => {
-                        rule_json.set(serde_json::to_value(&r).unwrap_or_default());
                         rule.set(r);
                         loading.set(false);
                     }
@@ -355,7 +349,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                         disabled=move || saving.get()
                                         on:click=move |_| {
                                             let token = match auth.token.get_untracked() { Some(t) => t, None => return };
-                                            let typed = build_save_rule(rule, rule_json);
+                                            let typed = build_save_rule(rule);
                                             if typed.name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
                                             save_err.set(None); save_ok.set(false); saving.set(true);
                                             let nav = nav_save_top.clone();
@@ -369,7 +363,6 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                             let new_id = saved.id.to_string();
                                                             if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                         } else {
-                                                            rule_json.set(serde_json::to_value(&saved).unwrap_or_default());
                                                             rule.set(saved);
                                                             save_ok.set(true);
                                                             spawn_local(async move {
@@ -669,7 +662,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                 disabled=move || saving.get()
                                 on:click=move |_| {
                                     let token = match auth.token.get_untracked() { Some(t) => t, None => return };
-                                    let typed = build_save_rule(rule, rule_json);
+                                    let typed = build_save_rule(rule);
                                     if typed.name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
                                     save_err.set(None); save_ok.set(false); saving.set(true);
                                     let nav = nav_save.clone();
@@ -683,7 +676,6 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                     let new_id = saved.id.to_string();
                                                     if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                 } else {
-                                                    rule_json.set(serde_json::to_value(&saved).unwrap_or_default());
                                                     rule.set(saved);
                                                     save_ok.set(true);
                                                     spawn_local(async move {

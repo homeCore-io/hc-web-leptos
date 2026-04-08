@@ -23,6 +23,7 @@ use crate::models::{
 };
 use hc_types::rule::{
     Action, ButtonEventType, CompareOp, Condition, LogLevel, ModeCommand,
+    ModeDelayEntry, ModeSceneEntry, ModeStateEntry,
     PeriodicUnit, RuleAction, SunEventType, ThresholdOp,
 };
 use leptos::prelude::*;
@@ -2199,7 +2200,9 @@ fn TypedActionEditor(
                                   ("stop_rule_chain","Stop rule chain"),("exit_rule","Exit rule"),
                                   ("parallel","Parallel"),("repeat_count","Repeat N times"),
                                   ("repeat_until","Repeat until"),("repeat_while","Repeat while"),
-                                  ("ping_host","Ping host")]
+                                  ("ping_host","Ping host"),
+                                  ("set_device_state_per_mode","Device per mode"),("delay_per_mode","Delay per mode"),
+                                  ("activate_scene_per_mode","Scene per mode")]
                                     .map(|(v,l)| view! { <option value=v selected=vk==v>{l}</option> }).collect_view()}
                             </select>
                             {match &a {
@@ -2397,6 +2400,172 @@ fn TypedActionEditor(
                                         </div>
                                     }.into_any()
                                 },
+                                Action::SetDeviceStatePerMode { device_id, modes, default_state } => {
+                                    let did = device_id.clone();
+                                    let mode_count = modes.len();
+                                    let def_str = default_state.as_ref().map(|v| serde_json::to_string_pretty(v).unwrap_or_default()).unwrap_or_default();
+                                    view! {
+                                        <label class="field-label">"Device"</label>
+                                        <DeviceSelect value=did on_select=Callback::new(move |id: String| {
+                                            let mut a = get.get_untracked(); if let Action::SetDeviceStatePerMode { ref mut device_id, .. } = a { *device_id = id; } set.run(a);
+                                        }) />
+                                        <label class="field-label">"Modes"</label>
+                                        {(0..mode_count).map(|mi| {
+                                            let mode_id = modes[mi].mode.clone();
+                                            let state_str = serde_json::to_string_pretty(&modes[mi].state).unwrap_or_default();
+                                            view! {
+                                                <div class="json-row">
+                                                    <div class="json-row-controls">
+                                                        <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
+                                                            on:click=move |_| { let mut a = get.get_untracked();
+                                                                if let Action::SetDeviceStatePerMode { ref mut modes, .. } = a { if mi < modes.len() { modes.remove(mi); } } set.run(a);
+                                                            }
+                                                        ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                                    </div>
+                                                    <ModeSelect value=mode_id on_select=Callback::new(move |id: String| {
+                                                        let mut a = get.get_untracked();
+                                                        if let Action::SetDeviceStatePerMode { ref mut modes, .. } = a { if let Some(m) = modes.get_mut(mi) { m.mode = id; } } set.run(a);
+                                                    }) />
+                                                    <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=state_str
+                                                        on:input=move |ev| { if let Ok(v) = serde_json::from_str::<Value>(&event_target_value(&ev)) {
+                                                            let mut a = get.get_untracked();
+                                                            if let Action::SetDeviceStatePerMode { ref mut modes, .. } = a { if let Some(m) = modes.get_mut(mi) { m.state = v; } } set.run(a);
+                                                        }} />
+                                                </div>
+                                            }
+                                        }).collect_view()}
+                                        <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin-top:0.25rem"
+                                            on:click=move |_| { let mut a = get.get_untracked();
+                                                if let Action::SetDeviceStatePerMode { ref mut modes, .. } = a { modes.push(ModeStateEntry { mode: String::new(), state: json!({}) }); } set.run(a);
+                                            }
+                                        >"+ Add mode"</button>
+                                        <label class="field-label">"Default state (JSON, blank = none)"</label>
+                                        <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=def_str
+                                            on:input=move |ev| { let raw = event_target_value(&ev);
+                                                let mut a = get.get_untracked();
+                                                if let Action::SetDeviceStatePerMode { ref mut default_state, .. } = a {
+                                                    *default_state = if raw.trim().is_empty() { None } else { serde_json::from_str(&raw).ok() };
+                                                } set.run(a);
+                                            } />
+                                    }.into_any()
+                                },
+
+                                Action::DelayPerMode { modes, default_secs } => {
+                                    let mode_count = modes.len();
+                                    let def = default_secs.map(|n| n.to_string()).unwrap_or_default();
+                                    view! {
+                                        <label class="field-label">"Modes"</label>
+                                        {(0..mode_count).map(|mi| {
+                                            let mode_id = modes[mi].mode.clone();
+                                            let dur = modes[mi].duration_secs;
+                                            view! {
+                                                <div class="json-row">
+                                                    <div class="json-row-controls">
+                                                        <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
+                                                            on:click=move |_| { let mut a = get.get_untracked();
+                                                                if let Action::DelayPerMode { ref mut modes, .. } = a { if mi < modes.len() { modes.remove(mi); } } set.run(a);
+                                                            }
+                                                        ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                                    </div>
+                                                    <div class="trigger-row-2">
+                                                        <ModeSelect value=mode_id on_select=Callback::new(move |id: String| {
+                                                            let mut a = get.get_untracked();
+                                                            if let Action::DelayPerMode { ref mut modes, .. } = a { if let Some(m) = modes.get_mut(mi) { m.mode = id; } } set.run(a);
+                                                        }) />
+                                                        <div>
+                                                            <label class="field-label">"Seconds"</label>
+                                                            <input type="number" class="hc-input hc-input--sm" prop:value=dur.to_string()
+                                                                on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u64>() {
+                                                                    let mut a = get.get_untracked();
+                                                                    if let Action::DelayPerMode { ref mut modes, .. } = a { if let Some(m) = modes.get_mut(mi) { m.duration_secs = n; } } set.run(a);
+                                                                }} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }).collect_view()}
+                                        <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin-top:0.25rem"
+                                            on:click=move |_| { let mut a = get.get_untracked();
+                                                if let Action::DelayPerMode { ref mut modes, .. } = a { modes.push(ModeDelayEntry { mode: String::new(), duration_secs: 60 }); } set.run(a);
+                                            }
+                                        >"+ Add mode"</button>
+                                        <label class="field-label">"Default (seconds, blank = skip)"</label>
+                                        <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="none" prop:value=def
+                                            on:input=move |ev| { let mut a = get.get_untracked();
+                                                if let Action::DelayPerMode { ref mut default_secs, .. } = a { *default_secs = event_target_value(&ev).parse::<u64>().ok(); } set.run(a);
+                                            } />
+                                    }.into_any()
+                                },
+
+                                Action::ActivateScenePerMode { modes, default_scene_id } => {
+                                    let scenes_ctx = use_context::<RwSignal<Vec<Scene>>>().unwrap_or(RwSignal::new(vec![]));
+                                    let mode_count = modes.len();
+                                    let def_id = default_scene_id.map(|id| id.to_string()).unwrap_or_default();
+                                    view! {
+                                        <label class="field-label">"Modes"</label>
+                                        {(0..mode_count).map(|mi| {
+                                            let mode_id = modes[mi].mode.clone();
+                                            let scene_id = modes[mi].scene_id.to_string();
+                                            view! {
+                                                <div class="json-row">
+                                                    <div class="json-row-controls">
+                                                        <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
+                                                            on:click=move |_| { let mut a = get.get_untracked();
+                                                                if let Action::ActivateScenePerMode { ref mut modes, .. } = a { if mi < modes.len() { modes.remove(mi); } } set.run(a);
+                                                            }
+                                                        ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                                    </div>
+                                                    <div class="trigger-row-2">
+                                                        <ModeSelect value=mode_id on_select=Callback::new(move |id: String| {
+                                                            let mut a = get.get_untracked();
+                                                            if let Action::ActivateScenePerMode { ref mut modes, .. } = a { if let Some(m) = modes.get_mut(mi) { m.mode = id; } } set.run(a);
+                                                        }) />
+                                                        <div>
+                                                            <label class="field-label">"Scene"</label>
+                                                            <select class="hc-select" on:change=move |ev| {
+                                                                if let Ok(uid) = event_target_value(&ev).parse::<Uuid>() {
+                                                                    let mut a = get.get_untracked();
+                                                                    if let Action::ActivateScenePerMode { ref mut modes, .. } = a { if let Some(m) = modes.get_mut(mi) { m.scene_id = uid; } } set.run(a);
+                                                                }
+                                                            }>
+                                                                <option value="" selected=scene_id.is_empty()>"— Select —"</option>
+                                                                {move || scenes_ctx.get().iter().map(|s| {
+                                                                    let sel = s.id == scene_id;
+                                                                    let sid = s.id.clone();
+                                                                    let sname = s.name.clone();
+                                                                    view! { <option value=sid selected=sel>{sname}</option> }
+                                                                }).collect_view()}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        }).collect_view()}
+                                        <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin-top:0.25rem"
+                                            on:click=move |_| { let mut a = get.get_untracked();
+                                                if let Action::ActivateScenePerMode { ref mut modes, .. } = a { modes.push(ModeSceneEntry { mode: String::new(), scene_id: Uuid::nil() }); } set.run(a);
+                                            }
+                                        >"+ Add mode"</button>
+                                        <label class="field-label">"Default scene (blank = none)"</label>
+                                        <select class="hc-select" on:change=move |ev| {
+                                            let raw = event_target_value(&ev);
+                                            let mut a = get.get_untracked();
+                                            if let Action::ActivateScenePerMode { ref mut default_scene_id, .. } = a {
+                                                *default_scene_id = if raw.is_empty() { None } else { raw.parse::<Uuid>().ok() };
+                                            }
+                                            set.run(a);
+                                        }>
+                                            <option value="" selected=def_id.is_empty()>"— None —"</option>
+                                            {move || scenes_ctx.get().iter().map(|s| {
+                                                let sel = s.id == def_id;
+                                                let sid = s.id.clone();
+                                                let sname = s.name.clone();
+                                                view! { <option value=sid selected=sel>{sname}</option> }
+                                            }).collect_view()}
+                                        </select>
+                                    }.into_any()
+                                },
+
                                 // Fallback: JSON editor
                                 _ => {
                                     let json_str = serde_json::to_string_pretty(&a).unwrap_or_default();

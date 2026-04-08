@@ -1,4 +1,7 @@
 //! HomeCore API client — thin wrappers over gloo-net HTTP requests.
+//!
+//! All request helpers detect HTTP 401 responses and trigger a session
+//! expiry logout via `handle_session_expiry()`.
 
 use crate::auth::API_BASE;
 use crate::models::{
@@ -9,12 +12,33 @@ use serde_json::Value;
 
 // ── Generic request helpers ───────────────────────────────────────────────────
 
+/// Clear the expired token so the auth guard redirects to login.
+/// Called when any API request returns 401.
+fn handle_session_expiry() {
+    // Try to get the auth context (available when called from a reactive scope).
+    if let Some(auth) = leptos::prelude::use_context::<crate::auth::AuthState>() {
+        auth.logout();
+    } else {
+        // Fallback: clear localStorage directly (auth signal won't update,
+        // but a page reload will redirect to login).
+        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+            let _ = storage.remove_item("hc-leptos:token");
+        }
+    }
+}
+
 /// Extract a meaningful error message from a non-ok response.
-/// Tries to read the JSON body for an `error` field; falls back to status text.
+/// On 401, triggers session expiry logout automatically.
 async fn api_error(resp: &gloo_net::http::Response) -> String {
     let status = resp.status();
+
+    // 401 = expired or invalid JWT → clear session
+    if status == 401 {
+        handle_session_expiry();
+        return "Session expired — please log in again".to_string();
+    }
+
     if let Ok(body) = resp.text().await {
-        // Try to extract {"error": "..."} from the response body
         if let Ok(json) = serde_json::from_str::<Value>(&body) {
             if let Some(msg) = json["error"].as_str() {
                 return format!("{status}: {msg}");

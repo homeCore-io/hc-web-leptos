@@ -115,20 +115,26 @@ fn HomeRedirect() -> impl IntoView {
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 //
-// Non-reactive: checks auth once at render time.
-// The Effect handles the redirect; the guard shows nothing until auth resolves.
+// Reactive: redirects to login when the token signal becomes None (logout or
+// session expiry detected by the API layer).
 
 #[component]
 fn AuthGuard(children: Children) -> impl IntoView {
     let auth = use_auth();
     let navigate = leptos_router::hooks::use_navigate();
 
+    // Redirect to login when token becomes None.
+    Effect::new(move |_| {
+        if auth.token.get().is_none() {
+            navigate("/login", Default::default());
+        }
+    });
+
+    // Render children only when authenticated.  If the token is cleared
+    // (logout or API 401 detection), the Effect above redirects to /login.
     if auth.is_authenticated() {
         view! { <NavShell>{children()}</NavShell> }.into_any()
     } else {
-        Effect::new(move |_| {
-            navigate("/login", Default::default());
-        });
         view! {}.into_any()
     }
 }

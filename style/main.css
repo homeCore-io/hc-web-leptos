@@ -3124,6 +3124,26 @@ a.cell-link:hover { text-decoration: underline; }
   cursor: not-allowed;
 }
 
+/* ── Test results ─────────────────────────────────────────────────── */
+.test-overall {
+  padding: 0.5rem 0.75rem; border-radius: 0.4rem; font-weight: 600;
+  font-size: 0.9rem; margin-bottom: 0.5rem;
+}
+.test-overall--pass { background: var(--hc-success-soft); color: var(--hc-success); }
+.test-overall--fail { background: #fce4e4; color: var(--hc-danger); }
+.test-conditions { display: flex; flex-direction: column; gap: 0.3rem; }
+.test-badge {
+  display: flex; align-items: center; gap: 0.35rem;
+  padding: 0.3rem 0.6rem; border-radius: 0.3rem; font-size: 0.82rem;
+}
+.test-badge--pass { background: var(--hc-success-soft); }
+.test-badge--fail { background: #fce4e4; }
+.test-badge--pass .material-icons { color: var(--hc-success); }
+.test-badge--fail .material-icons { color: var(--hc-danger); }
+.test-badge-label { font-weight: 500; }
+.test-badge-reason { color: var(--hc-text-muted); font-size: 0.78rem; }
+.test-badge-detail { color: var(--hc-text-muted); font-size: 0.75rem; }
+
 /* ── Toast notifications ──────────────────────────────────────────── */
 .toast-container {
   position: fixed; bottom: 1rem; right: 1rem; z-index: 9999;

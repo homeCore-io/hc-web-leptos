@@ -680,8 +680,52 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                         </p>
                         <ErrorBanner error=test_err />
                         {move || test_result.get().map(|r| {
+                            let would_fire = r["would_fire"].as_bool().unwrap_or(false);
+                            let conditions = r["conditions"].as_array().cloned().unwrap_or_default();
+                            let action_count = r["actions"].as_array().map(|a| a.len()).unwrap_or(0);
+                            let overall_class = if would_fire { "test-overall--pass" } else { "test-overall--fail" };
+                            let overall_text = if would_fire { "Rule WOULD fire" } else { "Rule would NOT fire" };
+                            let overall_icon = if would_fire { "check_circle" } else { "cancel" };
                             let pretty = serde_json::to_string_pretty(&r).unwrap_or_default();
-                            view! { <pre class="test-result-pre">{pretty}</pre> }
+                            let show_raw = RwSignal::new(false);
+
+                            view! {
+                                <div class=format!("test-overall {overall_class}")>
+                                    <span class="material-icons" style="font-size:18px; vertical-align:middle">{overall_icon}</span>
+                                    " " {overall_text}
+                                    {if would_fire { format!(" — {action_count} action(s)") } else { String::new() }}
+                                </div>
+                                <div class="test-conditions">
+                                    {conditions.into_iter().enumerate().map(|(i, cond)| {
+                                        let passed = cond["passed"].as_bool().unwrap_or(false);
+                                        let badge_class = if passed { "test-badge test-badge--pass" } else { "test-badge test-badge--fail" };
+                                        let icon = if passed { "check" } else { "close" };
+                                        let cond_type = cond["condition"].as_object()
+                                            .and_then(|o| o.keys().next().cloned())
+                                            .unwrap_or_else(|| "unknown".to_string());
+                                        let reason = cond["reason"].as_str().unwrap_or("").to_string();
+                                        let actual = cond.get("actual").filter(|v| !v.is_null()).map(|v| v.to_string()).unwrap_or_default();
+                                        let expected = cond.get("expected").filter(|v| !v.is_null()).map(|v| v.to_string()).unwrap_or_default();
+
+                                        view! {
+                                            <div class=badge_class>
+                                                <span class="material-icons" style="font-size:14px">{icon}</span>
+                                                <span class="test-badge-label">{format!("{}. {}", i + 1, cond_type)}</span>
+                                                {(!reason.is_empty()).then(|| view! { <span class="test-badge-reason">{format!(" — {reason}")}</span> })}
+                                                {(!actual.is_empty() && !expected.is_empty()).then(|| view! {
+                                                    <span class="test-badge-detail">{format!(" (actual: {actual}, expected: {expected})")}</span>
+                                                })}
+                                            </div>
+                                        }
+                                    }).collect_view()}
+                                </div>
+                                <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin-top:0.5rem"
+                                    on:click=move |_| show_raw.update(|v| *v = !*v)
+                                >{move || if show_raw.get() { "Hide raw JSON" } else { "Show raw JSON" }}</button>
+                                <Show when=move || show_raw.get()>
+                                    <pre class="test-result-pre">{pretty.clone()}</pre>
+                                </Show>
+                            }
                         })}
                     </section>
                 </Show>

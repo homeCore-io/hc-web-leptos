@@ -1,4 +1,3 @@
-#![allow(unused_variables)]
 //! Rule editor pages — create a new rule or edit an existing one.
 //!
 //! Architecture:
@@ -1622,7 +1621,7 @@ fn TypedConditionEditor(
                                 }).collect_view()}
                                 <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin-top:0.25rem"
                                     on:click={
-                                        let vk = vk.clone();
+                                        let _vk = vk.clone();
                                         move |_| {
                                             let mut c = get.get_untracked();
                                             match &mut c {
@@ -1640,8 +1639,7 @@ fn TypedConditionEditor(
                     },
 
                     // ── NOT — single wrapped condition ───────────────────
-                    Condition::Not { ref condition } => {
-                        let has_inner = true; // NOT always has an inner condition
+                    Condition::Not { condition: _ } => {
                         view! {
                             <div class="cond-group cond-group--not">
                                 <p class="cond-group-label">"NOT — inverts the result"</p>
@@ -1772,7 +1770,7 @@ fn ActionList(rule: RwSignal<Rule>) -> impl IntoView {
         {move || {
             let actions = rule.get().actions.clone();
             if actions.is_empty() {
-                view! { <p class="msg-muted" style="font-size:0.85rem">"No actions."</p> }.into_any()
+                view! { <p class="msg-muted" style="font-size:0.85rem">"No actions — rule will not do anything when triggered."</p> }.into_any()
             } else {
                 let total = actions.len();
                 actions.into_iter().enumerate().map(|(i, ra)| {
@@ -1878,9 +1876,8 @@ fn TypedActionEditor(
                                     .map(|(v,l)| view! { <option value=v selected=vk==v>{l}</option> }).collect_view()}
                             </select>
                             {match &a {
-                                Action::SetDeviceState { device_id, state, .. } | Action::FadeDevice { device_id, target: state, .. } => {
+                                Action::SetDeviceState { device_id, .. } | Action::FadeDevice { device_id, .. } => {
                                     let did = device_id.clone();
-                                    let st = state.clone();
                                     let is_fade = matches!(&a, Action::FadeDevice { .. });
                                     let dur = if let Action::FadeDevice { duration_secs, .. } = &a { *duration_secs } else { 30 };
                                     view! {
@@ -2332,7 +2329,7 @@ fn TypedActionEditor(
                                     let msg = if matches!(&a, Action::StopRuleChain) { "Stops lower-priority rules." } else { "Halts remaining actions." };
                                     view! { <p class="msg-muted" style="font-size:0.85rem">{msg}</p> }.into_any()
                                 },
-                                Action::Parallel { actions } => {
+                                Action::Parallel { .. } => {
                                     view! {
                                         <TypedNestedActionList
                                             get_actions=Signal::derive(move || match &get.get() { Action::Parallel { actions } => actions.clone(), _ => vec![] })
@@ -2357,7 +2354,7 @@ fn TypedActionEditor(
                                 Action::RepeatUntil { condition, max_iterations, .. } | Action::RepeatWhile { condition, max_iterations, .. } => {
                                     let cond = condition.clone();
                                     let mi = max_iterations.map(|n| n.to_string()).unwrap_or_default();
-                                    let is_until = matches!(&a, Action::RepeatUntil { .. });
+                                    let _is_until = matches!(&a, Action::RepeatUntil { .. });
                                     view! {
                                         <label class="field-label">"Condition (Rhai)"</label>
                                         <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=cond
@@ -2599,7 +2596,6 @@ fn TypedNestedActionList(
                 if actions.is_empty() {
                     view! { <p class="msg-muted" style="font-size:0.78rem">"No actions."</p> }.into_any()
                 } else {
-                    let total = actions.len();
                     actions.into_iter().enumerate().map(|(i, _)| {
                         view! {
                             <div class="json-row nested-action-row">

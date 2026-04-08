@@ -9,6 +9,24 @@ use serde_json::Value;
 
 // ── Generic request helpers ───────────────────────────────────────────────────
 
+/// Extract a meaningful error message from a non-ok response.
+/// Tries to read the JSON body for an `error` field; falls back to status text.
+async fn api_error(resp: &gloo_net::http::Response) -> String {
+    let status = resp.status();
+    if let Ok(body) = resp.text().await {
+        // Try to extract {"error": "..."} from the response body
+        if let Ok(json) = serde_json::from_str::<Value>(&body) {
+            if let Some(msg) = json["error"].as_str() {
+                return format!("{status}: {msg}");
+            }
+        }
+        if !body.is_empty() && body.len() < 200 {
+            return format!("{status}: {body}");
+        }
+    }
+    format!("{status} {}", resp.status_text())
+}
+
 async fn get_json<T: serde::de::DeserializeOwned>(path: &str, token: &str) -> Result<T, String> {
     let resp = Request::get(&format!("{API_BASE}{path}"))
         .header("Authorization", &format!("Bearer {token}"))
@@ -18,7 +36,7 @@ async fn get_json<T: serde::de::DeserializeOwned>(path: &str, token: &str) -> Re
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     resp.json::<T>().await.map_err(|e| e.to_string())
@@ -35,7 +53,7 @@ async fn patch_json(path: &str, token: &str, body: &Value) -> Result<(), String>
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
     Ok(())
 }
@@ -55,7 +73,7 @@ async fn post_json<T: serde::de::DeserializeOwned>(
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     resp.json::<T>().await.map_err(|e| e.to_string())
@@ -69,7 +87,7 @@ async fn post_no_body(path: &str, token: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     Ok(())
@@ -83,7 +101,7 @@ async fn delete_no_body(path: &str, token: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     Ok(())
@@ -104,7 +122,7 @@ async fn patch_json_with_response<T: serde::de::DeserializeOwned>(
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     resp.json::<T>().await.map_err(|e| e.to_string())
@@ -121,7 +139,7 @@ async fn post_json_no_response(path: &str, token: &str, body: &Value) -> Result<
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     Ok(())
@@ -138,7 +156,7 @@ async fn put_json_no_response(path: &str, token: &str, body: &Value) -> Result<(
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     Ok(())
@@ -152,7 +170,7 @@ async fn post_binary(path: &str, token: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     resp.binary().await.map_err(|e| e.to_string())
@@ -173,7 +191,7 @@ async fn put_json<T: serde::de::DeserializeOwned>(
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     resp.json::<T>().await.map_err(|e| e.to_string())
@@ -302,7 +320,7 @@ pub async fn update_area(token: &str, id: &str, name: &str) -> Result<Area, Stri
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     resp.json::<Area>().await.map_err(|e| e.to_string())
@@ -344,7 +362,7 @@ pub async fn update_device_meta(
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     resp.json::<DeviceState>().await.map_err(|e| e.to_string())
@@ -373,7 +391,7 @@ pub async fn delete_device(token: &str, id: &str) -> Result<DeleteDeviceResponse
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     resp.json::<DeleteDeviceResponse>()
@@ -418,7 +436,7 @@ pub async fn patch_rule(token: &str, id: &str, body: &Value) -> Result<Value, St
         .map_err(|e| e.to_string())?;
 
     if !resp.ok() {
-        return Err(format!("{} {}", resp.status(), resp.status_text()));
+        return Err(api_error(&resp).await);
     }
 
     resp.json::<Value>().await.map_err(|e| e.to_string())

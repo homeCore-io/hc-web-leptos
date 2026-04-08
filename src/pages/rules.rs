@@ -17,6 +17,15 @@ use std::collections::HashSet;
 
 const RULES_PREFS_KEY: &str = "hc-leptos:rules:prefs";
 
+/// A rule that references a deleted device.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct StaleRef {
+    rule_name: String,
+    rule_id: String,
+    #[serde(default)]
+    stale_device_ids: Vec<String>,
+}
+
 // ── Trigger type helpers ──────────────────────────────────────────────────────
 
 fn trigger_type(rule: &Rule) -> &'static str {
@@ -126,6 +135,13 @@ fn rule_tags(r: &Rule) -> Vec<String> {
 
 // ── Sort keys ────────────────────────────────────────────────────────────────
 
+/// Default sort: priority descending, then name ascending.
+fn sort_rules_default(rules: &mut [Rule]) {
+    rules.sort_by(|a, b| {
+        b.priority.cmp(&a.priority).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SortKey { Name, Priority }
 
@@ -163,7 +179,7 @@ pub fn RulesPage() -> impl IntoView {
 
     let confirm_delete: RwSignal<Option<String>> = RwSignal::new(None);
     let row_busy: RwSignal<Option<String>> = RwSignal::new(None);
-    let stale_refs: RwSignal<Vec<Value>> = RwSignal::new(vec![]);
+    let stale_refs: RwSignal<Vec<StaleRef>> = RwSignal::new(vec![]);
     let selected: RwSignal<Vec<String>> = RwSignal::new(vec![]);
     let bulk_busy = RwSignal::new(false);
 
@@ -177,11 +193,7 @@ pub fn RulesPage() -> impl IntoView {
         spawn_local(async move {
             match fetch_rules(&token).await {
                 Ok(mut data) => {
-                    data.sort_by(|a, b| {
-                        b.priority.cmp(&a.priority).then_with(|| {
-                            a.name.to_lowercase().cmp(&b.name.to_lowercase())
-                        })
-                    });
+                    sort_rules_default(&mut data);
                     rules.set(data);
                 }
                 Err(e) => page_error.set(Some(e)),
@@ -192,8 +204,8 @@ pub fn RulesPage() -> impl IntoView {
         // Also fetch stale refs in parallel
         spawn_local(async move {
             if let Ok(data) = rule_stale_refs(&token_for_stale).await {
-                if let Some(arr) = data.as_array() {
-                    stale_refs.set(arr.clone());
+                if let Ok(refs) = serde_json::from_value::<Vec<StaleRef>>(data) {
+                    stale_refs.set(refs);
                 }
             }
         });
@@ -364,9 +376,7 @@ pub fn RulesPage() -> impl IntoView {
                                         }
                                         // Refresh rules list
                                         if let Ok(mut data) = fetch_rules(&token).await {
-                                            data.sort_by(|a, b| {
-                                                b.priority.cmp(&a.priority).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-                                            });
+                                            sort_rules_default(&mut data);
                                             rules.set(data);
                                         }
                                         selected.set(vec![]);
@@ -386,9 +396,7 @@ pub fn RulesPage() -> impl IntoView {
                                             let _ = patch_rule(&token, id, &json!({"enabled": false})).await;
                                         }
                                         if let Ok(mut data) = fetch_rules(&token).await {
-                                            data.sort_by(|a, b| {
-                                                b.priority.cmp(&a.priority).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-                                            });
+                                            sort_rules_default(&mut data);
                                             rules.set(data);
                                         }
                                         selected.set(vec![]);
@@ -417,11 +425,9 @@ pub fn RulesPage() -> impl IntoView {
                         {format!(" {} rule(s) reference deleted devices:", refs.len())}
                         <ul class="stale-refs-list">
                             {refs.into_iter().map(|entry| {
-                                let rule_name = entry["rule_name"].as_str().unwrap_or("Unknown").to_string();
-                                let rule_id = entry["rule_id"].as_str().unwrap_or("").to_string();
-                                let stale = entry["stale_device_ids"].as_array()
-                                    .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", "))
-                                    .unwrap_or_default();
+                                let rule_name = entry.rule_name.clone();
+                                let rule_id = entry.rule_id.clone();
+                                let stale = entry.stale_device_ids.join(", ");
                                 view! {
                                     <li>
                                         <a href=format!("/rules/{rule_id}")>{rule_name}</a>

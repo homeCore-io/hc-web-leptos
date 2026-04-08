@@ -13,10 +13,7 @@ use std::collections::HashMap;
 
 // ── Re-exports from hc-types (shared with core) ────────────────────────────
 
-pub use hc_types::rule::{
-    Action, CompareOp, Condition, ConditionalBranch, LogLevel, ModeCommand, Rule, RuleAction,
-    RunMode, Trigger, VariableOp,
-};
+pub use hc_types::rule::{Rule, RunMode, Trigger};
 
 // ── Admin types ─────────────────────────────────────────────────────────────
 

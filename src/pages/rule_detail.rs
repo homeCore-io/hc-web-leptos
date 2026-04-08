@@ -17,7 +17,9 @@ use crate::api::{
 };
 use crate::auth::use_auth;
 use crate::models::{
-    is_scene_like, Area, DeviceState, ModeRecord, Rule, RunMode, Scene, Trigger,
+    is_media_player, is_scene_like, is_timer_device,
+    media_available_favorites, media_available_playlists,
+    Area, DeviceState, ModeRecord, Rule, RunMode, Scene, Trigger,
 };
 use hc_types::rule::{
     Action, ButtonEventType, CompareOp, Condition, LogLevel, ModeCommand,
@@ -1890,20 +1892,7 @@ fn TypedActionEditor(
                                             }
                                             set.run(a);
                                         }) />
-                                        <label class="field-label">"State (JSON)"</label>
-                                        <textarea class="hc-textarea hc-textarea--code" rows="3"
-                                            prop:value=serde_json::to_string_pretty(&st).unwrap_or_default()
-                                            on:input=move |ev| {
-                                                if let Ok(parsed) = serde_json::from_str::<Value>(&event_target_value(&ev)) {
-                                                    let mut a = get.get_untracked();
-                                                    match &mut a {
-                                                        Action::SetDeviceState { ref mut state, .. } => *state = parsed,
-                                                        Action::FadeDevice { ref mut target, .. } => *target = parsed,
-                                                        _ => {}
-                                                    }
-                                                    set.run(a);
-                                                }
-                                            } />
+                                        <TypedDeviceStateBuilder get=get set=set />
                                         {is_fade.then(|| view! {
                                             <label class="field-label">"Duration (seconds)"</label>
                                             <input type="number" class="hc-input hc-input--sm" style="width:8rem" prop:value=dur.to_string()
@@ -1946,6 +1935,7 @@ fn TypedActionEditor(
 
                 "conditional" => {
                     let cond = if let Action::Conditional { condition, .. } = &a { condition.clone() } else { String::new() };
+                    let else_if_count = if let Action::Conditional { else_if, .. } = &a { else_if.len() } else { 0 };
                     view! {
                         <div class="trigger-fields">
                             <div class="cond-branch cond-branch--if">
@@ -1959,6 +1949,61 @@ fn TypedActionEditor(
                                     set_actions=Callback::new(move |acts: Vec<Action>| { let mut a = get.get_untracked(); if let Action::Conditional { ref mut then_actions, .. } = a { *then_actions = acts; } set.run(a); })
                                 />
                             </div>
+
+                            // ELSE IF branches
+                            {(0..else_if_count).map(|bi| {
+                                let branch_cond = if let Action::Conditional { else_if, .. } = &a {
+                                    else_if.get(bi).map(|b| b.condition.clone()).unwrap_or_default()
+                                } else { String::new() };
+                                view! {
+                                    <div class="cond-branch cond-branch--elseif">
+                                        <div class="cond-branch-header">
+                                            <span class="cond-branch-label">"ELSE IF"</span>
+                                            <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove branch"
+                                                on:click=move |_| {
+                                                    let mut a = get.get_untracked();
+                                                    if let Action::Conditional { ref mut else_if, .. } = a { if bi < else_if.len() { else_if.remove(bi); } }
+                                                    set.run(a);
+                                                }
+                                            ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                        </div>
+                                        <label class="field-label">"Condition"</label>
+                                        <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=branch_cond
+                                            on:input=move |ev| {
+                                                let mut a = get.get_untracked();
+                                                if let Action::Conditional { ref mut else_if, .. } = a {
+                                                    if let Some(b) = else_if.get_mut(bi) { b.condition = event_target_value(&ev); }
+                                                }
+                                                set.run(a);
+                                            } />
+                                        <label class="field-label">"THEN actions:"</label>
+                                        <TypedNestedActionList
+                                            get_actions=Signal::derive(move || match &get.get() {
+                                                Action::Conditional { else_if, .. } => else_if.get(bi).map(|b| b.actions.clone()).unwrap_or_default(),
+                                                _ => vec![],
+                                            })
+                                            set_actions=Callback::new(move |acts: Vec<Action>| {
+                                                let mut a = get.get_untracked();
+                                                if let Action::Conditional { ref mut else_if, .. } = a {
+                                                    if let Some(b) = else_if.get_mut(bi) { b.actions = acts; }
+                                                }
+                                                set.run(a);
+                                            })
+                                        />
+                                    </div>
+                                }
+                            }).collect_view()}
+
+                            <button class="hc-btn hc-btn--sm hc-btn--outline" style="margin:0.25rem 0"
+                                on:click=move |_| {
+                                    let mut a = get.get_untracked();
+                                    if let Action::Conditional { ref mut else_if, .. } = a {
+                                        else_if.push(hc_types::rule::ConditionalBranch { condition: String::new(), actions: vec![] });
+                                    }
+                                    set.run(a);
+                                }
+                            >"+ Add ELSE IF"</button>
+
                             <div class="cond-branch cond-branch--else">
                                 <span class="cond-branch-label">"ELSE"</span>
                                 <TypedNestedActionList
@@ -2378,6 +2423,253 @@ const ACTION_CATEGORIES: &[(&str, &str, &str)] = &[
     ("rule_ctrl",   "Rule control",    "smart_toy"),
     ("more",        "More…",           "more_horiz"),
 ];
+
+// ── TypedDeviceStateBuilder ──────────────────────────────────────────────────
+// Renders command dropdown + controls based on device capabilities.
+
+fn device_commands(d: &DeviceState) -> Vec<(&'static str, &'static str)> {
+    let mut cmds = Vec::new();
+    let has = |k: &str| d.attributes.contains_key(k);
+    let has_f = |k: &str| d.attributes.get(k).and_then(|v| v.as_f64()).is_some();
+    if is_timer_device(d) {
+        cmds.push(("timer_start","Start timer")); cmds.push(("timer_cancel","Cancel timer"));
+        cmds.push(("timer_pause","Pause timer")); cmds.push(("timer_resume","Resume timer"));
+        cmds.push(("timer_restart","Restart timer"));
+        return cmds;
+    }
+    if is_scene_like(d) { cmds.push(("activate","Activate scene")); return cmds; }
+    if has("on") { cmds.push(("on_true","Turn on")); cmds.push(("on_false","Turn off")); }
+    if has_f("brightness_pct") { cmds.push(("brightness_pct","Set brightness")); }
+    if has_f("color_temp") { cmds.push(("color_temp","Set color temperature")); }
+    if has_f("position") { cmds.push(("position","Set position")); }
+    if has("locked") { cmds.push(("lock","Lock")); cmds.push(("unlock","Unlock")); }
+    if is_media_player(d) {
+        cmds.push(("play","Play")); cmds.push(("pause","Pause")); cmds.push(("stop","Stop"));
+        cmds.push(("next","Next track")); cmds.push(("prev","Previous track"));
+        if has_f("volume") { cmds.push(("set_volume","Set volume")); }
+        if has("muted") { cmds.push(("set_mute","Set mute")); }
+        if has("shuffle") { cmds.push(("set_shuffle","Set shuffle")); }
+        if !media_available_favorites(d).is_empty() { cmds.push(("play_favorite","Play favorite")); }
+        if !media_available_playlists(d).is_empty() { cmds.push(("play_playlist","Play playlist")); }
+    }
+    cmds
+}
+
+fn detect_command(state: &Value) -> String {
+    let obj = match state.as_object() { Some(o) => o, None => return String::new() };
+    if let Some(cmd) = obj.get("command").and_then(|v| v.as_str()) {
+        return match cmd { "start"=>"timer_start", "cancel"=>"timer_cancel", "pause"=>"timer_pause", "resume"=>"timer_resume", "restart"=>"timer_restart", _ => cmd }.to_string();
+    }
+    if obj.get("activate").and_then(|v| v.as_bool()) == Some(true) { return "activate".to_string(); }
+    if let Some(act) = obj.get("action").and_then(|v| v.as_str()) {
+        return match act { "play"=>"play", "pause"=>"pause", "stop"=>"stop", "next"=>"next", "previous"=>"prev", "set_volume"=>"set_volume", "set_mute"=>"set_mute", "set_shuffle"=>"set_shuffle", "play_favorite"=>"play_favorite", "play_playlist"=>"play_playlist", _ => act }.to_string();
+    }
+    if let Some(v) = obj.get("on") { return if v.as_bool()==Some(true) { "on_true" } else { "on_false" }.to_string(); }
+    if obj.contains_key("locked") { return if obj["locked"].as_bool()==Some(true) { "lock" } else { "unlock" }.to_string(); }
+    if obj.contains_key("brightness_pct") { return "brightness_pct".to_string(); }
+    if obj.contains_key("color_temp") { return "color_temp".to_string(); }
+    if obj.contains_key("position") { return "position".to_string(); }
+    String::new()
+}
+
+fn command_to_state(cmd: &str, d: &DeviceState) -> Value {
+    match cmd {
+        "timer_start" => json!({"command":"start","duration_secs":300}), "timer_cancel" => json!({"command":"cancel"}),
+        "timer_pause" => json!({"command":"pause"}), "timer_resume" => json!({"command":"resume"}), "timer_restart" => json!({"command":"restart"}),
+        "activate" => json!({"activate":true}), "on_true" => json!({"on":true}), "on_false" => json!({"on":false}),
+        "brightness_pct" => json!({"brightness_pct": d.attributes.get("brightness_pct").and_then(|v| v.as_i64()).unwrap_or(50)}),
+        "color_temp" => json!({"color_temp": d.attributes.get("color_temp").and_then(|v| v.as_i64()).unwrap_or(2700)}),
+        "position" => json!({"position": d.attributes.get("position").and_then(|v| v.as_i64()).unwrap_or(50)}),
+        "lock" => json!({"locked":true}), "unlock" => json!({"locked":false}),
+        "play" => json!({"action":"play"}), "pause" => json!({"action":"pause"}), "stop" => json!({"action":"stop"}),
+        "next" => json!({"action":"next"}), "prev" => json!({"action":"previous"}),
+        "set_volume" => json!({"action":"set_volume","volume": d.attributes.get("volume").and_then(|v| v.as_i64()).unwrap_or(20)}),
+        "set_mute" => json!({"action":"set_mute","muted":false}), "set_shuffle" => json!({"action":"set_shuffle","shuffle":false}),
+        "play_favorite" => json!({"action":"play_favorite","favorite":""}), "play_playlist" => json!({"action":"play_playlist","playlist":""}),
+        _ => json!({}),
+    }
+}
+
+/// Typed device state builder — renders command dropdown + controls.
+/// Reads device capabilities from context and reads/writes the state JSON
+/// inside a SetDeviceState or FadeDevice action.
+#[component]
+fn TypedDeviceStateBuilder(
+    get: Signal<Action>,
+    set: Callback<Action>,
+) -> impl IntoView {
+    let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
+
+    // Read the device_id and state from the action
+    let get_state_info = move || -> (String, Value) {
+        match &get.get() {
+            Action::SetDeviceState { device_id, state, .. } => (device_id.clone(), state.clone()),
+            Action::FadeDevice { device_id, target, .. } => (device_id.clone(), target.clone()),
+            _ => (String::new(), json!({})),
+        }
+    };
+
+    // Write state back to the action
+    let set_state = move |new_state: Value| {
+        let mut a = get.get_untracked();
+        match &mut a {
+            Action::SetDeviceState { ref mut state, .. } => *state = new_state,
+            Action::FadeDevice { ref mut target, .. } => *target = new_state,
+            _ => {}
+        }
+        set.run(a);
+    };
+
+    view! {
+        <div class="state-builder">
+            {move || {
+                let (device_id, state) = get_state_info();
+                if device_id.is_empty() {
+                    return view! { <p class="msg-muted" style="font-size:0.85rem">"Select a device first."</p> }.into_any();
+                }
+                let dev = devices.get().into_iter().find(|d| d.device_id == device_id);
+                let d = match dev {
+                    Some(d) => d,
+                    None => return view! { <p class="msg-muted" style="font-size:0.85rem">"Device not found."</p> }.into_any(),
+                };
+                let cmds = device_commands(&d);
+                if cmds.is_empty() {
+                    return view! { <p class="msg-muted" style="font-size:0.85rem">"No known commands."</p> }.into_any();
+                }
+                let current_cmd = detect_command(&state);
+                let d_for_change = d.clone();
+
+                // Command selector
+                let cmd_view = view! {
+                    <label class="field-label">"Command"</label>
+                    <select class="hc-select" on:change=move |ev| {
+                        let cmd = event_target_value(&ev);
+                        set_state(command_to_state(&cmd, &d_for_change));
+                    }>
+                        <option value="" disabled=true selected=current_cmd.is_empty()>"— Select command —"</option>
+                        {cmds.iter().map(|(k, label)| {
+                            let sel = *k == current_cmd;
+                            view! { <option value=*k selected=sel>{*label}</option> }
+                        }).collect_view()}
+                    </select>
+                };
+
+                // Command-specific controls
+                let control = match current_cmd.as_str() {
+                    "brightness_pct" => {
+                        let val = state["brightness_pct"].as_i64().unwrap_or(50);
+                        view! {
+                            <div class="control-row">
+                                <span class="control-label">"Brightness"</span>
+                                <div class="state-slider-row">
+                                    <input type="range" class="state-slider" min="0" max="100" step="1" prop:value=val.to_string()
+                                        on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<i64>() { set_state(json!({"brightness_pct": n})); }} />
+                                    <span class="state-slider-val">{format!("{val}%")}</span>
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
+                    "color_temp" => {
+                        let val = state["color_temp"].as_i64().unwrap_or(2700);
+                        view! {
+                            <div class="control-row">
+                                <span class="control-label">"Color Temp"</span>
+                                <div class="state-slider-row">
+                                    <input type="range" class="state-slider" min="2000" max="6500" step="100" prop:value=val.to_string()
+                                        on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<i64>() { set_state(json!({"color_temp": n})); }} />
+                                    <span class="state-slider-val">{format!("{val}K")}</span>
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
+                    "position" => {
+                        let val = state["position"].as_i64().unwrap_or(50);
+                        view! {
+                            <div class="control-row">
+                                <span class="control-label">"Position"</span>
+                                <div class="state-slider-row">
+                                    <input type="range" class="state-slider" min="0" max="100" step="1" prop:value=val.to_string()
+                                        on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<i64>() { set_state(json!({"position": n})); }} />
+                                    <span class="state-slider-val">{format!("{val}%")}</span>
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
+                    "set_volume" => {
+                        let val = state["volume"].as_i64().unwrap_or(20);
+                        view! {
+                            <div class="control-row">
+                                <span class="control-label">"Volume"</span>
+                                <div class="state-slider-row">
+                                    <input type="range" class="state-slider" min="0" max="100" step="1" prop:value=val.to_string()
+                                        on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<i64>() { set_state(json!({"action":"set_volume","volume": n})); }} />
+                                    <span class="state-slider-val">{format!("{val}%")}</span>
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
+                    "timer_start" => {
+                        let dur = state["duration_secs"].as_u64().unwrap_or(300);
+                        let label = state["label"].as_str().unwrap_or("").to_string();
+                        view! {
+                            <div class="trigger-row-2">
+                                <div>
+                                    <label class="field-label">"Duration (seconds)"</label>
+                                    <input type="number" class="hc-input hc-input--sm" prop:value=dur.to_string()
+                                        on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u64>() {
+                                            let mut s = json!({"command":"start","duration_secs": n});
+                                            let l = get.get_untracked();
+                                            if let Action::SetDeviceState { state: ref st, .. } = l {
+                                                if let Some(lbl) = st.get("label").and_then(|v| v.as_str()) { s["label"] = json!(lbl); }
+                                            }
+                                            set_state(s);
+                                        }} />
+                                </div>
+                                <div>
+                                    <label class="field-label">"Label (optional)"</label>
+                                    <input type="text" class="hc-input hc-input--sm" prop:value=label
+                                        on:input=move |ev| {
+                                            let lbl = event_target_value(&ev);
+                                            let d = get.get_untracked();
+                                            let dur = if let Action::SetDeviceState { ref state, .. } = d { state["duration_secs"].as_u64().unwrap_or(300) } else { 300 };
+                                            let mut s = json!({"command":"start","duration_secs": dur});
+                                            if !lbl.is_empty() { s["label"] = json!(lbl); }
+                                            set_state(s);
+                                        } />
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
+                    "play_favorite" => {
+                        let current = state["favorite"].as_str().unwrap_or("").to_string();
+                        let favs = media_available_favorites(&d);
+                        view! {
+                            <label class="field-label">"Favorite"</label>
+                            <select class="hc-select" on:change=move |ev| set_state(json!({"action":"play_favorite","favorite": event_target_value(&ev)}))>
+                                <option value="" selected=current.is_empty()>"— Select —"</option>
+                                {favs.iter().map(|f| { let sel = *f == current; view! { <option value=f.clone() selected=sel>{f.clone()}</option> }}).collect_view()}
+                            </select>
+                        }.into_any()
+                    },
+                    "play_playlist" => {
+                        let current = state["playlist"].as_str().unwrap_or("").to_string();
+                        let pls = media_available_playlists(&d);
+                        view! {
+                            <label class="field-label">"Playlist"</label>
+                            <select class="hc-select" on:change=move |ev| set_state(json!({"action":"play_playlist","playlist": event_target_value(&ev)}))>
+                                <option value="" selected=current.is_empty()>"— Select —"</option>
+                                {pls.iter().map(|p| { let sel = *p == current; view! { <option value=p.clone() selected=sel>{p.clone()}</option> }}).collect_view()}
+                            </select>
+                        }.into_any()
+                    },
+                    _ => view! { <span /> }.into_any(),
+                };
+
+                view! { {cmd_view} {control} }.into_any()
+            }}
+        </div>
+    }
+}
 
 // ── DeviceSelect ─────────────────────────────────────────────────────────────
 // Dropdown that shows device names, stores device_id.

@@ -387,20 +387,24 @@ use serde::Deserialize;
 // ── Rules API ─────────────────────────────────────────────────────────────────
 // UI terminology: "rule". Wire path: /api/v1/automations.
 
-pub async fn fetch_rules(token: &str) -> Result<Vec<Value>, String> {
+use crate::models::Rule;
+
+pub async fn fetch_rules(token: &str) -> Result<Vec<Rule>, String> {
     get_json("/automations", token).await
 }
 
-pub async fn fetch_rule(token: &str, id: &str) -> Result<Value, String> {
+pub async fn fetch_rule(token: &str, id: &str) -> Result<Rule, String> {
     get_json(&format!("/automations/{id}"), token).await
 }
 
-pub async fn create_rule(token: &str, body: &Value) -> Result<Value, String> {
-    post_json("/automations", token, body).await
+pub async fn create_rule(token: &str, rule: &Rule) -> Result<Rule, String> {
+    let body = serde_json::to_value(rule).map_err(|e| e.to_string())?;
+    post_json("/automations", token, &body).await
 }
 
-pub async fn update_rule(token: &str, id: &str, body: &Value) -> Result<Value, String> {
-    put_json(&format!("/automations/{id}"), token, body).await
+pub async fn update_rule(token: &str, id: &str, rule: &Rule) -> Result<Rule, String> {
+    let body = serde_json::to_value(rule).map_err(|e| e.to_string())?;
+    put_json(&format!("/automations/{id}"), token, &body).await
 }
 
 pub async fn patch_rule(token: &str, id: &str, body: &Value) -> Result<Value, String> {
@@ -424,7 +428,7 @@ pub async fn delete_rule(token: &str, id: &str) -> Result<(), String> {
     delete_no_body(&format!("/automations/{id}"), token).await
 }
 
-pub async fn clone_rule(token: &str, id: &str) -> Result<Value, String> {
+pub async fn clone_rule(token: &str, id: &str) -> Result<Rule, String> {
     post_json(&format!("/automations/{id}/clone"), token, &Value::Null).await
 }
 

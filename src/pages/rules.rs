@@ -2,11 +2,13 @@
 
 use crate::api::{clone_rule, delete_rule, fetch_rules, patch_rule, rule_stale_refs};
 use crate::auth::use_auth;
+use crate::models::Rule;
 use crate::pages::shared::{
     json_str_set, load_pref_json, ls_set, set_to_json_array,
     MultiSelectDropdown, ResetFiltersButton, SearchField,
     SortDir, SortDirToggle, SortSelect,
 };
+use hc_types::rule::Trigger;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
@@ -17,8 +19,25 @@ const RULES_PREFS_KEY: &str = "hc-leptos:rules:prefs";
 
 // ── Trigger type helpers ──────────────────────────────────────────────────────
 
-fn trigger_type(rule: &Value) -> &str {
-    rule["trigger"]["type"].as_str().unwrap_or("unknown")
+fn trigger_type(rule: &Rule) -> &'static str {
+    match &rule.trigger {
+        Trigger::DeviceStateChanged { .. } => "device_state_changed",
+        Trigger::DeviceAvailabilityChanged { .. } => "device_availability_changed",
+        Trigger::ButtonEvent { .. } => "button_event",
+        Trigger::NumericThreshold { .. } => "numeric_threshold",
+        Trigger::TimeOfDay { .. } => "time_of_day",
+        Trigger::SunEvent { .. } => "sun_event",
+        Trigger::Cron { .. } => "cron",
+        Trigger::Periodic { .. } => "periodic",
+        Trigger::CalendarEvent { .. } => "calendar_event",
+        Trigger::CustomEvent { .. } => "custom_event",
+        Trigger::SystemStarted => "system_started",
+        Trigger::HubVariableChanged { .. } => "hub_variable_changed",
+        Trigger::ModeChanged { .. } => "mode_changed",
+        Trigger::WebhookReceived { .. } => "webhook_received",
+        Trigger::ManualTrigger => "manual_trigger",
+        Trigger::MqttMessage { .. } => "mqtt_message",
+    }
 }
 
 fn trigger_label(t: &str) -> &'static str {
@@ -77,35 +96,32 @@ fn trigger_category(t: &str) -> &'static str {
 
 // ── Rule field accessors ──────────────────────────────────────────────────────
 
-fn rule_id(r: &Value) -> String {
-    r["id"].as_str().unwrap_or("").to_string()
+fn rule_id(r: &Rule) -> String {
+    r.id.to_string()
 }
 
-fn rule_name(r: &Value) -> String {
-    r["name"].as_str().unwrap_or("(unnamed)").to_string()
+fn rule_name(r: &Rule) -> String {
+    if r.name.is_empty() {
+        "(unnamed)".to_string()
+    } else {
+        r.name.clone()
+    }
 }
 
-fn rule_enabled(r: &Value) -> bool {
-    r["enabled"].as_bool().unwrap_or(false)
+fn rule_enabled(r: &Rule) -> bool {
+    r.enabled
 }
 
-fn rule_priority(r: &Value) -> i64 {
-    r["priority"].as_i64().unwrap_or(0)
+fn rule_priority(r: &Rule) -> i64 {
+    r.priority as i64
 }
 
-fn rule_error(r: &Value) -> Option<String> {
-    r["error"].as_str().map(str::to_string)
+fn rule_error(r: &Rule) -> Option<String> {
+    r.error.clone()
 }
 
-fn rule_tags(r: &Value) -> Vec<String> {
-    r["tags"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default()
+fn rule_tags(r: &Rule) -> Vec<String> {
+    r.tags.clone()
 }
 
 // ── Sort keys ────────────────────────────────────────────────────────────────
@@ -132,7 +148,7 @@ pub fn RulesPage() -> impl IntoView {
     let navigate = use_navigate();
 
     // ── State ─────────────────────────────────────────────────────────────────
-    let rules: RwSignal<Vec<Value>> = RwSignal::new(vec![]);
+    let rules: RwSignal<Vec<Rule>> = RwSignal::new(vec![]);
     let loading = RwSignal::new(true);
     let page_error: RwSignal<Option<String>> = RwSignal::new(None);
 
@@ -162,13 +178,8 @@ pub fn RulesPage() -> impl IntoView {
             match fetch_rules(&token).await {
                 Ok(mut data) => {
                     data.sort_by(|a, b| {
-                        let pa = a["priority"].as_i64().unwrap_or(0);
-                        let pb = b["priority"].as_i64().unwrap_or(0);
-                        pb.cmp(&pa).then_with(|| {
-                            a["name"]
-                                .as_str()
-                                .unwrap_or("")
-                                .cmp(b["name"].as_str().unwrap_or(""))
+                        b.priority.cmp(&a.priority).then_with(|| {
+                            a.name.to_lowercase().cmp(&b.name.to_lowercase())
                         })
                     });
                     rules.set(data);
@@ -230,11 +241,11 @@ pub fn RulesPage() -> impl IntoView {
         let tf = tag_filter.get();
         let sk = sort_by.get();
         let sd = sort_dir.get();
-        let mut list: Vec<Value> = rules
+        let mut list: Vec<Rule> = rules
             .get()
             .into_iter()
             .filter(|r| {
-                let name = r["name"].as_str().unwrap_or("").to_lowercase();
+                let name = r.name.to_lowercase();
                 let tags = rule_tags(r);
                 let tags_lower = tags.join(" ").to_lowercase();
                 if !q.is_empty() && !name.contains(&q) && !tags_lower.contains(&q) {
@@ -256,15 +267,8 @@ pub fn RulesPage() -> impl IntoView {
             .collect();
         list.sort_by(|a, b| {
             let cmp = match sk {
-                SortKey::Priority => {
-                    let pa = a["priority"].as_i64().unwrap_or(0);
-                    let pb = b["priority"].as_i64().unwrap_or(0);
-                    pb.cmp(&pa)
-                }
-                SortKey::Name => {
-                    a["name"].as_str().unwrap_or("").to_lowercase()
-                        .cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
-                }
+                SortKey::Priority => b.priority.cmp(&a.priority),
+                SortKey::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
             };
             if sd == SortDir::Desc { cmp.reverse() } else { cmp }
         });
@@ -361,9 +365,7 @@ pub fn RulesPage() -> impl IntoView {
                                         // Refresh rules list
                                         if let Ok(mut data) = fetch_rules(&token).await {
                                             data.sort_by(|a, b| {
-                                                let pa = a["priority"].as_i64().unwrap_or(0);
-                                                let pb = b["priority"].as_i64().unwrap_or(0);
-                                                pb.cmp(&pa).then_with(|| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")))
+                                                b.priority.cmp(&a.priority).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
                                             });
                                             rules.set(data);
                                         }
@@ -385,9 +387,7 @@ pub fn RulesPage() -> impl IntoView {
                                         }
                                         if let Ok(mut data) = fetch_rules(&token).await {
                                             data.sort_by(|a, b| {
-                                                let pa = a["priority"].as_i64().unwrap_or(0);
-                                                let pb = b["priority"].as_i64().unwrap_or(0);
-                                                pb.cmp(&pa).then_with(|| a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")))
+                                                b.priority.cmp(&a.priority).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
                                             });
                                             rules.set(data);
                                         }
@@ -449,7 +449,7 @@ pub fn RulesPage() -> impl IntoView {
             <div class="rules-list">
                 <For
                     each=move || filtered.get()
-                    key=|r| r["id"].as_str().unwrap_or("").to_string()
+                    key=|r| r.id.to_string()
                     children={
                         // Clone navigate once; rows clone it again inside children.
                         let nav = navigate.clone();
@@ -479,9 +479,9 @@ pub fn RulesPage() -> impl IntoView {
                                 row_busy.set(Some(id.clone()));
                                 spawn_local(async move {
                                     match patch_rule(&token, &id, &json!({ "enabled": !enabled })).await {
-                                        Ok(updated) => rules.update(|list| {
+                                        Ok(_) => rules.update(|list| {
                                             if let Some(r) = list.iter_mut().find(|r| rule_id(r) == id) {
-                                                *r = updated;
+                                                r.enabled = !enabled;
                                             }
                                         }),
                                         Err(e) => page_error.set(Some(e)),

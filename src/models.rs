@@ -1,8 +1,8 @@
 //! Device domain types and pure helper functions.
 //!
-//! `DeviceState` mirrors `hc_types::device::DeviceState` field-for-field.
-//! In a workspace-integrated build this entire module can be replaced with:
-//!   pub use hc_types::device::DeviceState;
+//! Rule types are re-exported from `hc_types::rule` (shared with the core
+//! server).  Device types are still defined locally because `DeviceState`
+//! has minor field differences (last_seen is Optional here).
 //!
 //! All helpers are pure functions — they read a &DeviceState and return
 //! display values.  No signals live here; signals belong in pages/components.
@@ -10,6 +10,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+// ── Re-exports from hc-types (shared with core) ────────────────────────────
+
+pub use hc_types::rule::{
+    Action, CompareOp, Condition, ConditionalBranch, LogLevel, ModeCommand, Rule, RuleAction,
+    RunMode, Trigger, VariableOp,
+};
 
 // ── Admin types ─────────────────────────────────────────────────────────────
 

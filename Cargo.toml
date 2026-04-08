@@ -17,8 +17,8 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 serde       = { version = "1",   features = ["derive"] }
 serde_json  = "1"
 
-# Types — mirrors hc-types; in a workspace build replace with:
-#   hc-types = { path = "../../core/crates/hc-types" }
+# Shared types with core
+hc-types = { path = "../../core/crates/hc-types", features = ["wasm"] }
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 
 # WASM

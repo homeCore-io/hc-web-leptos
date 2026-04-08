@@ -123,6 +123,17 @@ fn default_action(t: &str) -> Value {
     base
 }
 
+// ── Value ↔ Rule conversion helpers (temporary, until editor uses typed signals)
+// These bridge the gap between the Value-based editor and the typed API.
+
+fn value_to_rule(v: &Value) -> Result<crate::models::Rule, String> {
+    serde_json::from_value(v.clone()).map_err(|e| format!("Invalid rule data: {e}"))
+}
+
+fn rule_to_value(r: &crate::models::Rule) -> Value {
+    serde_json::to_value(r).unwrap_or_default()
+}
+
 // ── JSON field helpers ───────────────────────────────────────────────────────
 // These operate on a RwSignal<Value> at any path depth.
 
@@ -216,7 +227,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
     let areas: RwSignal<Vec<Area>> = RwSignal::new(vec![]);
     let scenes: RwSignal<Vec<Scene>> = RwSignal::new(vec![]);
     let modes: RwSignal<Vec<ModeRecord>> = RwSignal::new(vec![]);
-    let all_rules: RwSignal<Vec<Value>> = RwSignal::new(vec![]);
+    let all_rules: RwSignal<Vec<crate::models::Rule>> = RwSignal::new(vec![]);
     provide_context(devices);
     provide_context(areas);
     provide_context(scenes);
@@ -239,7 +250,9 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
         }
         {
             let t6 = token.clone();
-            spawn_local(async move { if let Ok(r) = fetch_rules(&t6).await { all_rules.set(r); } });
+            spawn_local(async move {
+                if let Ok(r) = fetch_rules(&t6).await { all_rules.set(r); }
+            });
         }
         // Fetch rule (edit mode).
         if let Some(id_sig) = id {
@@ -247,7 +260,13 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
             if rule_id.is_empty() { return; }
             spawn_local(async move {
                 match fetch_rule(&token, &rule_id).await {
-                    Ok(r) => { rule.set(r); loading.set(false); }
+                    Ok(r) => {
+                        // Convert Rule → Value for the legacy editor (will be removed
+                        // when the editor is rewritten with typed signals).
+                        let v = serde_json::to_value(&r).unwrap_or_default();
+                        rule.set(v);
+                        loading.set(false);
+                    }
                     Err(e) => { save_err.set(Some(format!("Load failed: {e}"))); loading.set(false); }
                 }
             });
@@ -321,21 +340,24 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                             let body = rule.get_untracked();
                                             let name = body["name"].as_str().unwrap_or("");
                                             if name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
+                                            let typed = match value_to_rule(&body) {
+                                                Ok(r) => r,
+                                                Err(e) => { save_err.set(Some(e)); return; }
+                                            };
                                             save_err.set(None); save_ok.set(false); saving.set(true);
                                             let nav = nav_save_top.clone();
                                             let rule_id = id.map(|s| s.get_untracked()).unwrap_or_default();
                                             spawn_local(async move {
-                                                let result = if rule_id.is_empty() { create_rule(&token, &body).await }
-                                                             else { update_rule(&token, &rule_id, &body).await };
+                                                let result = if rule_id.is_empty() { create_rule(&token, &typed).await }
+                                                             else { update_rule(&token, &rule_id, &typed).await };
                                                 match result {
                                                     Ok(saved) => {
                                                         if rule_id.is_empty() {
-                                                            let new_id = saved["id"].as_str().unwrap_or("").to_string();
+                                                            let new_id = saved.id.to_string();
                                                             if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                         } else {
-                                                            rule.set(saved);
+                                                            rule.set(rule_to_value(&saved));
                                                             save_ok.set(true);
-                                                            // Auto-dismiss after 3 seconds
                                                             spawn_local(async move {
                                                                 gloo_timers::future::TimeoutFuture::new(3000).await;
                                                                 save_ok.set(false);
@@ -367,7 +389,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                     spawn_local(async move {
                                                         match clone_rule(&token, &rule_id).await {
                                                             Ok(new_rule) => {
-                                                                let new_id = new_rule["id"].as_str().unwrap_or("").to_string();
+                                                                let new_id = new_rule.id.to_string();
                                                                 if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                             }
                                                             Err(e) => save_err.set(Some(e)),
@@ -594,19 +616,23 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                     let body = rule.get_untracked();
                                     let name = body["name"].as_str().unwrap_or("");
                                     if name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
+                                    let typed = match value_to_rule(&body) {
+                                        Ok(r) => r,
+                                        Err(e) => { save_err.set(Some(e)); return; }
+                                    };
                                     save_err.set(None); save_ok.set(false); saving.set(true);
                                     let nav = nav_save.clone();
                                     let rule_id = id.map(|s| s.get_untracked()).unwrap_or_default();
                                     spawn_local(async move {
-                                        let result = if rule_id.is_empty() { create_rule(&token, &body).await }
-                                                     else { update_rule(&token, &rule_id, &body).await };
+                                        let result = if rule_id.is_empty() { create_rule(&token, &typed).await }
+                                                     else { update_rule(&token, &rule_id, &typed).await };
                                         match result {
                                             Ok(saved) => {
                                                 if rule_id.is_empty() {
-                                                    let new_id = saved["id"].as_str().unwrap_or("").to_string();
+                                                    let new_id = saved.id.to_string();
                                                     if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                 } else {
-                                                    rule.set(saved);
+                                                    rule.set(rule_to_value(&saved));
                                                     save_ok.set(true);
                                                     spawn_local(async move {
                                                         gloo_timers::future::TimeoutFuture::new(3000).await;
@@ -645,7 +671,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                         spawn_local(async move {
                                             match clone_rule(&token, &rule_id).await {
                                                 Ok(new_rule) => {
-                                                    let new_id = new_rule["id"].as_str().unwrap_or("").to_string();
+                                                    let new_id = new_rule.id.to_string();
                                                     if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                 }
                                                 Err(e) => save_err.set(Some(e)),
@@ -2966,7 +2992,7 @@ fn ModeSelect(value: String, on_select: Callback<String>) -> impl IntoView {
 
 #[component]
 fn RuleSelect(value: String, on_select: Callback<String>) -> impl IntoView {
-    let all_rules = use_context::<RwSignal<Vec<Value>>>().unwrap_or(RwSignal::new(vec![]));
+    let all_rules = use_context::<RwSignal<Vec<crate::models::Rule>>>().unwrap_or(RwSignal::new(vec![]));
 
     view! {
         <select class="hc-select"
@@ -2976,14 +3002,14 @@ fn RuleSelect(value: String, on_select: Callback<String>) -> impl IntoView {
             {move || {
                 let current = value.clone();
                 let mut rules = all_rules.get();
-                rules.sort_by(|a, b| a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase()));
-                let has_current = current.is_empty() || rules.iter().any(|r| r["id"].as_str() == Some(&current));
+                rules.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                let has_current = current.is_empty() || rules.iter().any(|r| r.id.to_string() == current);
                 let orphan = if !has_current {
                     Some(view! { <option value=current.clone() selected=true>{format!("{current} (unknown)")}</option> })
                 } else { None };
                 let options = rules.into_iter().map(|r| {
-                    let id = r["id"].as_str().unwrap_or("").to_string();
-                    let name = r["name"].as_str().unwrap_or("(unnamed)").to_string();
+                    let id = r.id.to_string();
+                    let name = if r.name.is_empty() { "(unnamed)".to_string() } else { r.name.clone() };
                     let sel = id == current;
                     view! { <option value=id selected=sel>{name}</option> }
                 }).collect_view();

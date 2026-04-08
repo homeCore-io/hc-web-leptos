@@ -3124,6 +3124,17 @@ a.cell-link:hover { text-decoration: underline; }
   cursor: not-allowed;
 }
 
+/* ── Rule editor: mobile responsive ───────────────────────────────── */
+@media (max-width: 620px) {
+  .trigger-row-2 { grid-template-columns: 1fr; }
+  .rule-header-row { flex-direction: column; gap: 0.5rem; }
+  .rule-header-actions { flex-wrap: wrap; }
+  .rule-action-bar { flex-wrap: wrap; }
+  .action-cat-label { display: none; }
+  .json-row { flex-direction: column; }
+  .json-row-controls { flex-direction: row; justify-content: flex-end; }
+}
+
 /* ── Skeleton loading ──────────────────────────────────────────────── */
 @keyframes skeleton-pulse {
   0%   { opacity: 0.6; }

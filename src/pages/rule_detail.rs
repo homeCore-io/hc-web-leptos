@@ -18,7 +18,10 @@ use crate::auth::use_auth;
 use crate::models::{
     is_media_player, is_scene_like, is_timer_device,
     media_available_favorites, media_available_playlists,
-    Area, DeviceState, ModeRecord, Rule, RunMode, Scene,
+    Area, DeviceState, ModeRecord, Rule, RunMode, Scene, Trigger,
+};
+use hc_types::rule::{
+    ButtonEventType, PeriodicUnit, SunEventType, ThresholdOp,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -547,7 +550,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                 // ── Trigger ──────────────────────────────────────────────────
                 <section class="detail-card">
                     <h3 class="detail-card-title">"Trigger"</h3>
-                    <TriggerEditor rule=rule_json />
+                    <TriggerEditor rule=rule />
                 </section>
 
                 // ── Conditions ───────────────────────────────────────────────
@@ -932,21 +935,76 @@ fn ItemList(
 
 // ── TriggerEditor ────────────────────────────────────────────────────────────
 
+/// Helper to get a string identifying the current trigger variant.
+fn trigger_variant_key(t: &Trigger) -> &'static str {
+    match t {
+        Trigger::DeviceStateChanged { .. } => "device_state_changed",
+        Trigger::DeviceAvailabilityChanged { .. } => "device_availability_changed",
+        Trigger::ButtonEvent { .. } => "button_event",
+        Trigger::NumericThreshold { .. } => "numeric_threshold",
+        Trigger::TimeOfDay { .. } => "time_of_day",
+        Trigger::SunEvent { .. } => "sun_event",
+        Trigger::Cron { .. } => "cron",
+        Trigger::Periodic { .. } => "periodic",
+        Trigger::CalendarEvent { .. } => "calendar_event",
+        Trigger::CustomEvent { .. } => "custom_event",
+        Trigger::SystemStarted => "system_started",
+        Trigger::HubVariableChanged { .. } => "hub_variable_changed",
+        Trigger::ModeChanged { .. } => "mode_changed",
+        Trigger::WebhookReceived { .. } => "webhook_received",
+        Trigger::ManualTrigger => "manual_trigger",
+        Trigger::MqttMessage { .. } => "mqtt_message",
+    }
+}
+
+/// Create a default Trigger for a given variant key.
+fn default_trigger_typed(key: &str) -> Trigger {
+    use chrono::{NaiveTime, Weekday};
+    match key {
+        "device_state_changed" => Trigger::DeviceStateChanged {
+            device_id: String::new(), device_ids: vec![], attribute: None,
+            to: None, from: None, not_from: None, not_to: None,
+            for_duration_secs: None, change_kind: None, change_source: None,
+        },
+        "device_availability_changed" => Trigger::DeviceAvailabilityChanged {
+            device_id: String::new(), to: None, for_duration_secs: None,
+        },
+        "button_event" => Trigger::ButtonEvent {
+            device_id: String::new(), button_number: None, event: ButtonEventType::Pushed,
+        },
+        "numeric_threshold" => Trigger::NumericThreshold {
+            device_id: String::new(), attribute: String::new(),
+            op: ThresholdOp::CrossesAbove, value: 0.0, for_duration_secs: None,
+        },
+        "time_of_day" => Trigger::TimeOfDay {
+            time: NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
+            days: vec![Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun],
+        },
+        "sun_event" => Trigger::SunEvent {
+            event: SunEventType::Sunset, offset_minutes: 0,
+        },
+        "cron" => Trigger::Cron { expression: "0 0 8 * * *".into() },
+        "periodic" => Trigger::Periodic { every_n: 15, unit: PeriodicUnit::Minutes },
+        "calendar_event" => Trigger::CalendarEvent {
+            calendar_id: None, title_contains: None, offset_minutes: 0,
+        },
+        "custom_event" => Trigger::CustomEvent { event_type: String::new() },
+        "system_started" => Trigger::SystemStarted,
+        "hub_variable_changed" => Trigger::HubVariableChanged { name: None },
+        "mode_changed" => Trigger::ModeChanged { mode_id: None, to: None },
+        "webhook_received" => Trigger::WebhookReceived { path: "/hooks/".into() },
+        "mqtt_message" => Trigger::MqttMessage {
+            topic_pattern: "homecore/devices/+/state".into(),
+            payload: None, value_path: None, value_op: None, value_cmp: None,
+        },
+        _ => Trigger::ManualTrigger,
+    }
+}
+
 #[component]
-fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
-    let tset = move |key: &'static str, val: Value| {
-        rule.update(|v| { v["trigger"][key] = val; });
-    };
-    let tset_opt = move |key: &'static str, raw: &str| {
-        rule.update(|v| {
-            if raw.trim().is_empty() { if let Some(o) = v["trigger"].as_object_mut() { o.remove(key); } }
-            else {
-                let parsed = serde_json::from_str::<Value>(raw.trim()).unwrap_or_else(|_| json!(raw.trim()));
-                v["trigger"][key] = parsed;
-            }
-        });
-    };
-    let tg = move || rule.get()["trigger"].clone();
+fn TriggerEditor(rule: RwSignal<Rule>) -> impl IntoView {
+    let tg = move || rule.get().trigger.clone();
+    let tset = move |new_trigger: Trigger| { rule.update(|r| r.trigger = new_trigger); };
 
     view! {
         <div class="trigger-editor">
@@ -954,310 +1012,411 @@ fn TriggerEditor(rule: RwSignal<Value>) -> impl IntoView {
             <select class="hc-select"
                 on:change=move |ev| {
                     let t = event_target_value(&ev);
-                    jset(rule, &["trigger"], default_trigger(&t));
+                    rule.update(|r| r.trigger = default_trigger_typed(&t));
                 }
             >
                 <optgroup label="Device">
                     {[("device_state_changed","Device state changed"),("device_availability_changed","Device availability changed"),("button_event","Button event"),("numeric_threshold","Numeric threshold")]
-                        .map(|(v, label)| view! { <option value=v selected=move || tg()["type"].as_str() == Some(v)>{label}</option> }).collect_view()}
+                        .map(|(v, label)| view! { <option value=v selected=move || trigger_variant_key(&tg()) == v>{label}</option> }).collect_view()}
                 </optgroup>
                 <optgroup label="Time">
                     {[("time_of_day","Time of day"),("sun_event","Sun event"),("cron","Cron schedule"),("periodic","Periodic"),("calendar_event","Calendar event")]
-                        .map(|(v, label)| view! { <option value=v selected=move || tg()["type"].as_str() == Some(v)>{label}</option> }).collect_view()}
+                        .map(|(v, label)| view! { <option value=v selected=move || trigger_variant_key(&tg()) == v>{label}</option> }).collect_view()}
                 </optgroup>
                 <optgroup label="Event">
                     {[("custom_event","Custom event"),("system_started","System started"),("hub_variable_changed","Hub variable changed"),("mode_changed","Mode changed"),("webhook_received","Webhook received"),("mqtt_message","MQTT message")]
-                        .map(|(v, label)| view! { <option value=v selected=move || tg()["type"].as_str() == Some(v)>{label}</option> }).collect_view()}
+                        .map(|(v, label)| view! { <option value=v selected=move || trigger_variant_key(&tg()) == v>{label}</option> }).collect_view()}
                 </optgroup>
                 <optgroup label="Manual">
-                    <option value="manual_trigger" selected=move || tg()["type"].as_str() == Some("manual_trigger")>"Manual trigger"</option>
+                    <option value="manual_trigger" selected=move || trigger_variant_key(&tg()) == "manual_trigger">"Manual trigger"</option>
                 </optgroup>
             </select>
 
             // Type-specific fields
             {move || {
                 let trigger = tg();
-                let t = trigger["type"].as_str().unwrap_or("").to_string();
-                match t.as_str() {
-                    "device_state_changed" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Device(s)"</label>
-                            <DeviceMultiSelect rule=rule />
-                            <label class="field-label">"Attribute (blank = any)"</label>
-                            <AttributeSelect
-                                device_id=jget_str(&trigger, "device_id")
-                                value=jget_opt_str(&trigger, "attribute")
-                                on_select=Callback::new(move |attr: String| tset_opt("attribute", &attr))
-                            />
-                            <div class="trigger-row-2">
-                                <AttrValueSelect
-                                    device_id=jget_str(&trigger, "device_id")
-                                    attribute=jget_opt_str(&trigger, "attribute")
-                                    value=trigger["to"].clone()
-                                    label="To (blank = any)"
-                                    on_select=Callback::new(move |raw: String| {
-                                        tset_opt("to", &raw);
-                                    })
-                                />
-                                <AttrValueSelect
-                                    device_id=jget_str(&trigger, "device_id")
-                                    attribute=jget_opt_str(&trigger, "attribute")
-                                    value=trigger["from"].clone()
-                                    label="From (blank = any)"
-                                    on_select=Callback::new(move |raw: String| {
-                                        tset_opt("from", &raw);
-                                    })
-                                />
+                match trigger {
+                    Trigger::DeviceStateChanged { ref device_id, ref attribute, ref to, ref from, ref for_duration_secs, .. } => {
+                        let did = device_id.clone();
+                        let attr = attribute.clone().unwrap_or_default();
+                        let to_val = to.clone().map(|v| serde_json::to_value(&v).unwrap_or_default()).unwrap_or(Value::Null);
+                        let from_val = from.clone().map(|v| serde_json::to_value(&v).unwrap_or_default()).unwrap_or(Value::Null);
+                        let dur = for_duration_secs.map(|n| n.to_string()).unwrap_or_default();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Device(s)"</label>
+                                <DeviceMultiSelect rule=rule />
+                                <label class="field-label">"Attribute (blank = any)"</label>
+                                <AttributeSelect device_id=did.clone() value=attr.clone()
+                                    on_select=Callback::new(move |a: String| rule.update(|r| {
+                                        if let Trigger::DeviceStateChanged { ref mut attribute, .. } = r.trigger {
+                                            *attribute = if a.is_empty() { None } else { Some(a) };
+                                        }
+                                    })) />
+                                <div class="trigger-row-2">
+                                    <AttrValueSelect device_id=did.clone() attribute=attr.clone() value=to_val label="To (blank = any)"
+                                        on_select=Callback::new(move |raw: String| rule.update(|r| {
+                                            if let Trigger::DeviceStateChanged { ref mut to, .. } = r.trigger {
+                                                *to = if raw.trim().is_empty() { None } else {
+                                                    Some(serde_json::from_str(&raw).unwrap_or_else(|_| json!(raw)))
+                                                };
+                                            }
+                                        })) />
+                                    <AttrValueSelect device_id=did.clone() attribute=attr.clone() value=from_val label="From (blank = any)"
+                                        on_select=Callback::new(move |raw: String| rule.update(|r| {
+                                            if let Trigger::DeviceStateChanged { ref mut from, .. } = r.trigger {
+                                                *from = if raw.trim().is_empty() { None } else {
+                                                    Some(serde_json::from_str(&raw).unwrap_or_else(|_| json!(raw)))
+                                                };
+                                            }
+                                        })) />
+                                </div>
+                                <label class="field-label">"Hold duration (seconds, blank = immediate)"</label>
+                                <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="None"
+                                    prop:value=dur
+                                    on:input=move |ev| {
+                                        let raw = event_target_value(&ev);
+                                        rule.update(|r| {
+                                            if let Trigger::DeviceStateChanged { ref mut for_duration_secs, .. } = r.trigger {
+                                                *for_duration_secs = raw.trim().parse::<u64>().ok();
+                                            }
+                                        });
+                                    } />
                             </div>
-                            <label class="field-label">"Hold duration (seconds, blank = immediate)"</label>
-                            <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="None"
-                                prop:value=jget_u64_str(&trigger, "for_duration_secs")
-                                on:input=move |ev| {
+                        }.into_any()
+                    },
+
+                    Trigger::DeviceAvailabilityChanged { ref device_id, ref to, .. } => {
+                        let did = device_id.clone();
+                        let to_val = *to;
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Device"</label>
+                                <DeviceSelect value=did on_select=Callback::new(move |id: String| rule.update(|r| {
+                                    if let Trigger::DeviceAvailabilityChanged { ref mut device_id, .. } = r.trigger { *device_id = id; }
+                                })) />
+                                <label class="field-label">"Direction"</label>
+                                <select class="hc-select" on:change=move |ev| {
                                     let raw = event_target_value(&ev);
-                                    rule.update(|v| {
-                                        if raw.trim().is_empty() { if let Some(o) = v["trigger"].as_object_mut() { o.remove("for_duration_secs"); } }
-                                        else if let Ok(n) = raw.trim().parse::<u64>() { v["trigger"]["for_duration_secs"] = json!(n); }
+                                    rule.update(|r| {
+                                        if let Trigger::DeviceAvailabilityChanged { ref mut to, .. } = r.trigger {
+                                            *to = match raw.as_str() { "online" => Some(true), "offline" => Some(false), _ => None };
+                                        }
                                     });
-                                }
-                            />
-                        </div>
-                    }.into_any(),
-
-                    "device_availability_changed" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Device"</label>
-                            <DeviceSelect value=jget_str(&trigger, "device_id")
-                                on_select=Callback::new(move |id: String| tset("device_id", json!(id))) />
-                            <label class="field-label">"Direction"</label>
-                            <select class="hc-select" on:change=move |ev| {
-                                let raw = event_target_value(&ev);
-                                rule.update(|v| { match raw.as_str() {
-                                    "online" => v["trigger"]["to"] = json!(true),
-                                    "offline" => v["trigger"]["to"] = json!(false),
-                                    _ => { if let Some(o) = v["trigger"].as_object_mut() { o.remove("to"); } }
-                                }});
-                            }>
-                                <option value="any" selected=move || tg().get("to").map(|v| v.is_null()).unwrap_or(true)>"Any"</option>
-                                <option value="online" selected=move || tg()["to"].as_bool() == Some(true)>"Goes online"</option>
-                                <option value="offline" selected=move || tg()["to"].as_bool() == Some(false)>"Goes offline"</option>
-                            </select>
-                        </div>
-                    }.into_any(),
-
-                    "button_event" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Device"</label>
-                            <DeviceSelect value=jget_str(&trigger, "device_id")
-                                on_select=Callback::new(move |id: String| tset("device_id", json!(id))) />
-                            <label class="field-label">"Event type"</label>
-                            <select class="hc-select" on:change=move |ev| tset("event", json!(event_target_value(&ev)))>
-                                {[("pushed","Pushed"),("held","Held"),("double_tapped","Double-tapped"),("released","Released")]
-                                    .map(|(v,l)| view! { <option value=v selected=trigger["event"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                            </select>
-                        </div>
-                    }.into_any(),
-
-                    "numeric_threshold" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Device"</label>
-                            <DeviceSelect value=jget_str(&trigger, "device_id")
-                                on_select=Callback::new(move |id: String| tset("device_id", json!(id))) />
-                            <label class="field-label">"Attribute"</label>
-                            <AttributeSelect
-                                device_id=jget_str(&trigger, "device_id")
-                                value=jget_str(&trigger, "attribute")
-                                on_select=Callback::new(move |attr: String| tset("attribute", json!(attr)))
-                            />
-                            <div class="trigger-row-2">
-                                <div>
-                                    <label class="field-label">"Operator"</label>
-                                    <select class="hc-select" on:change=move |ev| tset("op", json!(event_target_value(&ev)))>
-                                        {[("crosses_above","Crosses above"),("crosses_below","Crosses below"),("above","Is above"),("below","Is below")]
-                                            .map(|(v,l)| view! { <option value=v selected=trigger["op"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="field-label">"Threshold"</label>
-                                    <input type="number" class="hc-input"
-                                        prop:value=trigger["value"].as_f64().unwrap_or(0.0).to_string()
-                                        on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<f64>() { tset("value", json!(n)); } }
-                                    />
-                                </div>
+                                }>
+                                    <option value="any" selected=to_val.is_none()>"Any"</option>
+                                    <option value="online" selected=to_val==Some(true)>"Goes online"</option>
+                                    <option value="offline" selected=to_val==Some(false)>"Goes offline"</option>
+                                </select>
                             </div>
-                        </div>
-                    }.into_any(),
+                        }.into_any()
+                    },
 
-                    "time_of_day" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Time (HH:MM)"</label>
-                            <input type="time" class="hc-input hc-input--sm" style="width:10rem"
-                                prop:value=trigger["time"].as_str().unwrap_or("08:00:00").get(..5).unwrap_or("08:00").to_string()
-                                on:input=move |ev| { let hm = event_target_value(&ev); tset("time", json!(format!("{hm}:00"))); }
-                            />
-                            <label class="field-label">"Days"</label>
-                            <div class="trigger-day-row">
-                                {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(|day| {
-                                    let checked = trigger["days"].as_array().map(|a| a.iter().any(|d| d.as_str()==Some(day))).unwrap_or(false);
-                                    view! {
-                                        <label class="day-chip">
-                                            <input type="checkbox" prop:checked=checked
-                                                on:change=move |ev| {
-                                                    use wasm_bindgen::JsCast;
-                                                    let on = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()).map(|el| el.checked()).unwrap_or(false);
-                                                    rule.update(|v| {
-                                                        if let Some(arr) = v["trigger"]["days"].as_array_mut() {
-                                                            if on { if !arr.iter().any(|d| d.as_str()==Some(day)) { arr.push(json!(day)); } }
-                                                            else { arr.retain(|d| d.as_str()!=Some(day)); }
-                                                        }
-                                                    });
+                    Trigger::ButtonEvent { ref device_id, ref event, .. } => {
+                        let did = device_id.clone();
+                        let evt = format!("{:?}", event);
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Device"</label>
+                                <DeviceSelect value=did on_select=Callback::new(move |id: String| rule.update(|r| {
+                                    if let Trigger::ButtonEvent { ref mut device_id, .. } = r.trigger { *device_id = id; }
+                                })) />
+                                <label class="field-label">"Event type"</label>
+                                <select class="hc-select" on:change=move |ev| {
+                                    let raw = event_target_value(&ev);
+                                    rule.update(|r| {
+                                        if let Trigger::ButtonEvent { ref mut event, .. } = r.trigger {
+                                            *event = match raw.as_str() {
+                                                "Held" => ButtonEventType::Held,
+                                                "DoubleTapped" => ButtonEventType::DoubleTapped,
+                                                "Released" => ButtonEventType::Released,
+                                                _ => ButtonEventType::Pushed,
+                                            };
+                                        }
+                                    });
+                                }>
+                                    {[("Pushed","Pushed"),("Held","Held"),("DoubleTapped","Double-tapped"),("Released","Released")]
+                                        .map(|(v,l)| view! { <option value=v selected=evt==v>{l}</option> }).collect_view()}
+                                </select>
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::NumericThreshold { ref device_id, ref attribute, ref op, value, .. } => {
+                        let did = device_id.clone();
+                        let attr = attribute.clone();
+                        let op_str = format!("{:?}", op);
+                        let val = value;
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Device"</label>
+                                <DeviceSelect value=did on_select=Callback::new(move |id: String| rule.update(|r| {
+                                    if let Trigger::NumericThreshold { ref mut device_id, .. } = r.trigger { *device_id = id; }
+                                })) />
+                                <label class="field-label">"Attribute"</label>
+                                <AttributeSelect device_id=device_id.clone() value=attr
+                                    on_select=Callback::new(move |a: String| rule.update(|r| {
+                                        if let Trigger::NumericThreshold { ref mut attribute, .. } = r.trigger { *attribute = a; }
+                                    })) />
+                                <div class="trigger-row-2">
+                                    <div>
+                                        <label class="field-label">"Operator"</label>
+                                        <select class="hc-select" on:change=move |ev| {
+                                            let raw = event_target_value(&ev);
+                                            rule.update(|r| {
+                                                if let Trigger::NumericThreshold { ref mut op, .. } = r.trigger {
+                                                    *op = match raw.as_str() {
+                                                        "CrossesBelow" => ThresholdOp::CrossesBelow,
+                                                        "Above" => ThresholdOp::Above,
+                                                        "Below" => ThresholdOp::Below,
+                                                        _ => ThresholdOp::CrossesAbove,
+                                                    };
                                                 }
-                                            />
-                                            {day}
-                                        </label>
-                                    }
-                                }).collect_view()}
-                            </div>
-                        </div>
-                    }.into_any(),
-
-                    "sun_event" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Sun event"</label>
-                            <select class="hc-select" on:change=move |ev| tset("event", json!(event_target_value(&ev)))>
-                                {[("sunrise","Sunrise"),("sunset","Sunset"),("solar_noon","Solar noon"),("civil_dawn","Civil dawn"),("civil_dusk","Civil dusk")]
-                                    .map(|(v,l)| view! { <option value=v selected=trigger["event"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                            </select>
-                            <label class="field-label">"Offset (minutes)"</label>
-                            <input type="number" class="hc-input hc-input--sm" style="width:8rem"
-                                prop:value=jget_i64_str(&trigger, "offset_minutes")
-                                on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<i64>() { tset("offset_minutes", json!(n)); } }
-                            />
-                        </div>
-                    }.into_any(),
-
-                    "cron" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Cron expression (6-field)"</label>
-                            <input type="text" class="hc-input hc-textarea--code" placeholder="0 0 8 * * *"
-                                prop:value=jget_str(&trigger, "expression")
-                                on:input=move |ev| tset("expression", json!(event_target_value(&ev)))
-                            />
-                        </div>
-                    }.into_any(),
-
-                    "periodic" => view! {
-                        <div class="trigger-fields">
-                            <div class="trigger-row-2">
-                                <div>
-                                    <label class="field-label">"Every N"</label>
-                                    <input type="number" class="hc-input" min="1"
-                                        prop:value=trigger["every_n"].as_u64().unwrap_or(15).to_string()
-                                        on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u64>() { tset("every_n", json!(n)); } }
-                                    />
-                                </div>
-                                <div>
-                                    <label class="field-label">"Unit"</label>
-                                    <select class="hc-select" on:change=move |ev| tset("unit", json!(event_target_value(&ev)))>
-                                        {[("minutes","Minutes"),("hours","Hours"),("days","Days"),("weeks","Weeks")]
-                                            .map(|(v,l)| view! { <option value=v selected=trigger["unit"].as_str()==Some(v)>{l}</option> }).collect_view()}
-                                    </select>
+                                            });
+                                        }>
+                                            {[("CrossesAbove","Crosses above"),("CrossesBelow","Crosses below"),("Above","Is above"),("Below","Is below")]
+                                                .map(|(v,l)| view! { <option value=v selected=op_str==v>{l}</option> }).collect_view()}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="field-label">"Threshold"</label>
+                                        <input type="number" class="hc-input" prop:value=val.to_string()
+                                            on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<f64>() {
+                                                rule.update(|r| { if let Trigger::NumericThreshold { ref mut value, .. } = r.trigger { *value = n; } });
+                                            }} />
+                                    </div>
                                 </div>
                             </div>
+                        }.into_any()
+                    },
+
+                    Trigger::TimeOfDay { ref time, ref days } => {
+                        let time_str = time.format("%H:%M").to_string();
+                        let days_clone = days.clone();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Time (HH:MM)"</label>
+                                <input type="time" class="hc-input hc-input--sm" style="width:10rem"
+                                    prop:value=time_str
+                                    on:input=move |ev| {
+                                        let hm = event_target_value(&ev);
+                                        if let Ok(t) = chrono::NaiveTime::parse_from_str(&format!("{hm}:00"), "%H:%M:%S") {
+                                            rule.update(|r| { if let Trigger::TimeOfDay { ref mut time, .. } = r.trigger { *time = t; } });
+                                        }
+                                    } />
+                                <label class="field-label">"Days"</label>
+                                <div class="trigger-day-row">
+                                    {[("Mon", chrono::Weekday::Mon),("Tue", chrono::Weekday::Tue),("Wed", chrono::Weekday::Wed),
+                                      ("Thu", chrono::Weekday::Thu),("Fri", chrono::Weekday::Fri),("Sat", chrono::Weekday::Sat),("Sun", chrono::Weekday::Sun)]
+                                        .map(|(label, wd)| {
+                                            let checked = days_clone.contains(&wd);
+                                            view! {
+                                                <label class="day-chip">
+                                                    <input type="checkbox" prop:checked=checked
+                                                        on:change=move |ev| {
+                                                            use wasm_bindgen::JsCast;
+                                                            let on = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()).map(|el| el.checked()).unwrap_or(false);
+                                                            rule.update(|r| {
+                                                                if let Trigger::TimeOfDay { ref mut days, .. } = r.trigger {
+                                                                    if on { if !days.contains(&wd) { days.push(wd); } }
+                                                                    else { days.retain(|d| *d != wd); }
+                                                                }
+                                                            });
+                                                        } />
+                                                    {label}
+                                                </label>
+                                            }
+                                        }).collect_view()}
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::SunEvent { ref event, offset_minutes } => {
+                        let evt = format!("{:?}", event);
+                        let off = offset_minutes;
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Sun event"</label>
+                                <select class="hc-select" on:change=move |ev| {
+                                    let raw = event_target_value(&ev);
+                                    rule.update(|r| {
+                                        if let Trigger::SunEvent { ref mut event, .. } = r.trigger {
+                                            *event = match raw.as_str() {
+                                                "Sunrise" => SunEventType::Sunrise, "SolarNoon" => SunEventType::SolarNoon,
+                                                "CivilDawn" => SunEventType::CivilDawn, "CivilDusk" => SunEventType::CivilDusk,
+                                                _ => SunEventType::Sunset,
+                                            };
+                                        }
+                                    });
+                                }>
+                                    {[("Sunrise","Sunrise"),("Sunset","Sunset"),("SolarNoon","Solar noon"),("CivilDawn","Civil dawn"),("CivilDusk","Civil dusk")]
+                                        .map(|(v,l)| view! { <option value=v selected=evt==v>{l}</option> }).collect_view()}
+                                </select>
+                                <label class="field-label">"Offset (minutes)"</label>
+                                <input type="number" class="hc-input hc-input--sm" style="width:8rem" prop:value=off.to_string()
+                                    on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<i32>() {
+                                        rule.update(|r| { if let Trigger::SunEvent { ref mut offset_minutes, .. } = r.trigger { *offset_minutes = n; } });
+                                    }} />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::Cron { ref expression } => {
+                        let expr = expression.clone();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Cron expression (6-field)"</label>
+                                <input type="text" class="hc-input hc-textarea--code" placeholder="0 0 8 * * *" prop:value=expr
+                                    on:input=move |ev| rule.update(|r| { if let Trigger::Cron { ref mut expression } = r.trigger { *expression = event_target_value(&ev); } }) />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::Periodic { every_n, ref unit } => {
+                        let n = every_n;
+                        let u = format!("{:?}", unit);
+                        view! {
+                            <div class="trigger-fields">
+                                <div class="trigger-row-2">
+                                    <div>
+                                        <label class="field-label">"Every N"</label>
+                                        <input type="number" class="hc-input" min="1" prop:value=n.to_string()
+                                            on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<u32>() {
+                                                rule.update(|r| { if let Trigger::Periodic { ref mut every_n, .. } = r.trigger { *every_n = n; } });
+                                            }} />
+                                    </div>
+                                    <div>
+                                        <label class="field-label">"Unit"</label>
+                                        <select class="hc-select" on:change=move |ev| {
+                                            let raw = event_target_value(&ev);
+                                            rule.update(|r| {
+                                                if let Trigger::Periodic { ref mut unit, .. } = r.trigger {
+                                                    *unit = match raw.as_str() { "Hours" => PeriodicUnit::Hours, "Days" => PeriodicUnit::Days, "Weeks" => PeriodicUnit::Weeks, _ => PeriodicUnit::Minutes };
+                                                }
+                                            });
+                                        }>
+                                            {[("Minutes","Minutes"),("Hours","Hours"),("Days","Days"),("Weeks","Weeks")]
+                                                .map(|(v,l)| view! { <option value=v selected=u==v>{l}</option> }).collect_view()}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::CalendarEvent { ref calendar_id, ref title_contains, offset_minutes } => {
+                        let cal = calendar_id.clone().unwrap_or_default();
+                        let title = title_contains.clone().unwrap_or_default();
+                        let off = offset_minutes;
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Calendar ID (blank = any)"</label>
+                                <input type="text" class="hc-input" prop:value=cal
+                                    on:input=move |ev| { let v = event_target_value(&ev); rule.update(|r| {
+                                        if let Trigger::CalendarEvent { ref mut calendar_id, .. } = r.trigger { *calendar_id = if v.is_empty() { None } else { Some(v) }; }
+                                    }); } />
+                                <label class="field-label">"Title contains (blank = any)"</label>
+                                <input type="text" class="hc-input" prop:value=title
+                                    on:input=move |ev| { let v = event_target_value(&ev); rule.update(|r| {
+                                        if let Trigger::CalendarEvent { ref mut title_contains, .. } = r.trigger { *title_contains = if v.is_empty() { None } else { Some(v) }; }
+                                    }); } />
+                                <label class="field-label">"Offset (minutes)"</label>
+                                <input type="number" class="hc-input hc-input--sm" style="width:8rem" prop:value=off.to_string()
+                                    on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<i32>() {
+                                        rule.update(|r| { if let Trigger::CalendarEvent { ref mut offset_minutes, .. } = r.trigger { *offset_minutes = n; } });
+                                    }} />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::CustomEvent { ref event_type } => {
+                        let et = event_type.clone();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Event type"</label>
+                                <input type="text" class="hc-input" prop:value=et
+                                    on:input=move |ev| rule.update(|r| { if let Trigger::CustomEvent { ref mut event_type } = r.trigger { *event_type = event_target_value(&ev); } }) />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::HubVariableChanged { ref name } => {
+                        let n = name.clone().unwrap_or_default();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Variable name (blank = any)"</label>
+                                <input type="text" class="hc-input" prop:value=n
+                                    on:input=move |ev| { let v = event_target_value(&ev); rule.update(|r| {
+                                        if let Trigger::HubVariableChanged { ref mut name } = r.trigger { *name = if v.is_empty() { None } else { Some(v) }; }
+                                    }); } />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::ModeChanged { ref mode_id, ref to } => {
+                        let mid = mode_id.clone().unwrap_or_default();
+                        let to_val = *to;
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Mode (blank = any)"</label>
+                                <ModeSelect value=mid on_select=Callback::new(move |id: String| rule.update(|r| {
+                                    if let Trigger::ModeChanged { ref mut mode_id, .. } = r.trigger { *mode_id = if id.is_empty() { None } else { Some(id) }; }
+                                })) />
+                                <label class="field-label">"Direction"</label>
+                                <select class="hc-select" on:change=move |ev| {
+                                    let raw = event_target_value(&ev);
+                                    rule.update(|r| {
+                                        if let Trigger::ModeChanged { ref mut to, .. } = r.trigger {
+                                            *to = match raw.as_str() { "on" => Some(true), "off" => Some(false), _ => None };
+                                        }
+                                    });
+                                }>
+                                    <option value="any" selected=to_val.is_none()>"Any"</option>
+                                    <option value="on" selected=to_val==Some(true)>"Turns on"</option>
+                                    <option value="off" selected=to_val==Some(false)>"Turns off"</option>
+                                </select>
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::WebhookReceived { ref path } => {
+                        let p = path.clone();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Webhook path"</label>
+                                <input type="text" class="hc-input" prop:value=p
+                                    on:input=move |ev| rule.update(|r| { if let Trigger::WebhookReceived { ref mut path } = r.trigger { *path = event_target_value(&ev); } }) />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::MqttMessage { ref topic_pattern, ref payload, .. } => {
+                        let tp = topic_pattern.clone();
+                        let pl = payload.clone().unwrap_or_default();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Topic pattern"</label>
+                                <input type="text" class="hc-input hc-textarea--code" prop:value=tp
+                                    on:input=move |ev| rule.update(|r| { if let Trigger::MqttMessage { ref mut topic_pattern, .. } = r.trigger { *topic_pattern = event_target_value(&ev); } }) />
+                                <label class="field-label">"Exact payload (blank = any)"</label>
+                                <input type="text" class="hc-input" prop:value=pl
+                                    on:input=move |ev| { let v = event_target_value(&ev); rule.update(|r| {
+                                        if let Trigger::MqttMessage { ref mut payload, .. } = r.trigger { *payload = if v.is_empty() { None } else { Some(v) }; }
+                                    }); } />
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::SystemStarted => view! {
+                        <div class="trigger-fields">
+                            <p class="msg-muted" style="font-size:0.85rem">"Fires once when the rule engine starts."</p>
                         </div>
                     }.into_any(),
 
-                    "calendar_event" => view! {
+                    Trigger::ManualTrigger => view! {
                         <div class="trigger-fields">
-                            <label class="field-label">"Calendar ID (blank = any)"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_opt_str(&trigger, "calendar_id")
-                                on:input=move |ev| tset_opt("calendar_id", &event_target_value(&ev))
-                            />
-                            <label class="field-label">"Title contains (blank = any)"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_opt_str(&trigger, "title_contains")
-                                on:input=move |ev| tset_opt("title_contains", &event_target_value(&ev))
-                            />
-                            <label class="field-label">"Offset (minutes)"</label>
-                            <input type="number" class="hc-input hc-input--sm" style="width:8rem"
-                                prop:value=jget_i64_str(&trigger, "offset_minutes")
-                                on:input=move |ev| { if let Ok(n) = event_target_value(&ev).parse::<i64>() { tset("offset_minutes", json!(n)); } }
-                            />
-                        </div>
-                    }.into_any(),
-
-                    "custom_event" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Event type"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&trigger, "event_type")
-                                on:input=move |ev| tset("event_type", json!(event_target_value(&ev)))
-                            />
-                        </div>
-                    }.into_any(),
-
-                    "hub_variable_changed" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Variable name (blank = any)"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_opt_str(&trigger, "name")
-                                on:input=move |ev| tset_opt("name", &event_target_value(&ev))
-                            />
-                        </div>
-                    }.into_any(),
-
-                    "mode_changed" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Mode (blank = any)"</label>
-                            <ModeSelect value=jget_opt_str(&trigger, "mode_id")
-                                on_select=Callback::new(move |id: String| tset_opt("mode_id", &id))
-                            />
-                            <label class="field-label">"Direction"</label>
-                            <select class="hc-select" on:change=move |ev| {
-                                let raw = event_target_value(&ev);
-                                rule.update(|v| { match raw.as_str() {
-                                    "on" => v["trigger"]["to"] = json!(true),
-                                    "off" => v["trigger"]["to"] = json!(false),
-                                    _ => { if let Some(o) = v["trigger"].as_object_mut() { o.remove("to"); } }
-                                }});
-                            }>
-                                <option value="any" selected=move || !tg().get("to").is_some_and(|v| !v.is_null())>"Any"</option>
-                                <option value="on" selected=move || tg()["to"].as_bool()==Some(true)>"Turns on"</option>
-                                <option value="off" selected=move || tg()["to"].as_bool()==Some(false)>"Turns off"</option>
-                            </select>
-                        </div>
-                    }.into_any(),
-
-                    "webhook_received" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Webhook path"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_str(&trigger, "path")
-                                on:input=move |ev| tset("path", json!(event_target_value(&ev)))
-                            />
-                        </div>
-                    }.into_any(),
-
-                    "mqtt_message" => view! {
-                        <div class="trigger-fields">
-                            <label class="field-label">"Topic pattern"</label>
-                            <input type="text" class="hc-input hc-textarea--code"
-                                prop:value=jget_str(&trigger, "topic_pattern")
-                                on:input=move |ev| tset("topic_pattern", json!(event_target_value(&ev)))
-                            />
-                            <label class="field-label">"Exact payload (blank = any)"</label>
-                            <input type="text" class="hc-input"
-                                prop:value=jget_opt_str(&trigger, "payload")
-                                on:input=move |ev| tset_opt("payload", &event_target_value(&ev))
-                            />
-                        </div>
-                    }.into_any(),
-
-                    _ => view! {
-                        <div class="trigger-fields">
-                            <p class="msg-muted" style="font-size:0.85rem">
-                                {if t == "system_started" { "Fires once when the rule engine starts." } else { "No configurable fields." }}
-                            </p>
+                            <p class="msg-muted" style="font-size:0.85rem">"No configurable fields."</p>
                         </div>
                     }.into_any(),
                 }
@@ -2339,37 +2498,38 @@ fn DeviceSelect(
 
 #[component]
 fn DeviceMultiSelect(
-    rule: RwSignal<Value>,
+    rule: RwSignal<Rule>,
 ) -> impl IntoView {
     let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
 
     // Read primary device_id + additional device_ids from trigger
     let get_all_ids = move || -> Vec<String> {
-        let trigger = rule.get()["trigger"].clone();
-        let primary = trigger["device_id"].as_str().unwrap_or("").to_string();
-        let mut ids = trigger["device_ids"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect::<Vec<_>>())
-            .unwrap_or_default();
-        // When device_ids is non-empty, primary is included in the set.
-        // When device_ids is empty, just the primary.
-        if ids.is_empty() && !primary.is_empty() {
-            ids.push(primary);
-        } else if !ids.is_empty() && !primary.is_empty() && !ids.contains(&primary) {
-            ids.insert(0, primary);
+        match &rule.get().trigger {
+            Trigger::DeviceStateChanged { device_id, device_ids, .. } => {
+                if device_ids.is_empty() {
+                    if device_id.is_empty() { vec![] } else { vec![device_id.clone()] }
+                } else {
+                    let mut ids = device_ids.clone();
+                    if !device_id.is_empty() && !ids.contains(device_id) {
+                        ids.insert(0, device_id.clone());
+                    }
+                    ids
+                }
+            }
+            _ => vec![],
         }
-        ids
     };
 
     let set_ids = move |ids: Vec<String>| {
-        rule.update(|v| {
-            if ids.len() <= 1 {
-                // Single device: use device_id only, clear device_ids.
-                v["trigger"]["device_id"] = json!(ids.first().cloned().unwrap_or_default());
-                if let Some(obj) = v["trigger"].as_object_mut() { obj.remove("device_ids"); }
-            } else {
-                // Multiple: device_id = first, device_ids = all.
-                v["trigger"]["device_id"] = json!(ids[0]);
-                v["trigger"]["device_ids"] = json!(ids);
+        rule.update(|r| {
+            if let Trigger::DeviceStateChanged { ref mut device_id, ref mut device_ids, .. } = r.trigger {
+                if ids.len() <= 1 {
+                    *device_id = ids.first().cloned().unwrap_or_default();
+                    *device_ids = vec![];
+                } else {
+                    *device_id = ids[0].clone();
+                    *device_ids = ids;
+                }
             }
         });
     };

@@ -4,8 +4,8 @@
 use crate::api::{
     add_calendar_by_url, bulk_delete_devices, change_password, create_user, delete_calendar,
     delete_user, export_rules, export_scenes, fetch_calendars, fetch_calendar_events, fetch_me,
-    fetch_stale_refs, fetch_system_status, fetch_users, get_log_level, import_rules, import_scenes,
-    set_log_level, set_user_role, trigger_backup, upload_calendar,
+    fetch_plugins, fetch_stale_refs, fetch_system_status, fetch_users, get_log_level, import_rules,
+    import_scenes, restore_backup, set_log_level, set_user_role, trigger_backup, upload_calendar,
 };
 use crate::auth::use_auth;
 use crate::models::*;
@@ -102,6 +102,28 @@ async fn read_file_input(input_id: &str) -> Result<String, String> {
     text.as_string().ok_or_else(|| "File content not a string".to_string())
 }
 
+/// Read a file chosen via `<input type="file">` and return its raw bytes.
+async fn read_file_input_bytes(input_id: &str) -> Result<Vec<u8>, String> {
+    use js_sys::Uint8Array;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let document = web_sys::window().unwrap().document().unwrap();
+    let el = document
+        .get_element_by_id(input_id)
+        .ok_or("File input not found")?;
+    let input: web_sys::HtmlInputElement = el
+        .dyn_into()
+        .map_err(|_| "Element is not an input")?;
+    let files = input.files().ok_or("No files property")?;
+    let file = files.get(0).ok_or("No file selected")?;
+    let array_buffer = JsFuture::from(file.array_buffer())
+        .await
+        .map_err(|_| "Failed to read file")?;
+    let uint8 = Uint8Array::new(&array_buffer);
+    Ok(uint8.to_vec())
+}
+
 // ── Main AdminPage ──────────────────────────────────────────────────────────
 
 #[component]
@@ -143,11 +165,14 @@ pub fn AdminPage() -> impl IntoView {
 fn SystemStatusSection() -> impl IntoView {
     let auth = use_auth();
     let system_status = RwSignal::new(Option::<SystemStatus>::None);
+    let total_restarts = RwSignal::new(0u32);
+    let last_restart_str = RwSignal::new(String::new());
     let loading = RwSignal::new(true);
     let error = RwSignal::new(Option::<String>::None);
 
     let refresh = move || {
         let token = auth.token_str().unwrap_or_default();
+        let token2 = token.clone();
         loading.set(true);
         spawn_local(async move {
             match fetch_system_status(&token).await {
@@ -155,6 +180,19 @@ fn SystemStatusSection() -> impl IntoView {
                 Err(e) => error.set(Some(format!("System status: {e}"))),
             }
             loading.set(false);
+        });
+        spawn_local(async move {
+            if let Ok(plugins) = fetch_plugins(&token2).await {
+                let total: u32 = plugins.iter().map(|p| p.restart_count).sum();
+                total_restarts.set(total);
+                let latest = plugins
+                    .iter()
+                    .filter_map(|p| p.last_restart)
+                    .max()
+                    .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "—".into());
+                last_restart_str.set(latest);
+            }
         });
     };
 
@@ -208,6 +246,14 @@ fn SystemStatusSection() -> impl IntoView {
                             <div class="admin-stat">
                                 <span class="admin-stat-label">"History DB"</span>
                                 <span class="admin-stat-value">{format_bytes(status.history_db_bytes)}</span>
+                            </div>
+                            <div class="admin-stat">
+                                <span class="admin-stat-label">"Plugin Restarts"</span>
+                                <span class="admin-stat-value">{total_restarts.get().to_string()}</span>
+                            </div>
+                            <div class="admin-stat">
+                                <span class="admin-stat-label">"Last Restart"</span>
+                                <span class="admin-stat-value">{last_restart_str.get()}</span>
                             </div>
                         </div>
                     }.into_any()
@@ -778,12 +824,51 @@ fn BackupDataSection() -> impl IntoView {
         });
     };
 
+    // ── Restore backup ──────────────────────────────────────────────────────
+    let restore_confirm = RwSignal::new(false);
+    let restore_result = RwSignal::new(Option::<String>::None);
+
+    let on_restore = move |_| {
+        if !restore_confirm.get() {
+            restore_confirm.set(true);
+            return;
+        }
+        let token = auth.token_str().unwrap_or_default();
+        busy.set(true);
+        error.set(None);
+        notice.set(None);
+        restore_result.set(None);
+        restore_confirm.set(false);
+        spawn_local(async move {
+            match read_file_input_bytes("restore-backup-file").await {
+                Ok(bytes) => match restore_backup(&token, &bytes).await {
+                    Ok(resp) => {
+                        let restored = resp["restored"]
+                            .as_array()
+                            .map(|a| a.len())
+                            .unwrap_or(0);
+                        let msg = resp["message"]
+                            .as_str()
+                            .unwrap_or("Restore complete.");
+                        restore_result.set(Some(format!(
+                            "{restored} file(s) restored. {msg}"
+                        )));
+                    }
+                    Err(e) => error.set(Some(format!("Restore failed: {e}"))),
+                },
+                Err(e) => error.set(Some(e)),
+            }
+            busy.set(false);
+        });
+    };
+
     view! {
         <div class="detail-card">
             <h2 class="card-title">"Backup & Data"</h2>
             <ErrorBanner error=error />
             {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
             {move || import_result.get().map(|r| view! { <p class="msg-notice">{r}</p> })}
+            {move || restore_result.get().map(|r| view! { <p class="msg-notice">{r}</p> })}
 
             // ── Full backup ─────────────────────────────────────────────────
             <div class="admin-data-group">
@@ -837,6 +922,44 @@ fn BackupDataSection() -> impl IntoView {
                     <button class="btn btn-primary" disabled=move || busy.get() on:click=on_import_scenes>
                         {move || if busy.get() { "Importing..." } else { "Import Scenes" }}
                     </button>
+                </div>
+            </div>
+
+            // ── Restore ─────────────────────────────────────────────────────
+            <div class="admin-data-group">
+                <h3 class="admin-data-heading">"Restore from Backup"</h3>
+                <div class="danger-zone">
+                    <div class="danger-zone-copy">
+                        <p>"Upload a previously downloaded backup ZIP to restore configuration, rules, and databases. "</p>
+                        <p><strong>"This will overwrite current data. A server restart is required after restore."</strong></p>
+                    </div>
+                    <div class="admin-import-row">
+                        <div class="admin-import-field">
+                            <label>"Backup ZIP"</label>
+                            <input id="restore-backup-file" class="input" type="file" accept=".zip" />
+                        </div>
+                        <button
+                            class="btn btn-danger"
+                            disabled=move || busy.get()
+                            on:click=on_restore
+                        >
+                            {move || {
+                                if busy.get() {
+                                    "Restoring..."
+                                } else if restore_confirm.get() {
+                                    "Confirm Restore"
+                                } else {
+                                    "Restore"
+                                }
+                            }}
+                        </button>
+                        {move || restore_confirm.get().then(|| view! {
+                            <button
+                                class="btn btn-outline"
+                                on:click=move |_| restore_confirm.set(false)
+                            >"Cancel"</button>
+                        })}
+                    </div>
                 </div>
             </div>
         </div>

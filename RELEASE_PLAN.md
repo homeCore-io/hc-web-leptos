@@ -168,20 +168,22 @@
 
 ## Phase 6 — Admin Enhancements (Priority: Medium) — MERGED INTO ADMIN PAGE
 
-**Status:** Partially implemented. Merged into restructured Admin page.
+**Status:** Complete.
 
 **What was done:**
 - Admin page split into sub-components: `SystemStatusSection`, `UserManagementSection`,
-  `ChangePasswordSection`, `BackupDataSection`, `LogLevelSection`, `StaleRefsSection`, `DeviceCleanupSection`
+  `ChangePasswordSection`, `BackupDataSection`, `LogLevelSection`, `CalendarsSection`,
+  `StaleRefsSection`, `DeviceCleanupSection`
 - **Device schema viewer** added to device detail page (`/devices/:id`) as collapsible
   "Device Schema" card with lazy-load on expand. API: `fetch_device_schema()`
 - **Stale refs** enhanced with "Edit Rule" action links per stale rule and summary count
-- **System status** expanded with "Started" timestamp display
+- **System status** expanded with "Started" timestamp, plugin restart count, last restart time
+- **Backup restore** — `POST /system/restore` backend endpoint + UI with file picker,
+  confirmation step, and danger zone styling. Backup also fixed to include `.ron` rule files
+- **Plugin restart info** — total restart count and most recent restart shown in System Status
 
-**Remaining:**
-- [ ] Backup restore UI (needs backend restore endpoint)
-- [ ] MQTT broker connection count (needs backend field in SystemStatus)
-- [ ] Plugin restart history (needs backend endpoint)
+**Deferred (not feasible):**
+- MQTT broker connection count — rumqttd does not expose this metric
 
 ---
 
@@ -266,7 +268,7 @@ Phases 2, 3, 4 are independent and can be done in any order or in parallel.
 | 3 — Calendars | ~~200-350~~ done | ~~50~~ done | Medium |
 | 4 — Import/Export | ~~200-300~~ done | ~~30~~ done | Medium |
 | 5 — Matter | 300-400 | 60 | Low (defer?) |
-| 6 — Admin | ~~300-400~~ partial | ~~60~~ partial | Medium |
+| 6 — Admin | ~~300-400~~ done | ~~60~~ done | Medium |
 | 7 — Polish | 200-400 | 100 | Low |
 | **Total** | **2300-3550** | **580** | — |
 
@@ -279,7 +281,7 @@ Before hc-web-leptos ships as the default admin interface:
 - [ ] **Phase 1 complete** — Dashboard page functional with at least system overview widgets
 - [x] **Phase 2 complete** — Rule groups visible and manageable
 - [x] **Phase 4 complete** — Import/export for rules and scenes (merged into Admin "Backup & Data")
-- [ ] **Phase 6 complete** — Schema viewer done, stale refs enhanced; backup restore pending backend
+- [x] **Phase 6 complete** — Schema viewer, stale refs, backup restore, plugin restart info
 - [ ] **All pages tested** at 375px, 768px, 1280px, 1920px viewports
 - [ ] **No console errors** on any page during normal operation
 - [ ] **Auth flow solid** — login, logout, token refresh, role-based nav hiding

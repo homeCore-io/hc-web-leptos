@@ -200,6 +200,25 @@ async fn post_binary(path: &str, token: &str) -> Result<Vec<u8>, String> {
     resp.binary().await.map_err(|e| e.to_string())
 }
 
+async fn post_binary_body(path: &str, token: &str, body: &[u8]) -> Result<Value, String> {
+    use js_sys::Uint8Array;
+    let uint8 = Uint8Array::from(body);
+    let resp = Request::post(&format!("{API_BASE}{path}"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/zip")
+        .body(uint8)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.ok() {
+        return Err(api_error(&resp).await);
+    }
+
+    resp.json::<Value>().await.map_err(|e| e.to_string())
+}
+
 async fn put_json<T: serde::de::DeserializeOwned>(
     path: &str,
     token: &str,
@@ -617,6 +636,10 @@ pub async fn set_log_level(token: &str, level: &str) -> Result<(), String> {
 
 pub async fn trigger_backup(token: &str) -> Result<Vec<u8>, String> {
     post_binary("/system/backup", token).await
+}
+
+pub async fn restore_backup(token: &str, zip_bytes: &[u8]) -> Result<Value, String> {
+    post_binary_body("/system/restore", token, zip_bytes).await
 }
 
 pub async fn fetch_me(token: &str) -> Result<Value, String> {

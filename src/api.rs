@@ -627,6 +627,112 @@ pub async fn fetch_stale_refs(token: &str) -> Result<Vec<Value>, String> {
     get_json("/automations/stale-refs", token).await
 }
 
+// ── Rule Groups ───────────────────────────────────────────────────────────
+
+pub async fn fetch_rule_groups(token: &str) -> Result<Vec<crate::models::RuleGroup>, String> {
+    get_json("/automations/groups", token).await
+}
+
+pub async fn create_rule_group(
+    token: &str,
+    name: &str,
+    description: Option<&str>,
+    rule_ids: &[String],
+) -> Result<crate::models::RuleGroup, String> {
+    let mut body = serde_json::json!({ "name": name, "rule_ids": rule_ids });
+    if let Some(desc) = description {
+        body["description"] = serde_json::json!(desc);
+    }
+    post_json("/automations/groups", token, &body).await
+}
+
+pub async fn update_rule_group(
+    token: &str,
+    id: &str,
+    body: &Value,
+) -> Result<crate::models::RuleGroup, String> {
+    patch_json_with_response(&format!("/automations/groups/{id}"), token, body).await
+}
+
+pub async fn delete_rule_group(token: &str, id: &str) -> Result<(), String> {
+    delete_no_body(&format!("/automations/groups/{id}"), token).await
+}
+
+pub async fn rule_group_action(token: &str, id: &str, action: &str) -> Result<Value, String> {
+    post_json(
+        &format!("/automations/groups/{id}/{action}"),
+        token,
+        &serde_json::json!({}),
+    )
+    .await
+}
+
+// ── Calendars ─────────────────────────────────────────────────────────────
+
+pub async fn fetch_calendars(token: &str) -> Result<Vec<Value>, String> {
+    get_json("/calendars", token).await
+}
+
+pub async fn add_calendar_by_url(
+    token: &str,
+    url: &str,
+    name: Option<&str>,
+    refresh_hours: Option<u64>,
+) -> Result<Value, String> {
+    let mut body = serde_json::json!({ "url": url });
+    if let Some(n) = name {
+        body["name"] = serde_json::json!(n);
+    }
+    if let Some(h) = refresh_hours {
+        body["refresh_hours"] = serde_json::json!(h);
+    }
+    post_json("/calendars/fetch", token, &body).await
+}
+
+pub async fn upload_calendar(
+    token: &str,
+    content: &str,
+    name: Option<&str>,
+) -> Result<Value, String> {
+    let mut body = serde_json::json!({ "content": content });
+    if let Some(n) = name {
+        body["name"] = serde_json::json!(n);
+    }
+    post_json("/calendars/upload", token, &body).await
+}
+
+pub async fn delete_calendar(token: &str, id: &str) -> Result<(), String> {
+    delete_no_body(&format!("/calendars/{id}"), token).await
+}
+
+pub async fn fetch_calendar_events(token: &str, id: &str) -> Result<Vec<Value>, String> {
+    get_json(&format!("/calendars/{id}/events"), token).await
+}
+
+// ── Admin: Export / Import ─────────────────────────────────────────────────
+
+pub async fn export_rules(token: &str) -> Result<Value, String> {
+    get_json("/automations/export", token).await
+}
+
+pub async fn import_rules(token: &str, rules: &Value) -> Result<Value, String> {
+    post_json("/automations/import", token, rules).await
+}
+
+pub async fn export_scenes(token: &str) -> Result<Value, String> {
+    get_json("/scenes/export", token).await
+}
+
+pub async fn import_scenes(token: &str, scenes: &Value) -> Result<Value, String> {
+    post_json("/scenes/import", token, scenes).await
+}
+
+// ── Device Schema ─────────────────────────────────────────────────────────
+
+pub async fn fetch_device_schema(token: &str, id: &str) -> Result<Value, String> {
+    get_json(&format!("/devices/{id}/schema"), token).await
+}
+
 pub async fn bulk_delete_devices(token: &str, ids: &[String]) -> Result<Value, String> {
     let body = serde_json::json!({ "ids": ids });
     let url = format!("{}/devices", API_BASE);

@@ -3021,6 +3021,60 @@ a.cell-link:hover { text-decoration: underline; }
 .admin-stat-label { font-size: 0.78rem; color: var(--hc-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
 .admin-stat-value { font-size: 1.1rem; font-weight: 600; }
 
+/* ── Rule Groups panel ──────────────────────────────────────────────────── */
+.rule-groups-panel { margin-bottom: 0.75rem; }
+.rule-groups-header { display: flex; align-items: center; gap: 0.5rem; }
+.rule-groups-body {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem 0;
+    align-items: flex-start;
+}
+.rule-group-chip {
+    display: flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.5rem;
+    border: 1px solid var(--hc-border); border-radius: var(--hc-radius-md);
+    background: var(--hc-surface); font-size: 0.85rem;
+}
+.rule-group-chip--active { border-color: var(--hc-accent); background: var(--hc-accent-soft); }
+.rule-group-chip-name {
+    background: none; border: none; cursor: pointer; font: inherit; color: var(--hc-text);
+    padding: 0; font-weight: 500;
+}
+.rule-group-chip-name:hover { text-decoration: underline; }
+.rule-group-desc { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; }
+.rule-group-actions { display: flex; gap: 0.15rem; margin-left: 0.25rem; }
+.rule-group-create { display: flex; gap: 0.5rem; align-items: center; }
+.rule-group-create .input { width: 180px; padding: 0.3rem 0.5rem; font-size: 0.85rem; }
+
+/* ── Calendars section ─────────────────────────────────────────────────── */
+.cal-list { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.5rem 0; }
+.cal-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+    padding: 0.5rem 0.75rem; border: 1px solid var(--hc-border); border-radius: var(--hc-radius-md);
+    background: var(--hc-surface); font-size: 0.85rem;
+}
+.cal-item-info { flex: 1; min-width: 0; }
+.cal-item-name { font-weight: 600; }
+.cal-item-meta { font-size: 0.78rem; color: var(--hc-text-muted); }
+.cal-item-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
+.cal-add-form { display: flex; flex-direction: column; gap: 0.5rem; }
+.cal-add-row { display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; }
+.cal-add-row .input { flex: 1; min-width: 200px; }
+
+/* ── Backup & Data section ──────────────────────────────────────────────── */
+.admin-data-group { padding: 0.75rem 0; border-top: 1px solid var(--hc-border); }
+.admin-data-group:first-of-type { border-top: none; padding-top: 0; }
+.admin-data-heading { font-size: 0.92rem; font-weight: 600; margin: 0 0 0.25rem; }
+.admin-data-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+
+.admin-import-row {
+    display: flex; align-items: flex-end; gap: 0.75rem; margin-top: 0.5rem; flex-wrap: wrap;
+}
+.admin-import-field { flex: 1; min-width: 200px; }
+.admin-import-field label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--hc-text-muted); margin-bottom: 0.25rem; }
+.admin-import-field input[type="file"] { font-size: 0.85rem; }
+
+/* ── Schema raw fallback ────────────────────────────────────────────────── */
+.schema-raw { font-size: 0.82rem; background: var(--hc-surface-soft); padding: 0.75rem; border-radius: 6px; overflow-x: auto; max-height: 400px; }
+
 .btn-sm { padding: 0.2rem 0.5rem; font-size: 0.8rem; }
 
 /* ── Buttons ───────────────────────────────────────────────────────── */

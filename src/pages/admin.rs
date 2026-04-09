@@ -1,14 +1,15 @@
-//! Admin page — user management, password change, system status, backup, log level,
-//! stale device references, device cleanup.
+//! Admin page — user management, password change, system status, backup & data,
+//! log level, calendars, stale device references, device cleanup.
 
-use crate::pages::shared::ErrorBanner;
 use crate::api::{
-    bulk_delete_devices, change_password, create_user, delete_user, fetch_me,
-    fetch_stale_refs, fetch_system_status, fetch_users, get_log_level, set_log_level,
-    set_user_role, trigger_backup,
+    add_calendar_by_url, bulk_delete_devices, change_password, create_user, delete_calendar,
+    delete_user, export_rules, export_scenes, fetch_calendars, fetch_calendar_events, fetch_me,
+    fetch_stale_refs, fetch_system_status, fetch_users, get_log_level, import_rules, import_scenes,
+    set_log_level, set_user_role, trigger_backup, upload_calendar,
 };
 use crate::auth::use_auth;
 use crate::models::*;
+use crate::pages::shared::ErrorBanner;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
@@ -54,13 +55,176 @@ fn role_display(role: &str) -> String {
     }
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+/// Trigger a browser download from an in-memory byte slice.
+fn trigger_browser_download(bytes: &[u8], filename: &str, mime: &str) {
+    use js_sys::{Array, Uint8Array};
+    use wasm_bindgen::JsCast;
+
+    let uint8 = Uint8Array::from(bytes);
+    let array = Array::new();
+    array.push(&uint8.buffer());
+    let _ = mime; // MIME type noted for future BlobPropertyBag support
+    if let Ok(blob) = web_sys::Blob::new_with_u8_array_sequence(&array) {
+        if let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) {
+            let document = web_sys::window().unwrap().document().unwrap();
+            let a = document.create_element("a").unwrap();
+            let _ = a.set_attribute("href", &url);
+            let _ = a.set_attribute("download", filename);
+            let _ = a.set_attribute("style", "display:none");
+            let body = document.body().unwrap();
+            let _ = body.append_child(&a);
+            if let Some(el) = a.dyn_ref::<web_sys::HtmlElement>() {
+                el.click();
+            }
+            let _ = body.remove_child(&a);
+            let _ = web_sys::Url::revoke_object_url(&url);
+        }
+    }
+}
+
+/// Read a file chosen via `<input type="file">` and return its text content.
+async fn read_file_input(input_id: &str) -> Result<String, String> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let document = web_sys::window().unwrap().document().unwrap();
+    let el = document
+        .get_element_by_id(input_id)
+        .ok_or("File input not found")?;
+    let input: web_sys::HtmlInputElement = el
+        .dyn_into()
+        .map_err(|_| "Element is not an input")?;
+    let files = input.files().ok_or("No files property")?;
+    let file = files.get(0).ok_or("No file selected")?;
+    let text = JsFuture::from(file.text())
+        .await
+        .map_err(|_| "Failed to read file")?;
+    text.as_string().ok_or_else(|| "File content not a string".to_string())
+}
+
+// ── Main AdminPage ──────────────────────────────────────────────────────────
 
 #[component]
 pub fn AdminPage() -> impl IntoView {
+    view! {
+        <div class="page">
+            <div class="heading">
+                <div>
+                    <h1>"Administration"</h1>
+                    <p>"Manage users, system settings, and backups."</p>
+                </div>
+            </div>
+
+            <SystemStatusSection />
+            <UserManagementSection />
+            <ChangePasswordSection />
+            <BackupDataSection />
+            <LogLevelSection />
+            <CalendarsSection />
+
+            <div class="detail-card">
+                <h2 class="card-title">"Stale Device References"</h2>
+                <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">"Rules that reference device IDs no longer registered in the device store."</p>
+                <StaleRefsSection />
+            </div>
+
+            <div class="detail-card">
+                <h2 class="card-title">"Device Cleanup"</h2>
+                <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">"Bulk delete devices by ID. Affected rules will have references nullified."</p>
+                <DeviceCleanupSection />
+            </div>
+        </div>
+    }
+}
+
+// ── System Status ───────────────────────────────────────────────────────────
+
+#[component]
+fn SystemStatusSection() -> impl IntoView {
+    let auth = use_auth();
+    let system_status = RwSignal::new(Option::<SystemStatus>::None);
+    let loading = RwSignal::new(true);
+    let error = RwSignal::new(Option::<String>::None);
+
+    let refresh = move || {
+        let token = auth.token_str().unwrap_or_default();
+        loading.set(true);
+        spawn_local(async move {
+            match fetch_system_status(&token).await {
+                Ok(status) => system_status.set(Some(status)),
+                Err(e) => error.set(Some(format!("System status: {e}"))),
+            }
+            loading.set(false);
+        });
+    };
+
+    Effect::new(move |_| refresh());
+
+    view! {
+        <div class="detail-card">
+            <div class="card-title-row">
+                <h2 class="card-title">"System Status"</h2>
+                <button
+                    class="btn btn-outline"
+                    on:click=move |_| refresh()
+                    disabled=move || loading.get()
+                >
+                    {move || if loading.get() { "Refreshing..." } else { "Refresh" }}
+                </button>
+            </div>
+            <ErrorBanner error=error />
+            {move || {
+                if let Some(status) = system_status.get() {
+                    view! {
+                        <div class="admin-status-grid">
+                            <div class="admin-stat">
+                                <span class="admin-stat-label">"Uptime"</span>
+                                <span class="admin-stat-value">{format_uptime(status.uptime_seconds as u64)}</span>
+                            </div>
+                            <div class="admin-stat">
+                                <span class="admin-stat-label">"Version"</span>
+                                <span class="admin-stat-value">{status.version.clone()}</span>
+                            </div>
+                            <div class="admin-stat">
+                                <span class="admin-stat-label">"Started"</span>
+                                <span class="admin-stat-value">{status.started_at.chars().take(19).collect::<String>()}</span>
+                            </div>
+                            <div class="admin-stat">
+                                <span class="admin-stat-label">"Devices"</span>
+                                <span class="admin-stat-value">{status.devices_total.to_string()}</span>
+                            </div>
+                            <div class="admin-stat">
+                                <span class="admin-stat-label">"Rules"</span>
+                                <span class="admin-stat-value">{format!("{} / {}", status.rules_enabled, status.rules_total)}</span>
+                            </div>
+                            <div class="admin-stat">
+                                <span class="admin-stat-label">"Plugins"</span>
+                                <span class="admin-stat-value">{status.plugins_active.to_string()}</span>
+                            </div>
+                            <div class="admin-stat">
+                                <span class="admin-stat-label">"State DB"</span>
+                                <span class="admin-stat-value">{format_bytes(status.state_db_bytes)}</span>
+                            </div>
+                            <div class="admin-stat">
+                                <span class="admin-stat-label">"History DB"</span>
+                                <span class="admin-stat-value">{format_bytes(status.history_db_bytes)}</span>
+                            </div>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! { <p class="no-controls-msg">"Loading system status..."</p> }.into_any()
+                }
+            }}
+        </div>
+    }
+}
+
+// ── User Management ─────────────────────────────────────────────────────────
+
+#[component]
+fn UserManagementSection() -> impl IntoView {
     let auth = use_auth();
 
-    // ── User management signals ──────────────────────────────────────────────
     let users: RwSignal<Vec<UserInfo>> = RwSignal::new(vec![]);
     let current_user_id = RwSignal::new(String::new());
     let loading = RwSignal::new(true);
@@ -76,28 +240,11 @@ pub fn AdminPage() -> impl IntoView {
     let edit_role = RwSignal::new(String::new());
     let delete_confirm = RwSignal::new(String::new());
 
-    // ── Password signals ─────────────────────────────────────────────────────
-    let pw_current = RwSignal::new(String::new());
-    let pw_new = RwSignal::new(String::new());
-    let pw_confirm = RwSignal::new(String::new());
-    let pw_error = RwSignal::new(Option::<String>::None);
-    let pw_notice = RwSignal::new(Option::<String>::None);
-
-    // ── System status signals ────────────────────────────────────────────────
-    let system_status = RwSignal::new(Option::<SystemStatus>::None);
-    let sys_loading = RwSignal::new(true);
-
-    // ── Log level signals ────────────────────────────────────────────────────
-    let log_level = RwSignal::new(String::new());
-    let log_level_edit = RwSignal::new(String::new());
-
-    // ── Refresh users ────────────────────────────────────────────────────────
     let refresh_users = move || {
         let token = auth.token_str().unwrap_or_default();
         loading.set(true);
         error.set(None);
         spawn_local(async move {
-            // Fetch current user id
             match fetch_me(&token).await {
                 Ok(me) => {
                     if let Some(user) = me.get("user") {
@@ -106,7 +253,7 @@ pub fn AdminPage() -> impl IntoView {
                         }
                     }
                 }
-                Err(_) => {} // non-fatal
+                Err(_) => {}
             }
 
             match fetch_users(&token).await {
@@ -120,21 +267,594 @@ pub fn AdminPage() -> impl IntoView {
         });
     };
 
-    // ── Refresh system status ────────────────────────────────────────────────
-    let refresh_system = move || {
-        let token = auth.token_str().unwrap_or_default();
-        sys_loading.set(true);
-        spawn_local(async move {
-            match fetch_system_status(&token).await {
-                Ok(status) => system_status.set(Some(status)),
-                Err(e) => error.set(Some(format!("System status: {e}"))),
+    Effect::new(move |_| {
+        refresh_users();
+    });
+
+    Effect::new(move |_| {
+        let sel = selected_user_id.get();
+        if let Some(id) = sel {
+            if let Some(user) = users.get().iter().find(|u| u.id == id) {
+                edit_role.set(user.role.clone());
             }
-            sys_loading.set(false);
+        }
+        delete_confirm.set(String::new());
+    });
+
+    view! {
+        <div class="detail-card">
+            <div class="card-title-row">
+                <h2 class="card-title">"User Management"</h2>
+                <button
+                    class="btn btn-outline"
+                    on:click=move |_| refresh_users()
+                    disabled=move || loading.get()
+                >
+                    {move || if loading.get() { "Refreshing..." } else { "Refresh" }}
+                </button>
+            </div>
+
+            <ErrorBanner error=error />
+            {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
+
+            {move || {
+                let list = users.get();
+                if loading.get() && list.is_empty() {
+                    view! { <p class="no-controls-msg">"Loading users..."</p> }.into_any()
+                } else if list.is_empty() {
+                    view! { <p class="no-controls-msg">"No users found."</p> }.into_any()
+                } else {
+                    view! {
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>"Username"</th>
+                                    <th>"Role"</th>
+                                    <th>"Created"</th>
+                                    <th>"Actions"</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <For
+                                    each=move || users.get()
+                                    key=|u| u.id.clone()
+                                    children=move |user| {
+                                        let user_id = user.id.clone();
+                                        let click_id = user_id.clone();
+                                        let is_current = user_id == current_user_id.get();
+                                        let role_class = role_badge_class(&user.role);
+                                        let role_label = role_display(&user.role).to_string();
+                                        let created = user.created_at.chars().take(10).collect::<String>();
+                                        let username = user.username.clone();
+                                        view! {
+                                            <tr
+                                                class:admin-row-current=is_current
+                                                class:admin-row-selected=move || selected_user_id.get().as_deref() == Some(click_id.as_str())
+                                            >
+                                                <td>
+                                                    {username}
+                                                    {if is_current { " (you)" } else { "" }}
+                                                </td>
+                                                <td><span class={role_class}>{role_label}</span></td>
+                                                <td>{created}</td>
+                                                <td>
+                                                    <button
+                                                        class="btn-outline btn-sm"
+                                                        on:click={
+                                                            let uid = user_id.clone();
+                                                            move |_| {
+                                                                if selected_user_id.get().as_deref() == Some(uid.as_str()) {
+                                                                    selected_user_id.set(None);
+                                                                } else {
+                                                                    selected_user_id.set(Some(uid.clone()));
+                                                                }
+                                                            }
+                                                        }
+                                                    >
+                                                        {
+                                                            let uid2 = user_id.clone();
+                                                            move || if selected_user_id.get().as_deref() == Some(uid2.as_str()) { "Close" } else { "Edit" }
+                                                        }
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            // Inline edit panel
+                                            {
+                                                let uid = user_id.clone();
+                                                let uid_save = user_id.clone();
+                                                let uid_del = user_id.clone();
+                                                let is_self = user_id == current_user_id.get();
+                                                move || {
+                                                    let uid = uid.clone();
+                                                    let uid_save = uid_save.clone();
+                                                    let uid_del = uid_del.clone();
+                                                    (selected_user_id.get().as_deref() == Some(uid.as_str())).then(|| {
+                                                        view! {
+                                                            <tr class="admin-edit-row">
+                                                                <td colspan="4">
+                                                                    <div class="admin-edit-panel">
+                                                                        <div class="edit-grid">
+                                                                            <div class="edit-field">
+                                                                                <label>"Role"</label>
+                                                                                <select
+                                                                                    prop:value=move || edit_role.get()
+                                                                                    on:change=move |ev| edit_role.set(event_target_value(&ev))
+                                                                                >
+                                                                                    <option value="admin" selected=move || edit_role.get() == "admin">"Admin"</option>
+                                                                                    <option value="user" selected=move || edit_role.get() == "user">"User"</option>
+                                                                                    <option value="read_only" selected=move || edit_role.get() == "read_only">"Read Only"</option>
+                                                                                </select>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div class="edit-actions">
+                                                                            <button
+                                                                                class="btn btn-primary"
+                                                                                disabled=move || busy.get()
+                                                                                on:click={
+                                                                                    let uid_save = uid_save.clone();
+                                                                                    move |_| {
+                                                                                        let token = auth.token_str().unwrap_or_default();
+                                                                                        let id = uid_save.clone();
+                                                                                        let role = edit_role.get();
+                                                                                        busy.set(true);
+                                                                                        error.set(None);
+                                                                                        notice.set(None);
+                                                                                        spawn_local(async move {
+                                                                                            match set_user_role(&token, &id, &role).await {
+                                                                                                Ok(updated) => {
+                                                                                                    notice.set(Some(format!("Updated role for {} to {}.", updated.username, role_display(&updated.role))));
+                                                                                                    refresh_users();
+                                                                                                }
+                                                                                                Err(e) => error.set(Some(format!("Role update failed: {e}"))),
+                                                                                            }
+                                                                                            busy.set(false);
+                                                                                        });
+                                                                                    }
+                                                                                }
+                                                                            >
+                                                                                {move || if busy.get() { "Saving..." } else { "Save role" }}
+                                                                            </button>
+                                                                        </div>
+                                                                        {if !is_self {
+                                                                            let uid_del = uid_del.clone();
+                                                                            Some(view! {
+                                                                                <div class="danger-zone">
+                                                                                    <div class="danger-zone-copy">
+                                                                                        <h3>"Delete User"</h3>
+                                                                                        <p>"This action cannot be undone."</p>
+                                                                                    </div>
+                                                                                    <div class="danger-zone-controls">
+                                                                                        <div class="edit-field">
+                                                                                            <label>"Type DELETE to confirm"</label>
+                                                                                            <input
+                                                                                                class="input"
+                                                                                                type="text"
+                                                                                                prop:value=move || delete_confirm.get()
+                                                                                                on:input=move |ev| delete_confirm.set(event_target_value(&ev))
+                                                                                                placeholder="DELETE"
+                                                                                            />
+                                                                                        </div>
+                                                                                        <button
+                                                                                            class="danger"
+                                                                                            disabled=move || busy.get() || delete_confirm.get().trim() != "DELETE"
+                                                                                            on:click={
+                                                                                                let uid_del = uid_del.clone();
+                                                                                                move |_| {
+                                                                                                    let token = auth.token_str().unwrap_or_default();
+                                                                                                    let id = uid_del.clone();
+                                                                                                    busy.set(true);
+                                                                                                    error.set(None);
+                                                                                                    notice.set(None);
+                                                                                                    spawn_local(async move {
+                                                                                                        match delete_user(&token, &id).await {
+                                                                                                            Ok(()) => {
+                                                                                                                notice.set(Some("User deleted.".to_string()));
+                                                                                                                selected_user_id.set(None);
+                                                                                                                refresh_users();
+                                                                                                            }
+                                                                                                            Err(e) => error.set(Some(format!("Delete failed: {e}"))),
+                                                                                                        }
+                                                                                                        busy.set(false);
+                                                                                                    });
+                                                                                                }
+                                                                                            }
+                                                                                        >
+                                                                                            {move || if busy.get() { "Deleting..." } else { "Delete user" }}
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            })
+                                                                        } else {
+                                                                            None
+                                                                        }}
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    })
+                                                }
+                                            }
+                                        }
+                                    }
+                                />
+                            </tbody>
+                        </table>
+                    }.into_any()
+                }
+            }}
+
+            // Create user form
+            <div class="card-title-row" style="margin-top: 1rem">
+                <h3 class="card-title">"Create User"</h3>
+            </div>
+            <div class="admin-create-row">
+                <input
+                    class="input"
+                    type="text"
+                    prop:value=move || create_username.get()
+                    on:input=move |ev| create_username.set(event_target_value(&ev))
+                    placeholder="Username"
+                />
+                <input
+                    class="input"
+                    type="password"
+                    prop:value=move || create_password.get()
+                    on:input=move |ev| create_password.set(event_target_value(&ev))
+                    placeholder="Password"
+                />
+                <select
+                    prop:value=move || create_role.get()
+                    on:change=move |ev| create_role.set(event_target_value(&ev))
+                >
+                    <option value="admin">"Admin"</option>
+                    <option value="user" selected=true>"User"</option>
+                    <option value="read_only">"Read Only"</option>
+                </select>
+                <button
+                    class="btn btn-primary"
+                    disabled=move || {
+                        busy.get()
+                            || create_username.get().trim().is_empty()
+                            || create_password.get().trim().is_empty()
+                    }
+                    on:click=move |_| {
+                        let token = auth.token_str().unwrap_or_default();
+                        let username = create_username.get();
+                        let password = create_password.get();
+                        let role = create_role.get();
+                        busy.set(true);
+                        error.set(None);
+                        notice.set(None);
+                        spawn_local(async move {
+                            match create_user(&token, &username, &password, &role).await {
+                                Ok(user) => {
+                                    notice.set(Some(format!("Created user {}.", user.username)));
+                                    create_username.set(String::new());
+                                    create_password.set(String::new());
+                                    create_role.set("user".to_string());
+                                    refresh_users();
+                                }
+                                Err(e) => error.set(Some(format!("Create failed: {e}"))),
+                            }
+                            busy.set(false);
+                        });
+                    }
+                >
+                    {move || if busy.get() { "Creating..." } else { "Create" }}
+                </button>
+            </div>
+        </div>
+    }
+}
+
+// ── Change Password ─────────────────────────────────────────────────────────
+
+#[component]
+fn ChangePasswordSection() -> impl IntoView {
+    let auth = use_auth();
+    let busy = RwSignal::new(false);
+    let pw_current = RwSignal::new(String::new());
+    let pw_new = RwSignal::new(String::new());
+    let pw_confirm = RwSignal::new(String::new());
+    let pw_error = RwSignal::new(Option::<String>::None);
+    let pw_notice = RwSignal::new(Option::<String>::None);
+
+    view! {
+        <div class="detail-card">
+            <h2 class="card-title">"Change Password"</h2>
+            <ErrorBanner error=pw_error />
+            {move || pw_notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
+            <div class="edit-grid">
+                <div class="edit-field">
+                    <label>"Current Password"</label>
+                    <input
+                        class="input"
+                        type="password"
+                        prop:value=move || pw_current.get()
+                        on:input=move |ev| pw_current.set(event_target_value(&ev))
+                        placeholder="Current password"
+                    />
+                </div>
+                <div class="edit-field">
+                    <label>"New Password"</label>
+                    <input
+                        class="input"
+                        type="password"
+                        prop:value=move || pw_new.get()
+                        on:input=move |ev| pw_new.set(event_target_value(&ev))
+                        placeholder="Minimum 8 characters"
+                    />
+                </div>
+                <div class="edit-field">
+                    <label>"Confirm New Password"</label>
+                    <input
+                        class="input"
+                        type="password"
+                        prop:value=move || pw_confirm.get()
+                        on:input=move |ev| pw_confirm.set(event_target_value(&ev))
+                        placeholder="Repeat new password"
+                    />
+                </div>
+            </div>
+            <div class="edit-actions">
+                <button
+                    class="btn btn-primary"
+                    disabled=move || {
+                        busy.get()
+                            || pw_current.get().is_empty()
+                            || pw_new.get().len() < 8
+                            || pw_new.get() != pw_confirm.get()
+                    }
+                    on:click=move |_| {
+                        let token = auth.token_str().unwrap_or_default();
+                        let current = pw_current.get();
+                        let new_pass = pw_new.get();
+                        let confirm = pw_confirm.get();
+
+                        pw_error.set(None);
+                        pw_notice.set(None);
+
+                        if new_pass.len() < 8 {
+                            pw_error.set(Some("New password must be at least 8 characters.".to_string()));
+                            return;
+                        }
+                        if new_pass != confirm {
+                            pw_error.set(Some("Passwords do not match.".to_string()));
+                            return;
+                        }
+
+                        busy.set(true);
+                        spawn_local(async move {
+                            match change_password(&token, &current, &new_pass).await {
+                                Ok(()) => {
+                                    pw_notice.set(Some("Password changed successfully.".to_string()));
+                                    pw_current.set(String::new());
+                                    pw_new.set(String::new());
+                                    pw_confirm.set(String::new());
+                                }
+                                Err(e) => pw_error.set(Some(format!("Password change failed: {e}"))),
+                            }
+                            busy.set(false);
+                        });
+                    }
+                >
+                    {move || if busy.get() { "Changing..." } else { "Change Password" }}
+                </button>
+            </div>
+        </div>
+    }
+}
+
+// ── Backup & Data ───────────────────────────────────────────────────────────
+
+#[component]
+fn BackupDataSection() -> impl IntoView {
+    let auth = use_auth();
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(Option::<String>::None);
+    let notice = RwSignal::new(Option::<String>::None);
+    let import_result = RwSignal::new(Option::<String>::None);
+
+    // ── Backup download ─────────────────────────────────────────────────────
+    let on_backup = move |_| {
+        let token = auth.token_str().unwrap_or_default();
+        busy.set(true);
+        error.set(None);
+        notice.set(None);
+        import_result.set(None);
+        spawn_local(async move {
+            match trigger_backup(&token).await {
+                Ok(bytes) => {
+                    trigger_browser_download(&bytes, "homecore-backup.zip", "application/zip");
+                    notice.set(Some("Backup downloaded.".to_string()));
+                }
+                Err(e) => error.set(Some(format!("Backup failed: {e}"))),
+            }
+            busy.set(false);
         });
     };
 
-    // ── Refresh log level ────────────────────────────────────────────────────
-    let refresh_log_level = move || {
+    // ── Export rules ────────────────────────────────────────────────────────
+    let on_export_rules = move |_| {
+        let token = auth.token_str().unwrap_or_default();
+        busy.set(true);
+        error.set(None);
+        notice.set(None);
+        import_result.set(None);
+        spawn_local(async move {
+            match export_rules(&token).await {
+                Ok(data) => {
+                    let json = serde_json::to_string_pretty(&data).unwrap_or_default();
+                    trigger_browser_download(json.as_bytes(), "homecore-rules.json", "application/json");
+                    notice.set(Some("Rules exported.".to_string()));
+                }
+                Err(e) => error.set(Some(format!("Export rules failed: {e}"))),
+            }
+            busy.set(false);
+        });
+    };
+
+    // ── Export scenes ───────────────────────────────────────────────────────
+    let on_export_scenes = move |_| {
+        let token = auth.token_str().unwrap_or_default();
+        busy.set(true);
+        error.set(None);
+        notice.set(None);
+        import_result.set(None);
+        spawn_local(async move {
+            match export_scenes(&token).await {
+                Ok(data) => {
+                    let json = serde_json::to_string_pretty(&data).unwrap_or_default();
+                    trigger_browser_download(json.as_bytes(), "homecore-scenes.json", "application/json");
+                    notice.set(Some("Scenes exported.".to_string()));
+                }
+                Err(e) => error.set(Some(format!("Export scenes failed: {e}"))),
+            }
+            busy.set(false);
+        });
+    };
+
+    // ── Import rules ────────────────────────────────────────────────────────
+    let on_import_rules = move |_| {
+        let token = auth.token_str().unwrap_or_default();
+        busy.set(true);
+        error.set(None);
+        notice.set(None);
+        import_result.set(None);
+        spawn_local(async move {
+            match read_file_input("import-rules-file").await {
+                Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(data) => match import_rules(&token, &data).await {
+                        Ok(resp) => {
+                            let imported = resp["imported"].as_u64().unwrap_or(0);
+                            let skipped = resp["skipped"].as_u64().unwrap_or(0);
+                            let errors = resp["errors"]
+                                .as_array()
+                                .map(|a| a.len() as u64)
+                                .unwrap_or(0);
+                            import_result.set(Some(format!(
+                                "Rules import: {imported} imported, {skipped} skipped, {errors} errors."
+                            )));
+                        }
+                        Err(e) => error.set(Some(format!("Import rules failed: {e}"))),
+                    },
+                    Err(e) => error.set(Some(format!("Invalid JSON: {e}"))),
+                },
+                Err(e) => error.set(Some(e)),
+            }
+            busy.set(false);
+        });
+    };
+
+    // ── Import scenes ───────────────────────────────────────────────────────
+    let on_import_scenes = move |_| {
+        let token = auth.token_str().unwrap_or_default();
+        busy.set(true);
+        error.set(None);
+        notice.set(None);
+        import_result.set(None);
+        spawn_local(async move {
+            match read_file_input("import-scenes-file").await {
+                Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(data) => match import_scenes(&token, &data).await {
+                        Ok(resp) => {
+                            let imported = resp["imported"].as_u64().unwrap_or(0);
+                            let skipped = resp["skipped"].as_u64().unwrap_or(0);
+                            let errors = resp["errors"]
+                                .as_array()
+                                .map(|a| a.len() as u64)
+                                .unwrap_or(0);
+                            import_result.set(Some(format!(
+                                "Scenes import: {imported} imported, {skipped} skipped, {errors} errors."
+                            )));
+                        }
+                        Err(e) => error.set(Some(format!("Import scenes failed: {e}"))),
+                    },
+                    Err(e) => error.set(Some(format!("Invalid JSON: {e}"))),
+                },
+                Err(e) => error.set(Some(e)),
+            }
+            busy.set(false);
+        });
+    };
+
+    view! {
+        <div class="detail-card">
+            <h2 class="card-title">"Backup & Data"</h2>
+            <ErrorBanner error=error />
+            {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
+            {move || import_result.get().map(|r| view! { <p class="msg-notice">{r}</p> })}
+
+            // ── Full backup ─────────────────────────────────────────────────
+            <div class="admin-data-group">
+                <h3 class="admin-data-heading">"Full Backup"</h3>
+                <p class="cell-subtle">"Download a zip archive of the current HomeCore configuration and state databases."</p>
+                <div class="admin-data-actions">
+                    <button
+                        class="btn btn-primary"
+                        disabled=move || busy.get()
+                        on:click=on_backup
+                    >
+                        {move || if busy.get() { "Downloading..." } else { "Download Backup" }}
+                    </button>
+                </div>
+            </div>
+
+            // ── Export ───────────────────────────────────────────────────────
+            <div class="admin-data-group">
+                <h3 class="admin-data-heading">"Export"</h3>
+                <p class="cell-subtle">"Download rules or scenes as JSON files for sharing or safekeeping."</p>
+                <div class="admin-data-actions">
+                    <button class="btn btn-outline" disabled=move || busy.get() on:click=on_export_rules>
+                        "Export Rules"
+                    </button>
+                    <button class="btn btn-outline" disabled=move || busy.get() on:click=on_export_scenes>
+                        "Export Scenes"
+                    </button>
+                </div>
+            </div>
+
+            // ── Import ──────────────────────────────────────────────────────
+            <div class="admin-data-group">
+                <h3 class="admin-data-heading">"Import"</h3>
+                <p class="cell-subtle">"Import rules or scenes from a previously exported JSON file. Imported items receive new IDs."</p>
+
+                <div class="admin-import-row">
+                    <div class="admin-import-field">
+                        <label>"Rules JSON"</label>
+                        <input id="import-rules-file" class="input" type="file" accept=".json" />
+                    </div>
+                    <button class="btn btn-primary" disabled=move || busy.get() on:click=on_import_rules>
+                        {move || if busy.get() { "Importing..." } else { "Import Rules" }}
+                    </button>
+                </div>
+
+                <div class="admin-import-row">
+                    <div class="admin-import-field">
+                        <label>"Scenes JSON"</label>
+                        <input id="import-scenes-file" class="input" type="file" accept=".json" />
+                    </div>
+                    <button class="btn btn-primary" disabled=move || busy.get() on:click=on_import_scenes>
+                        {move || if busy.get() { "Importing..." } else { "Import Scenes" }}
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+// ── Log Level ───────────────────────────────────────────────────────────────
+
+#[component]
+fn LogLevelSection() -> impl IntoView {
+    let auth = use_auth();
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(Option::<String>::None);
+    let notice = RwSignal::new(Option::<String>::None);
+    let log_level = RwSignal::new(String::new());
+    let log_level_edit = RwSignal::new(String::new());
+
+    let refresh = move || {
         let token = auth.token_str().unwrap_or_default();
         spawn_local(async move {
             match get_log_level(&token).await {
@@ -152,548 +872,312 @@ pub fn AdminPage() -> impl IntoView {
         });
     };
 
-    // ── Initial load ─────────────────────────────────────────────────────────
-    Effect::new(move |_| {
-        refresh_users();
-        refresh_system();
-        refresh_log_level();
-    });
-
-    // ── Sync edit_role when selection changes ────────────────────────────────
-    Effect::new(move |_| {
-        let sel = selected_user_id.get();
-        if let Some(id) = sel {
-            if let Some(user) = users.get().iter().find(|u| u.id == id) {
-                edit_role.set(user.role.clone());
-            }
-        }
-        delete_confirm.set(String::new());
-    });
+    Effect::new(move |_| refresh());
 
     view! {
-        <div class="page">
-            <div class="heading">
-                <div>
-                    <h1>"Administration"</h1>
-                    <p>"Manage users, system settings, and backups."</p>
-                </div>
-            </div>
-
+        <div class="detail-card">
+            <h2 class="card-title">"Log Level"</h2>
             <ErrorBanner error=error />
             {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
-
-            // ── System Status ────────────────────────────────────────────────
-            <div class="detail-card">
-                <div class="card-title-row">
-                    <h2 class="card-title">"System Status"</h2>
-                    <button
-                        class="btn btn-outline"
-                        on:click=move |_| refresh_system()
-                        disabled=move || sys_loading.get()
-                    >
-                        {move || if sys_loading.get() { "Refreshing..." } else { "Refresh" }}
-                    </button>
-                </div>
-                {move || {
-                    if let Some(status) = system_status.get() {
-                        view! {
-                            <div class="admin-status-grid">
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"Uptime"</span>
-                                    <span class="admin-stat-value">{format_uptime(status.uptime_seconds as u64)}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"Version"</span>
-                                    <span class="admin-stat-value">{status.version.clone()}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"Devices"</span>
-                                    <span class="admin-stat-value">{status.devices_total.to_string()}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"Rules"</span>
-                                    <span class="admin-stat-value">{format!("{} / {}", status.rules_enabled, status.rules_total)}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"Plugins"</span>
-                                    <span class="admin-stat-value">{status.plugins_active.to_string()}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"State DB"</span>
-                                    <span class="admin-stat-value">{format_bytes(status.state_db_bytes)}</span>
-                                </div>
-                                <div class="admin-stat">
-                                    <span class="admin-stat-label">"History DB"</span>
-                                    <span class="admin-stat-value">{format_bytes(status.history_db_bytes)}</span>
-                                </div>
-                            </div>
-                        }.into_any()
-                    } else {
-                        view! { <p class="no-controls-msg">"Loading system status..."</p> }.into_any()
-                    }
-                }}
-            </div>
-
-            // ── A. User Management ───────────────────────────────────────────
-            <div class="detail-card">
-                <div class="card-title-row">
-                    <h2 class="card-title">"User Management"</h2>
-                    <button
-                        class="btn btn-outline"
-                        on:click=move |_| refresh_users()
-                        disabled=move || loading.get()
-                    >
-                        {move || if loading.get() { "Refreshing..." } else { "Refresh" }}
-                    </button>
-                </div>
-
-                // User table
-                {move || {
-                    let list = users.get();
-                    if loading.get() && list.is_empty() {
-                        view! { <p class="no-controls-msg">"Loading users..."</p> }.into_any()
-                    } else if list.is_empty() {
-                        view! { <p class="no-controls-msg">"No users found."</p> }.into_any()
-                    } else {
-                        view! {
-                            <table class="admin-table">
-                                <thead>
-                                    <tr>
-                                        <th>"Username"</th>
-                                        <th>"Role"</th>
-                                        <th>"Created"</th>
-                                        <th>"Actions"</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <For
-                                        each=move || users.get()
-                                        key=|u| u.id.clone()
-                                        children=move |user| {
-                                            let user_id = user.id.clone();
-                                            let click_id = user_id.clone();
-                                            let is_current = user_id == current_user_id.get();
-                                            let role_class = role_badge_class(&user.role);
-                                            let role_label = role_display(&user.role).to_string();
-                                            let created = user.created_at.chars().take(10).collect::<String>();
-                                            let username = user.username.clone();
-                                            view! {
-                                                <tr
-                                                    class:admin-row-current=is_current
-                                                    class:admin-row-selected=move || selected_user_id.get().as_deref() == Some(click_id.as_str())
-                                                >
-                                                    <td>
-                                                        {username}
-                                                        {if is_current { " (you)" } else { "" }}
-                                                    </td>
-                                                    <td><span class={role_class}>{role_label}</span></td>
-                                                    <td>{created}</td>
-                                                    <td>
-                                                        <button
-                                                            class="btn-outline btn-sm"
-                                                            on:click={
-                                                                let uid = user_id.clone();
-                                                                move |_| {
-                                                                    if selected_user_id.get().as_deref() == Some(uid.as_str()) {
-                                                                        selected_user_id.set(None);
-                                                                    } else {
-                                                                        selected_user_id.set(Some(uid.clone()));
-                                                                    }
-                                                                }
-                                                            }
-                                                        >
-                                                            {
-                                                                let uid2 = user_id.clone();
-                                                                move || if selected_user_id.get().as_deref() == Some(uid2.as_str()) { "Close" } else { "Edit" }
-                                                            }
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                                // Inline edit panel
-                                                {
-                                                    let uid = user_id.clone();
-                                                    let uid_save = user_id.clone();
-                                                    let uid_del = user_id.clone();
-                                                    let is_self = user_id == current_user_id.get();
-                                                    move || {
-                                                        let uid = uid.clone();
-                                                        let uid_save = uid_save.clone();
-                                                        let uid_del = uid_del.clone();
-                                                        (selected_user_id.get().as_deref() == Some(uid.as_str())).then(|| {
-                                                            view! {
-                                                                <tr class="admin-edit-row">
-                                                                    <td colspan="4">
-                                                                        <div class="admin-edit-panel">
-                                                                            <div class="edit-grid">
-                                                                                <div class="edit-field">
-                                                                                    <label>"Role"</label>
-                                                                                    <select
-                                                                                        prop:value=move || edit_role.get()
-                                                                                        on:change=move |ev| edit_role.set(event_target_value(&ev))
-                                                                                    >
-                                                                                        <option value="admin" selected=move || edit_role.get() == "admin">"Admin"</option>
-                                                                                        <option value="user" selected=move || edit_role.get() == "user">"User"</option>
-                                                                                        <option value="read_only" selected=move || edit_role.get() == "read_only">"Read Only"</option>
-                                                                                    </select>
-                                                                                </div>
-                                                                            </div>
-                                                                            <div class="edit-actions">
-                                                                                <button
-                                                                                    class="btn btn-primary"
-                                                                                    disabled=move || busy.get()
-                                                                                    on:click={
-                                                                                        let uid_save = uid_save.clone();
-                                                                                        move |_| {
-                                                                                            let token = auth.token_str().unwrap_or_default();
-                                                                                            let id = uid_save.clone();
-                                                                                            let role = edit_role.get();
-                                                                                            busy.set(true);
-                                                                                            error.set(None);
-                                                                                            notice.set(None);
-                                                                                            spawn_local(async move {
-                                                                                                match set_user_role(&token, &id, &role).await {
-                                                                                                    Ok(updated) => {
-                                                                                                        notice.set(Some(format!("Updated role for {} to {}.", updated.username, role_display(&updated.role))));
-                                                                                                        refresh_users();
-                                                                                                    }
-                                                                                                    Err(e) => error.set(Some(format!("Role update failed: {e}"))),
-                                                                                                }
-                                                                                                busy.set(false);
-                                                                                            });
-                                                                                        }
-                                                                                    }
-                                                                                >
-                                                                                    {move || if busy.get() { "Saving..." } else { "Save role" }}
-                                                                                </button>
-                                                                            </div>
-                                                                            {if !is_self {
-                                                                                let uid_del = uid_del.clone();
-                                                                                Some(view! {
-                                                                                    <div class="danger-zone">
-                                                                                        <div class="danger-zone-copy">
-                                                                                            <h3>"Delete User"</h3>
-                                                                                            <p>"This action cannot be undone."</p>
-                                                                                        </div>
-                                                                                        <div class="danger-zone-controls">
-                                                                                            <div class="edit-field">
-                                                                                                <label>"Type DELETE to confirm"</label>
-                                                                                                <input
-                                                                                                    class="input"
-                                                                                                    type="text"
-                                                                                                    prop:value=move || delete_confirm.get()
-                                                                                                    on:input=move |ev| delete_confirm.set(event_target_value(&ev))
-                                                                                                    placeholder="DELETE"
-                                                                                                />
-                                                                                            </div>
-                                                                                            <button
-                                                                                                class="danger"
-                                                                                                disabled=move || busy.get() || delete_confirm.get().trim() != "DELETE"
-                                                                                                on:click={
-                                                                                                    let uid_del = uid_del.clone();
-                                                                                                    move |_| {
-                                                                                                        let token = auth.token_str().unwrap_or_default();
-                                                                                                        let id = uid_del.clone();
-                                                                                                        busy.set(true);
-                                                                                                        error.set(None);
-                                                                                                        notice.set(None);
-                                                                                                        spawn_local(async move {
-                                                                                                            match delete_user(&token, &id).await {
-                                                                                                                Ok(()) => {
-                                                                                                                    notice.set(Some("User deleted.".to_string()));
-                                                                                                                    selected_user_id.set(None);
-                                                                                                                    refresh_users();
-                                                                                                                }
-                                                                                                                Err(e) => error.set(Some(format!("Delete failed: {e}"))),
-                                                                                                            }
-                                                                                                            busy.set(false);
-                                                                                                        });
-                                                                                                    }
-                                                                                                }
-                                                                                            >
-                                                                                                {move || if busy.get() { "Deleting..." } else { "Delete user" }}
-                                                                                            </button>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                })
-                                                                            } else {
-                                                                                None
-                                                                            }}
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-                                                            }
-                                                        })
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    />
-                                </tbody>
-                            </table>
-                        }.into_any()
-                    }
-                }}
-
-                // Create user form
-                <div class="card-title-row" style="margin-top: 1rem">
-                    <h3 class="card-title">"Create User"</h3>
-                </div>
-                <div class="admin-create-row">
-                    <input
-                        class="input"
-                        type="text"
-                        prop:value=move || create_username.get()
-                        on:input=move |ev| create_username.set(event_target_value(&ev))
-                        placeholder="Username"
-                    />
-                    <input
-                        class="input"
-                        type="password"
-                        prop:value=move || create_password.get()
-                        on:input=move |ev| create_password.set(event_target_value(&ev))
-                        placeholder="Password"
-                    />
-                    <select
-                        prop:value=move || create_role.get()
-                        on:change=move |ev| create_role.set(event_target_value(&ev))
-                    >
-                        <option value="admin">"Admin"</option>
-                        <option value="user" selected=true>"User"</option>
-                        <option value="read_only">"Read Only"</option>
-                    </select>
-                    <button
-                        class="btn btn-primary"
-                        disabled=move || {
-                            busy.get()
-                                || create_username.get().trim().is_empty()
-                                || create_password.get().trim().is_empty()
-                        }
-                        on:click=move |_| {
-                            let token = auth.token_str().unwrap_or_default();
-                            let username = create_username.get();
-                            let password = create_password.get();
-                            let role = create_role.get();
-                            busy.set(true);
-                            error.set(None);
-                            notice.set(None);
-                            spawn_local(async move {
-                                match create_user(&token, &username, &password, &role).await {
-                                    Ok(user) => {
-                                        notice.set(Some(format!("Created user {}.", user.username)));
-                                        create_username.set(String::new());
-                                        create_password.set(String::new());
-                                        create_role.set("user".to_string());
-                                        refresh_users();
-                                    }
-                                    Err(e) => error.set(Some(format!("Create failed: {e}"))),
+            <p class="cell-subtle">
+                "Current level: "
+                <strong>{move || log_level.get()}</strong>
+            </p>
+            <div class="admin-create-row">
+                <select
+                    prop:value=move || log_level_edit.get()
+                    on:change=move |ev| log_level_edit.set(event_target_value(&ev))
+                >
+                    <option value="trace" selected=move || log_level_edit.get() == "trace">"trace"</option>
+                    <option value="debug" selected=move || log_level_edit.get() == "debug">"debug"</option>
+                    <option value="info" selected=move || log_level_edit.get() == "info">"info"</option>
+                    <option value="warn" selected=move || log_level_edit.get() == "warn">"warn"</option>
+                    <option value="error" selected=move || log_level_edit.get() == "error">"error"</option>
+                </select>
+                <button
+                    class="btn btn-primary"
+                    disabled=move || busy.get() || log_level_edit.get() == log_level.get()
+                    on:click=move |_| {
+                        let token = auth.token_str().unwrap_or_default();
+                        let level = log_level_edit.get();
+                        busy.set(true);
+                        error.set(None);
+                        notice.set(None);
+                        spawn_local(async move {
+                            match set_log_level(&token, &level).await {
+                                Ok(()) => {
+                                    log_level.set(level.clone());
+                                    notice.set(Some(format!("Log level set to {level}.")));
                                 }
-                                busy.set(false);
-                            });
-                        }
-                    >
-                        {move || if busy.get() { "Creating..." } else { "Create" }}
-                    </button>
-                </div>
-            </div>
-
-            // ── B. Change Password ───────────────────────────────────────────
-            <div class="detail-card">
-                <h2 class="card-title">"Change Password"</h2>
-                <ErrorBanner error=pw_error />
-                {move || pw_notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
-                <div class="edit-grid">
-                    <div class="edit-field">
-                        <label>"Current Password"</label>
-                        <input
-                            class="input"
-                            type="password"
-                            prop:value=move || pw_current.get()
-                            on:input=move |ev| pw_current.set(event_target_value(&ev))
-                            placeholder="Current password"
-                        />
-                    </div>
-                    <div class="edit-field">
-                        <label>"New Password"</label>
-                        <input
-                            class="input"
-                            type="password"
-                            prop:value=move || pw_new.get()
-                            on:input=move |ev| pw_new.set(event_target_value(&ev))
-                            placeholder="Minimum 8 characters"
-                        />
-                    </div>
-                    <div class="edit-field">
-                        <label>"Confirm New Password"</label>
-                        <input
-                            class="input"
-                            type="password"
-                            prop:value=move || pw_confirm.get()
-                            on:input=move |ev| pw_confirm.set(event_target_value(&ev))
-                            placeholder="Repeat new password"
-                        />
-                    </div>
-                </div>
-                <div class="edit-actions">
-                    <button
-                        class="btn btn-primary"
-                        disabled=move || {
-                            busy.get()
-                                || pw_current.get().is_empty()
-                                || pw_new.get().len() < 8
-                                || pw_new.get() != pw_confirm.get()
-                        }
-                        on:click=move |_| {
-                            let token = auth.token_str().unwrap_or_default();
-                            let current = pw_current.get();
-                            let new_pass = pw_new.get();
-                            let confirm = pw_confirm.get();
-
-                            pw_error.set(None);
-                            pw_notice.set(None);
-
-                            if new_pass.len() < 8 {
-                                pw_error.set(Some("New password must be at least 8 characters.".to_string()));
-                                return;
+                                Err(e) => error.set(Some(format!("Log level change failed: {e}"))),
                             }
-                            if new_pass != confirm {
-                                pw_error.set(Some("Passwords do not match.".to_string()));
-                                return;
-                            }
-
-                            busy.set(true);
-                            spawn_local(async move {
-                                match change_password(&token, &current, &new_pass).await {
-                                    Ok(()) => {
-                                        pw_notice.set(Some("Password changed successfully.".to_string()));
-                                        pw_current.set(String::new());
-                                        pw_new.set(String::new());
-                                        pw_confirm.set(String::new());
-                                    }
-                                    Err(e) => pw_error.set(Some(format!("Password change failed: {e}"))),
-                                }
-                                busy.set(false);
-                            });
-                        }
-                    >
-                        {move || if busy.get() { "Changing..." } else { "Change Password" }}
-                    </button>
-                </div>
+                            busy.set(false);
+                        });
+                    }
+                >
+                    {move || if busy.get() { "Applying..." } else { "Apply" }}
+                </button>
             </div>
-
-            // ── D. Backup ────────────────────────────────────────────────────
-            <div class="detail-card">
-                <h2 class="card-title">"Backup"</h2>
-                <p class="cell-subtle">"Download a zip archive of the current HomeCore configuration and state databases."</p>
-                <div class="edit-actions">
-                    <button
-                        class="btn btn-primary"
-                        disabled=move || busy.get()
-                        on:click=move |_| {
-                            let token = auth.token_str().unwrap_or_default();
-                            busy.set(true);
-                            error.set(None);
-                            notice.set(None);
-                            spawn_local(async move {
-                                match trigger_backup(&token).await {
-                                    Ok(bytes) => {
-                                        // Trigger browser download via Blob URL
-                                        use js_sys::{Array, Uint8Array};
-                                        use wasm_bindgen::JsCast;
-
-                                        let uint8 = Uint8Array::from(bytes.as_slice());
-                                        let array = Array::new();
-                                        array.push(&uint8.buffer());
-                                        if let Ok(blob) = web_sys::Blob::new_with_u8_array_sequence(&array) {
-                                            if let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) {
-                                                let document = web_sys::window().unwrap().document().unwrap();
-                                                let a = document.create_element("a").unwrap();
-                                                let _ = a.set_attribute("href", &url);
-                                                let _ = a.set_attribute("download", "homecore-backup.zip");
-                                                let _ = a.set_attribute("style", "display:none");
-                                                let body = document.body().unwrap();
-                                                let _ = body.append_child(&a);
-                                                if let Some(el) = a.dyn_ref::<web_sys::HtmlElement>() {
-                                                    el.click();
-                                                }
-                                                let _ = body.remove_child(&a);
-                                                let _ = web_sys::Url::revoke_object_url(&url);
-                                                notice.set(Some("Backup downloaded.".to_string()));
-                                            }
-                                        }
-                                    }
-                                    Err(e) => error.set(Some(format!("Backup failed: {e}"))),
-                                }
-                                busy.set(false);
-                            });
-                        }
-                    >
-                        {move || if busy.get() { "Downloading..." } else { "Download Backup" }}
-                    </button>
-                </div>
-            </div>
-
-            // ── E. Log Level ─────────────────────────────────────────────────
-            <div class="detail-card">
-                <h2 class="card-title">"Log Level"</h2>
-                <p class="cell-subtle">
-                    "Current level: "
-                    <strong>{move || log_level.get()}</strong>
-                </p>
-                <div class="admin-create-row">
-                    <select
-                        prop:value=move || log_level_edit.get()
-                        on:change=move |ev| log_level_edit.set(event_target_value(&ev))
-                    >
-                        <option value="trace" selected=move || log_level_edit.get() == "trace">"trace"</option>
-                        <option value="debug" selected=move || log_level_edit.get() == "debug">"debug"</option>
-                        <option value="info" selected=move || log_level_edit.get() == "info">"info"</option>
-                        <option value="warn" selected=move || log_level_edit.get() == "warn">"warn"</option>
-                        <option value="error" selected=move || log_level_edit.get() == "error">"error"</option>
-                    </select>
-                    <button
-                        class="btn btn-primary"
-                        disabled=move || busy.get() || log_level_edit.get() == log_level.get()
-                        on:click=move |_| {
-                            let token = auth.token_str().unwrap_or_default();
-                            let level = log_level_edit.get();
-                            busy.set(true);
-                            error.set(None);
-                            notice.set(None);
-                            spawn_local(async move {
-                                match set_log_level(&token, &level).await {
-                                    Ok(()) => {
-                                        log_level.set(level.clone());
-                                        notice.set(Some(format!("Log level set to {level}.")));
-                                    }
-                                    Err(e) => error.set(Some(format!("Log level change failed: {e}"))),
-                                }
-                                busy.set(false);
-                            });
-                        }
-                    >
-                        {move || if busy.get() { "Applying..." } else { "Apply" }}
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        // ── Stale Device References ──────────────────────────────────────
-        <div class="detail-card">
-            <h2 class="card-title">"Stale Device References"</h2>
-            <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">"Rules that reference device IDs no longer registered in the device store."</p>
-            <StaleRefsSection />
-        </div>
-
-        // ── Device Cleanup ───────────────────────────────────────────────
-        <div class="detail-card">
-            <h2 class="card-title">"Device Cleanup"</h2>
-            <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">"Bulk delete devices by ID. Affected rules will have references nullified."</p>
-            <DeviceCleanupSection />
         </div>
     }
 }
 
-// ── Stale Refs Sub-Component ─────────────────────────────────────────────
+// ── Calendars ───────────────────────────────────────────────────────────────
+
+#[component]
+fn CalendarsSection() -> impl IntoView {
+    let auth = use_auth();
+    let calendars: RwSignal<Vec<serde_json::Value>> = RwSignal::new(vec![]);
+    let loading = RwSignal::new(false);
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(Option::<String>::None);
+    let notice = RwSignal::new(Option::<String>::None);
+
+    // Add by URL fields
+    let url_input = RwSignal::new(String::new());
+    let url_name = RwSignal::new(String::new());
+
+    // Events viewer
+    let viewing_events: RwSignal<Option<String>> = RwSignal::new(None);
+    let events: RwSignal<Vec<serde_json::Value>> = RwSignal::new(vec![]);
+
+    let refresh = move || {
+        let token = auth.token_str().unwrap_or_default();
+        loading.set(true);
+        error.set(None);
+        spawn_local(async move {
+            match fetch_calendars(&token).await {
+                Ok(data) => calendars.set(data),
+                Err(e) => error.set(Some(e)),
+            }
+            loading.set(false);
+        });
+    };
+
+    Effect::new(move |_| refresh());
+
+    // Add calendar by URL
+    let on_add_url = move |_| {
+        let token = auth.token_str().unwrap_or_default();
+        let url = url_input.get();
+        let name = url_name.get();
+        let name_opt = if name.trim().is_empty() { None } else { Some(name.as_str().to_string()) };
+        busy.set(true);
+        error.set(None);
+        notice.set(None);
+        spawn_local(async move {
+            match add_calendar_by_url(&token, &url, name_opt.as_deref(), None).await {
+                Ok(resp) => {
+                    let id = resp["calendar_id"].as_str().unwrap_or("?");
+                    let count = resp["event_count"].as_u64().unwrap_or(0);
+                    notice.set(Some(format!("Calendar '{id}' added with {count} events.")));
+                    url_input.set(String::new());
+                    url_name.set(String::new());
+                    refresh();
+                }
+                Err(e) => error.set(Some(e)),
+            }
+            busy.set(false);
+        });
+    };
+
+    // Upload calendar file
+    let on_upload = move |_| {
+        let token = auth.token_str().unwrap_or_default();
+        busy.set(true);
+        error.set(None);
+        notice.set(None);
+        spawn_local(async move {
+            match read_file_input("cal-upload-file").await {
+                Ok(content) => {
+                    match upload_calendar(&token, &content, None).await {
+                        Ok(resp) => {
+                            let id = resp["calendar_id"].as_str().unwrap_or("?");
+                            let count = resp["event_count"].as_u64().unwrap_or(0);
+                            notice.set(Some(format!("Calendar '{id}' uploaded with {count} events.")));
+                            refresh();
+                        }
+                        Err(e) => error.set(Some(e)),
+                    }
+                }
+                Err(e) => error.set(Some(e)),
+            }
+            busy.set(false);
+        });
+    };
+
+    view! {
+        <div class="detail-card">
+            <div class="card-title-row">
+                <h2 class="card-title">"Calendars"</h2>
+                <button class="btn btn-outline" on:click=move |_| refresh() disabled=move || loading.get()>
+                    {move || if loading.get() { "Refreshing..." } else { "Refresh" }}
+                </button>
+            </div>
+            <p class="cell-subtle">"Manage .ics calendar subscriptions used as rule triggers and conditions."</p>
+            <ErrorBanner error=error />
+            {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
+
+            // ── Calendar list ────────────────────────────────────────────────
+            <div class="cal-list">
+                {move || {
+                    let cals = calendars.get();
+                    if loading.get() && cals.is_empty() {
+                        view! { <p class="no-controls-msg">"Loading..."</p> }.into_any()
+                    } else if cals.is_empty() {
+                        view! { <p class="no-controls-msg">"No calendars loaded."</p> }.into_any()
+                    } else {
+                        cals.into_iter().map(|cal| {
+                            let id = cal["id"].as_str().unwrap_or("?").to_string();
+                            let event_count = cal["event_count"].as_u64().unwrap_or(0);
+                            let upcoming = cal["upcoming_count"].as_u64().unwrap_or(0);
+                            let source = cal["source_url"].as_str().unwrap_or("uploaded").to_string();
+                            let fetched = cal["fetched_at"].as_str().map(|s| s.chars().take(19).collect::<String>()).unwrap_or_default();
+                            let del_id = id.clone();
+                            let view_id = id.clone();
+                            view! {
+                                <div class="cal-item">
+                                    <div class="cal-item-info">
+                                        <span class="cal-item-name">{id}</span>
+                                        <span class="cal-item-meta">
+                                            {format!("{event_count} events, {upcoming} upcoming")}
+                                            {(!fetched.is_empty()).then(|| format!(" — fetched {fetched}"))}
+                                        </span>
+                                        <span class="cal-item-meta">{source}</span>
+                                    </div>
+                                    <div class="cal-item-actions">
+                                        <button
+                                            class="btn btn-outline btn-sm"
+                                            title="View events"
+                                            on:click=move |_| {
+                                                let token = auth.token_str().unwrap_or_default();
+                                                let id = view_id.clone();
+                                                viewing_events.set(Some(id.clone()));
+                                                spawn_local(async move {
+                                                    match fetch_calendar_events(&token, &id).await {
+                                                        Ok(data) => events.set(data),
+                                                        Err(_) => events.set(vec![]),
+                                                    }
+                                                });
+                                            }
+                                        >"Events"</button>
+                                        <button
+                                            class="btn btn-outline btn-sm hc-btn--danger-outline"
+                                            title="Delete calendar"
+                                            disabled=move || busy.get()
+                                            on:click=move |_| {
+                                                let token = auth.token_str().unwrap_or_default();
+                                                let id = del_id.clone();
+                                                busy.set(true);
+                                                spawn_local(async move {
+                                                    match delete_calendar(&token, &id).await {
+                                                        Ok(()) => refresh(),
+                                                        Err(e) => error.set(Some(e)),
+                                                    }
+                                                    busy.set(false);
+                                                });
+                                            }
+                                        >"Delete"</button>
+                                    </div>
+                                </div>
+                            }
+                        }).collect_view().into_any()
+                    }
+                }}
+            </div>
+
+            // ── Events viewer ────────────────────────────────────────────────
+            {move || viewing_events.get().map(|cal_id| {
+                let ev_list = events.get();
+                view! {
+                    <div class="admin-data-group">
+                        <div class="card-title-row">
+                            <h3 class="admin-data-heading">{format!("Events — {cal_id}")}</h3>
+                            <button class="btn btn-outline btn-sm" on:click=move |_| { viewing_events.set(None); events.set(vec![]); }>"Close"</button>
+                        </div>
+                        {if ev_list.is_empty() {
+                            view! { <p class="cell-subtle">"No events."</p> }.into_any()
+                        } else {
+                            let total = ev_list.len();
+                            view! {
+                                <table class="admin-table">
+                                    <thead><tr>
+                                        <th>"Summary"</th>
+                                        <th>"Start"</th>
+                                        <th>"End"</th>
+                                    </tr></thead>
+                                    <tbody>
+                                        {ev_list.into_iter().take(50).map(|ev| {
+                                            let summary = ev["summary"].as_str().unwrap_or("?").to_string();
+                                            let start = ev["start"].as_str().unwrap_or("").chars().take(19).collect::<String>();
+                                            let end = ev["end"].as_str().unwrap_or("").chars().take(19).collect::<String>();
+                                            view! {
+                                                <tr>
+                                                    <td>{summary}</td>
+                                                    <td class="cell-subtle">{start}</td>
+                                                    <td class="cell-subtle">{end}</td>
+                                                </tr>
+                                            }
+                                        }).collect_view()}
+                                    </tbody>
+                                </table>
+                                {(total > 50).then(|| view! {
+                                    <p class="cell-subtle">{format!("Showing 50 of {total} events.")}</p>
+                                })}
+                            }.into_any()
+                        }}
+                    </div>
+                }
+            })}
+
+            // ── Add by URL ───────────────────────────────────────────────────
+            <div class="admin-data-group">
+                <h3 class="admin-data-heading">"Add Calendar by URL"</h3>
+                <div class="cal-add-row">
+                    <input
+                        class="input"
+                        type="text"
+                        prop:value=move || url_input.get()
+                        on:input=move |ev| url_input.set(event_target_value(&ev))
+                        placeholder="https://example.com/calendar.ics"
+                    />
+                    <input
+                        class="input"
+                        type="text"
+                        style="max-width:180px"
+                        prop:value=move || url_name.get()
+                        on:input=move |ev| url_name.set(event_target_value(&ev))
+                        placeholder="Name (optional)"
+                    />
+                    <button
+                        class="btn btn-primary"
+                        disabled=move || busy.get() || url_input.get().trim().is_empty()
+                        on:click=on_add_url
+                    >
+                        {move || if busy.get() { "Adding..." } else { "Add" }}
+                    </button>
+                </div>
+            </div>
+
+            // ── Upload ICS file ──────────────────────────────────────────────
+            <div class="admin-data-group">
+                <h3 class="admin-data-heading">"Upload ICS File"</h3>
+                <div class="cal-add-row">
+                    <input id="cal-upload-file" class="input" type="file" accept=".ics" />
+                    <button
+                        class="btn btn-primary"
+                        disabled=move || busy.get()
+                        on:click=on_upload
+                    >
+                        {move || if busy.get() { "Uploading..." } else { "Upload" }}
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+// ── Stale Refs Sub-Component ────────────────────────────────────────────────
 
 #[component]
 fn StaleRefsSection() -> impl IntoView {
@@ -731,11 +1215,13 @@ fn StaleRefsSection() -> impl IntoView {
             } else if rules.is_empty() {
                 view! { <p style="color:var(--hc-success,#4caf50)">"No stale references found."</p> }.into_any()
             } else {
+                let count = rules.len();
                 view! {
                     <table class="admin-table">
                         <thead><tr>
                             <th>"Rule Name"</th>
                             <th>"Stale Device IDs"</th>
+                            <th>"Action"</th>
                         </tr></thead>
                         <tbody>
                             {rules.into_iter().map(|rule| {
@@ -745,28 +1231,35 @@ fn StaleRefsSection() -> impl IntoView {
                                     .as_array()
                                     .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                                     .unwrap_or_default();
+                                let edit_href = format!("/rules/{rule_id}");
                                 view! {
                                     <tr>
                                         <td>
-                                            <a href=format!("/rules/{rule_id}") style="color:var(--hc-accent)">{name}</a>
+                                            <a href=edit_href.clone() style="color:var(--hc-accent)">{name}</a>
                                         </td>
                                         <td>
                                             {stale_ids.into_iter().map(|id| view! {
                                                 <code style="margin-right:0.5rem;color:var(--hc-danger,#e53935)">{id}</code>
                                             }).collect_view()}
                                         </td>
+                                        <td>
+                                            <a href=edit_href class="btn-outline btn-sm">"Edit Rule"</a>
+                                        </td>
                                     </tr>
                                 }
                             }).collect_view()}
                         </tbody>
                     </table>
+                    <p class="cell-subtle" style="margin-top:0.5rem">
+                        {format!("{count} rule(s) with stale references. Open each rule to update or remove the orphaned device IDs.")}
+                    </p>
                 }.into_any()
             }
         }}
     }
 }
 
-// ── Device Cleanup Sub-Component ─────────────────────────────────────────
+// ── Device Cleanup Sub-Component ────────────────────────────────────────────
 
 #[component]
 fn DeviceCleanupSection() -> impl IntoView {

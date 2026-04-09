@@ -38,6 +38,18 @@ pub struct SystemStatus {
     pub history_db_bytes: u64,
 }
 
+// ── Rule Groups ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuleGroup {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub rule_ids: Vec<String>,
+}
+
 // ── Core type ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

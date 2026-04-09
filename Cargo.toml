@@ -25,6 +25,7 @@ getrandom = { version = "0.2", features = ["js"] }
 
 # WASM
 wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = [
     "Window",
@@ -40,6 +41,10 @@ web-sys = { version = "0.3", features = [
     "EventTarget",
     "HtmlElement",
     "HtmlInputElement",
+    "Blob",
+    "File",
+    "FileList",
+    "Url",
     "console",
 ] }
 console_error_panic_hook = "0.1"

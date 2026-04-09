@@ -3,7 +3,7 @@
 use crate::pages::shared::ErrorBanner;
 use crate::api::{
     delete_device as delete_device_request, fetch_areas, fetch_device, fetch_device_history,
-    set_device_state, update_device_meta,
+    fetch_device_schema, set_device_state, update_device_meta,
 };
 use crate::auth::use_auth;
 use crate::models::*;
@@ -1539,9 +1539,121 @@ pub fn DeviceDetailPage() -> impl IntoView {
                         }}
                     </div>
 
+                    // ── Schema ────────────────────────────────────────────────
+                    <DeviceSchemaSection device_id=device_id.clone() />
+
                 }
             })}
 
+        </div>
+    }
+}
+
+// ── Device Schema Sub-Component ─────────────────────────────────────────────
+
+#[component]
+fn DeviceSchemaSection(device_id: String) -> impl IntoView {
+    let auth = use_auth();
+    let schema = RwSignal::new(Option::<serde_json::Value>::None);
+    let loading = RwSignal::new(false);
+    let expanded = RwSignal::new(false);
+
+    let id = device_id.clone();
+    let load_schema = move || {
+        let token = auth.token_str().unwrap_or_default();
+        let id = id.clone();
+        loading.set(true);
+        spawn_local(async move {
+            match fetch_device_schema(&token, &id).await {
+                Ok(s) => schema.set(Some(s)),
+                Err(_) => schema.set(None),
+            }
+            loading.set(false);
+        });
+    };
+
+    // Load on first expand
+    Effect::new(move |_| {
+        if expanded.get() && schema.get().is_none() && !loading.get() {
+            load_schema();
+        }
+    });
+
+    view! {
+        <div class="detail-card">
+            <div class="card-title-row">
+                <h2 class="card-title">"Device Schema"</h2>
+                <button
+                    class="btn btn-outline"
+                    on:click=move |_| expanded.update(|v| *v = !*v)
+                >
+                    {move || if expanded.get() { "Hide" } else { "Show" }}
+                </button>
+            </div>
+            {move || {
+                if !expanded.get() {
+                    view! { <p class="cell-subtle">"Click Show to load the device capability schema."</p> }.into_any()
+                } else if loading.get() {
+                    view! { <p class="no-controls-msg">"Loading schema..."</p> }.into_any()
+                } else if let Some(s) = schema.get() {
+                    // Render schema attributes as a table
+                    if let Some(attrs) = s["attributes"].as_object() {
+                        let mut rows: Vec<(String, String, String)> = attrs
+                            .iter()
+                            .map(|(name, def)| {
+                                let typ = def["type"].as_str().unwrap_or("unknown").to_string();
+                                let mut details = Vec::new();
+                                if let Some(min) = def.get("min") {
+                                    details.push(format!("min: {min}"));
+                                }
+                                if let Some(max) = def.get("max") {
+                                    details.push(format!("max: {max}"));
+                                }
+                                if let Some(unit) = def["unit"].as_str() {
+                                    details.push(format!("unit: {unit}"));
+                                }
+                                if let Some(vals) = def["values"].as_array() {
+                                    let vs: Vec<String> = vals.iter()
+                                        .filter_map(|v| v.as_str().map(String::from))
+                                        .collect();
+                                    if !vs.is_empty() {
+                                        details.push(format!("values: [{}]", vs.join(", ")));
+                                    }
+                                }
+                                if def["read_only"].as_bool().unwrap_or(false) {
+                                    details.push("read-only".to_string());
+                                }
+                                (name.clone(), typ, details.join(", "))
+                            })
+                            .collect();
+                        rows.sort_by(|a, b| a.0.cmp(&b.0));
+                        view! {
+                            <table class="admin-table">
+                                <thead><tr>
+                                    <th>"Attribute"</th>
+                                    <th>"Type"</th>
+                                    <th>"Details"</th>
+                                </tr></thead>
+                                <tbody>
+                                    {rows.into_iter().map(|(name, typ, details)| view! {
+                                        <tr>
+                                            <td><code class="mono">{name}</code></td>
+                                            <td>{typ}</td>
+                                            <td class="cell-subtle">{details}</td>
+                                        </tr>
+                                    }).collect_view()}
+                                </tbody>
+                            </table>
+                        }.into_any()
+                    } else {
+                        // Fallback: render raw JSON
+                        let raw = serde_json::to_string_pretty(&s).unwrap_or_default();
+                        view! { <pre class="schema-raw">{raw}</pre> }.into_any()
+                    }
+                } else {
+                    view! { <p class="cell-subtle">"No schema available for this device."</p> }.into_any()
+                }
+            }}
         </div>
     }
 }

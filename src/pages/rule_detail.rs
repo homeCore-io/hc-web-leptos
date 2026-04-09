@@ -1294,6 +1294,7 @@ fn condition_variant_key(c: &Condition) -> &'static str {
         Condition::PrivateBooleanIs { .. } => "private_boolean_is",
         Condition::HubVariable { .. } => "hub_variable",
         Condition::ModeIs { .. } => "mode_is",
+        Condition::CalendarActive { .. } => "calendar_active",
     }
 }
 
@@ -1316,6 +1317,7 @@ fn default_condition_typed(key: &str) -> Condition {
         "private_boolean_is" => Condition::PrivateBooleanIs { name: String::new(), value: true },
         "hub_variable" => Condition::HubVariable { name: String::new(), op: CompareOp::Eq, value: json!("") },
         "mode_is" => Condition::ModeIs { mode_id: String::new(), on: true },
+        "calendar_active" => Condition::CalendarActive { calendar_id: None, title_contains: None },
         _ => Condition::DeviceState { device_id: String::new(), attribute: "on".into(), op: CompareOp::Eq, value: json!(true) },
     }
 }
@@ -1376,7 +1378,7 @@ fn TypedConditionEditor(
             >
                 {[("device_state","Device state"),("time_window","Time window"),("script_expression","Script (Rhai)"),
                   ("time_elapsed","Time elapsed"),("device_last_change","Device last change"),("private_boolean_is","Private boolean"),
-                  ("hub_variable","Hub variable"),("mode_is","Mode is on/off"),
+                  ("hub_variable","Hub variable"),("mode_is","Mode is on/off"),("calendar_active","Calendar active"),
                   ("not","NOT"),("and","AND"),("or","OR"),("xor","XOR")]
                     .map(|(v,l)| view! { <option value=v selected=move || condition_variant_key(&get.get()) == v>{l}</option> }).collect_view()}
             </select>
@@ -1590,6 +1592,35 @@ fn TypedConditionEditor(
                                     <option value="true" selected=is_on>"On"</option>
                                     <option value="false" selected=!is_on>"Off"</option>
                                 </select>
+                            </div>
+                        }.into_any()
+                    },
+
+                    Condition::CalendarActive { ref calendar_id, ref title_contains } => {
+                        let cid = calendar_id.clone().unwrap_or_default();
+                        let tc = title_contains.clone().unwrap_or_default();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Calendar ID (optional)"</label>
+                                <input class="input" type="text" prop:value=cid placeholder="e.g. us_holidays"
+                                    on:input=move |ev| {
+                                        let mut c = get.get_untracked();
+                                        if let Condition::CalendarActive { ref mut calendar_id, .. } = c {
+                                            let v = event_target_value(&ev);
+                                            *calendar_id = if v.is_empty() { None } else { Some(v) };
+                                        }
+                                        set.run(c);
+                                    } />
+                                <label class="field-label">"Title contains (optional)"</label>
+                                <input class="input" type="text" prop:value=tc placeholder="e.g. Holiday"
+                                    on:input=move |ev| {
+                                        let mut c = get.get_untracked();
+                                        if let Condition::CalendarActive { ref mut title_contains, .. } = c {
+                                            let v = event_target_value(&ev);
+                                            *title_contains = if v.is_empty() { None } else { Some(v) };
+                                        }
+                                        set.run(c);
+                                    } />
                             </div>
                         }.into_any()
                     },

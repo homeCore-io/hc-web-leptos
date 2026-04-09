@@ -1,8 +1,11 @@
 //! Rules page — list of automation rules with filters and inline operations.
 
-use crate::api::{clone_rule, delete_rule, fetch_rules, patch_rule, rule_stale_refs};
+use crate::api::{
+    clone_rule, create_rule_group, delete_rule, delete_rule_group, fetch_rule_groups, fetch_rules,
+    patch_rule, rule_group_action, rule_stale_refs,
+};
 use crate::auth::use_auth;
-use crate::models::Rule;
+use crate::models::{Rule, RuleGroup};
 use crate::pages::shared::{
     ErrorBanner, SkeletonRows,
     json_str_set, load_pref_json, ls_set, set_to_json_array,
@@ -184,6 +187,11 @@ pub fn RulesPage() -> impl IntoView {
     let selected: RwSignal<Vec<String>> = RwSignal::new(vec![]);
     let bulk_busy = RwSignal::new(false);
 
+    // ── Group state ──────────────────────────────────────────────────────────
+    let groups: RwSignal<Vec<RuleGroup>> = RwSignal::new(vec![]);
+    let active_group: RwSignal<Option<String>> = RwSignal::new(None);
+    let groups_expanded = RwSignal::new(false);
+
     // ── Initial fetch ─────────────────────────────────────────────────────────
     Effect::new(move |_| {
         let token = match auth.token.get() {
@@ -202,12 +210,18 @@ pub fn RulesPage() -> impl IntoView {
             loading.set(false);
         });
 
-        // Also fetch stale refs in parallel
+        // Also fetch stale refs and groups in parallel
+        let token_for_groups = token_for_stale.clone();
         spawn_local(async move {
             if let Ok(data) = rule_stale_refs(&token_for_stale).await {
                 if let Ok(refs) = serde_json::from_value::<Vec<StaleRef>>(data) {
                     stale_refs.set(refs);
                 }
+            }
+        });
+        spawn_local(async move {
+            if let Ok(data) = fetch_rule_groups(&token_for_groups).await {
+                groups.set(data);
             }
         });
     });
@@ -254,10 +268,20 @@ pub fn RulesPage() -> impl IntoView {
         let tf = tag_filter.get();
         let sk = sort_by.get();
         let sd = sort_dir.get();
+        let grp = active_group.get();
+        let grp_ids: Option<HashSet<String>> = grp.as_ref().and_then(|gid| {
+            groups.get().iter().find(|g| g.id == *gid).map(|g| {
+                g.rule_ids.iter().cloned().collect()
+            })
+        });
         let mut list: Vec<Rule> = rules
             .get()
             .into_iter()
             .filter(|r| {
+                // Group filter
+                if let Some(ref ids) = grp_ids {
+                    if !ids.contains(&r.id.to_string()) { return false; }
+                }
                 let name = r.name.to_lowercase();
                 let tags = rule_tags(r);
                 let tags_lower = tags.join(" ").to_lowercase();
@@ -310,6 +334,9 @@ pub fn RulesPage() -> impl IntoView {
                     on:click=move |_| nav_new("/rules/new", Default::default())
                 >"+ New Rule"</button>
             </div>
+
+            // ── Rule Groups ──────────────────────────────────────────────────
+            <RuleGroupsPanel groups=groups active_group=active_group expanded=groups_expanded />
 
             // ── Filter/sort toolbar ──────────────────────────────────────────
             <div class="filter-panel panel">
@@ -668,6 +695,195 @@ pub fn RulesPage() -> impl IntoView {
                     }
                 />
             </div>
+        </div>
+    }
+}
+
+// ── Rule Groups Panel ───────────────────────────────────────────────────────
+
+#[component]
+fn RuleGroupsPanel(
+    groups: RwSignal<Vec<RuleGroup>>,
+    active_group: RwSignal<Option<String>>,
+    expanded: RwSignal<bool>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(Option::<String>::None);
+    let new_name = RwSignal::new(String::new());
+    let _editing_group: RwSignal<Option<String>> = RwSignal::new(None);
+
+    let refresh_groups = move || {
+        let token = auth.token_str().unwrap_or_default();
+        spawn_local(async move {
+            if let Ok(data) = fetch_rule_groups(&token).await {
+                groups.set(data);
+            }
+        });
+    };
+
+    view! {
+        <div class="rule-groups-panel">
+            <div class="rule-groups-header">
+                <button
+                    class="hc-btn hc-btn--sm hc-btn--outline"
+                    on:click=move |_| expanded.update(|v| *v = !*v)
+                >
+                    <span class="material-icons" style="font-size:16px">
+                        {move || if expanded.get() { "expand_less" } else { "expand_more" }}
+                    </span>
+                    " Groups "
+                    <span class="cell-subtle">
+                        {move || {
+                            let g = groups.get();
+                            if g.is_empty() { String::new() } else { format!("({})", g.len()) }
+                        }}
+                    </span>
+                </button>
+                {move || active_group.get().map(|_| view! {
+                    <button
+                        class="hc-btn hc-btn--sm hc-btn--outline"
+                        on:click=move |_| active_group.set(None)
+                    >"Show All"</button>
+                })}
+            </div>
+
+            {move || expanded.get().then(|| {
+                let group_list = groups.get();
+                view! {
+                    <ErrorBanner error=error />
+                    <div class="rule-groups-body">
+                        {group_list.into_iter().map(|group| {
+                            let gid = group.id.clone();
+                            let gid_select = gid.clone();
+                            let gid_enable = gid.clone();
+                            let gid_disable = gid.clone();
+                            let gid_delete = gid.clone();
+                            let name = group.name.clone();
+                            let desc = group.description.clone().unwrap_or_default();
+                            let rule_count = group.rule_ids.len();
+                            let is_active = active_group.get().as_deref() == Some(gid.as_str());
+
+                            view! {
+                                <div class="rule-group-chip" class:rule-group-chip--active=is_active>
+                                    <button
+                                        class="rule-group-chip-name"
+                                        on:click=move |_| {
+                                            if active_group.get().as_deref() == Some(gid_select.as_str()) {
+                                                active_group.set(None);
+                                            } else {
+                                                active_group.set(Some(gid_select.clone()));
+                                            }
+                                        }
+                                    >
+                                        {name}
+                                        <span class="cell-subtle">{format!(" ({rule_count})")}</span>
+                                    </button>
+                                    {(!desc.is_empty()).then(|| {
+                                        let desc2 = desc.clone();
+                                        view! {
+                                            <span class="cell-subtle rule-group-desc" title=desc>{desc2}</span>
+                                        }
+                                    })}
+                                    <div class="rule-group-actions">
+                                        <button
+                                            class="hc-btn hc-btn--sm hc-btn--outline"
+                                            title="Enable all rules in group"
+                                            disabled=move || busy.get()
+                                            on:click=move |_| {
+                                                let token = auth.token_str().unwrap_or_default();
+                                                let id = gid_enable.clone();
+                                                busy.set(true);
+                                                spawn_local(async move {
+                                                    match rule_group_action(&token, &id, "enable").await {
+                                                        Ok(_) => {}
+                                                        Err(e) => error.set(Some(e)),
+                                                    }
+                                                    busy.set(false);
+                                                });
+                                            }
+                                        >
+                                            <span class="material-icons" style="font-size:14px">"play_arrow"</span>
+                                        </button>
+                                        <button
+                                            class="hc-btn hc-btn--sm hc-btn--outline"
+                                            title="Disable all rules in group"
+                                            disabled=move || busy.get()
+                                            on:click=move |_| {
+                                                let token = auth.token_str().unwrap_or_default();
+                                                let id = gid_disable.clone();
+                                                busy.set(true);
+                                                spawn_local(async move {
+                                                    match rule_group_action(&token, &id, "disable").await {
+                                                        Ok(_) => {}
+                                                        Err(e) => error.set(Some(e)),
+                                                    }
+                                                    busy.set(false);
+                                                });
+                                            }
+                                        >
+                                            <span class="material-icons" style="font-size:14px">"pause"</span>
+                                        </button>
+                                        <button
+                                            class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline"
+                                            title="Delete group"
+                                            disabled=move || busy.get()
+                                            on:click=move |_| {
+                                                let token = auth.token_str().unwrap_or_default();
+                                                let id = gid_delete.clone();
+                                                busy.set(true);
+                                                spawn_local(async move {
+                                                    match delete_rule_group(&token, &id).await {
+                                                        Ok(()) => refresh_groups(),
+                                                        Err(e) => error.set(Some(e)),
+                                                    }
+                                                    if active_group.get_untracked().as_deref() == Some(id.as_str()) {
+                                                        active_group.set(None);
+                                                    }
+                                                    busy.set(false);
+                                                });
+                                            }
+                                        >
+                                            <span class="material-icons" style="font-size:14px">"delete"</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        }).collect_view()}
+
+                        // ── Create new group ─────────────────────────────────
+                        <div class="rule-group-create">
+                            <input
+                                class="input"
+                                type="text"
+                                prop:value=move || new_name.get()
+                                on:input=move |ev| new_name.set(event_target_value(&ev))
+                                placeholder="New group name…"
+                            />
+                            <button
+                                class="hc-btn hc-btn--sm hc-btn--primary"
+                                disabled=move || busy.get() || new_name.get().trim().is_empty()
+                                on:click=move |_| {
+                                    let token = auth.token_str().unwrap_or_default();
+                                    let name = new_name.get();
+                                    busy.set(true);
+                                    error.set(None);
+                                    spawn_local(async move {
+                                        match create_rule_group(&token, &name, None, &[]).await {
+                                            Ok(_) => {
+                                                new_name.set(String::new());
+                                                refresh_groups();
+                                            }
+                                            Err(e) => error.set(Some(e)),
+                                        }
+                                        busy.set(false);
+                                    });
+                                }
+                            >"Create"</button>
+                        </div>
+                    </div>
+                }
+            })}
         </div>
     }
 }

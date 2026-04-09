@@ -3059,6 +3059,239 @@ a.cell-link:hover { text-decoration: underline; }
 .cal-add-row { display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; }
 .cal-add-row .input { flex: 1; min-width: 200px; }
 
+/* ── Dashboard / Overview ───────────────────────────────────────────────── */
+.dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+.dashboard-header h1 { margin: 0; }
+.dashboard-toolbar { display: flex; gap: 0.5rem; align-items: center; }
+
+.dashboard-grid {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    align-items: flex-start;
+}
+.dashboard-widget {
+    background: var(--hc-surface); border: 1px solid var(--hc-border);
+    border-radius: var(--hc-radius-lg); padding: 0; overflow: hidden;
+}
+.dashboard-widget--sm { width: calc(33.33% - 6px); min-width: 200px; }
+.dashboard-widget--md { width: calc(50% - 4px); min-width: 280px; }
+.dashboard-widget--lg { width: 100%; }
+/* Pill widgets: no card wrapper, shrink to content, flow inline */
+.dashboard-widget--pill {
+    background: none; border: none; overflow: visible;
+    width: auto !important; min-width: 0 !important;
+    flex-shrink: 0;
+}
+
+.widget-edit-bar { display: flex; gap: 0.25rem; justify-content: flex-end; padding: 0.25rem 0.5rem; background: var(--hc-surface-soft); border-bottom: 1px solid var(--hc-border); }
+.widget-edit-btn { background: none; border: none; cursor: pointer; color: var(--hc-text-muted); padding: 0.15rem; border-radius: var(--hc-radius-sm); }
+.widget-edit-btn:hover { background: var(--hc-surface); color: var(--hc-text); }
+.widget-edit-btn--danger:hover { color: var(--hc-danger); }
+
+.dashboard-widget-fallback { padding: 1rem; text-align: center; }
+
+/* ── Generic stat card (template fallback) ─────────────────────────────── */
+.generic-stat-card { padding: 0.75rem; }
+.generic-stat-title { font-size: 0.88rem; font-weight: 600; margin: 0 0 0.5rem; }
+.generic-stat-grid { display: flex; gap: 1rem; flex-wrap: wrap; }
+.generic-stat-item { display: flex; flex-direction: column; align-items: center; min-width: 60px; }
+.generic-stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+.generic-stat-label { font-size: 0.75rem; color: var(--hc-text-muted); text-transform: capitalize; }
+
+/* ── Entities card ─────────────────────────────────────────────────────── */
+.entities-card { padding: 0; }
+.entities-card-title { font-size: 0.88rem; font-weight: 600; padding: 0.6rem 0.75rem; margin: 0; border-bottom: 1px solid var(--hc-border); }
+.entities-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--hc-border); gap: 0.5rem; }
+.entities-row:last-child { border-bottom: none; }
+.entities-row-info { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.entities-row-icon { font-size: 18px; color: var(--hc-text-muted); flex-shrink: 0; }
+.entities-row-name { font-size: 0.85rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entities-row-controls { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.entities-row-status { font-size: 0.8rem; color: var(--hc-text-muted); white-space: nowrap; }
+.entities-row-status--tone-good { color: var(--hc-success); font-weight: 600; }
+.entities-row-status--tone-warn { color: var(--hc-warn); font-weight: 600; }
+.entities-row-status--tone-idle { color: var(--hc-text-muted); }
+.entities-row-status--tone-media { color: #8b5cf6; font-weight: 600; }
+.entities-row-status--tone-offline { color: var(--hc-danger); }
+.entities-row--offline { opacity: 0.5; }
+.entities-toggle { background: none; border: none; cursor: pointer; color: var(--hc-text-muted); padding: 0; transition: color 0.15s; }
+.entities-toggle--on { color: var(--hc-success); }
+.entities-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+.entities-slider { width: 80px; accent-color: var(--hc-warn); height: 4px; }
+
+/* ── Widget config editor ──────────────────────────────────────────────── */
+.widget-config-editor { padding: 0.75rem; border-top: 1px solid var(--hc-border); background: var(--hc-surface-soft); display: flex; flex-direction: column; gap: 0.4rem; }
+.widget-config-editor label { font-size: 0.78rem; font-weight: 600; color: var(--hc-text-muted); margin-top: 0.15rem; }
+.widget-config-editor .input { font-size: 0.85rem; padding: 0.35rem 0.5rem; }
+.widget-config-actions { display: flex; gap: 0.4rem; margin-top: 0.25rem; }
+.widget-config-checkrow { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
+
+/* ── Device checkbox list ──────────────────────────────────────────────── */
+.device-checkbox-list { display: flex; flex-direction: column; gap: 0.3rem; }
+.device-checkbox-scroll { max-height: 180px; overflow-y: auto; border: 1px solid var(--hc-border); border-radius: var(--hc-radius-md); padding: 0.25rem; background: var(--hc-surface); }
+.device-checkbox-item { display: flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.35rem; font-size: 0.82rem; cursor: pointer; border-radius: var(--hc-radius-sm); }
+.device-checkbox-item:hover { background: var(--hc-surface-soft); }
+.device-checkbox-item input[type="checkbox"] { accent-color: var(--hc-accent); }
+
+/* ── HA-style pill base ─────────────────────────────────────────────── */
+/* Shared pill shape used by badges, chips, mode toggles, scene buttons */
+.hc-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 36px; min-width: 36px; padding: 0 12px;
+    border-radius: 18px;
+    background: var(--hc-surface); border: 1px solid var(--hc-border);
+    font-size: 12px; font-weight: 500; font-family: inherit;
+    color: var(--hc-text); text-decoration: none;
+    cursor: pointer; user-select: none;
+    transition: box-shadow 180ms ease-in-out, border-color 180ms ease-in-out, background 180ms ease-in-out;
+    --pill-color: var(--hc-text-muted);
+}
+.hc-pill:hover { border-color: var(--pill-color); box-shadow: 0 0 0 1px var(--pill-color); }
+.hc-pill:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+.hc-pill .material-icons { font-size: 18px; margin-left: -4px; color: var(--pill-color); transition: color 180ms; }
+
+/* State color variants */
+.hc-pill--light    { --pill-color: #ff9800; }
+.hc-pill--switch   { --pill-color: #2196f3; }
+.hc-pill--lock     { --pill-color: #2196f3; }
+.hc-pill--door     { --pill-color: #ff9800; }
+.hc-pill--motion   { --pill-color: #ff5722; }
+.hc-pill--leak     { --pill-color: #f44336; }
+.hc-pill--climate  { --pill-color: #ff5722; }
+.hc-pill--success  { --pill-color: #4caf50; }
+.hc-pill--danger   { --pill-color: #f44336; }
+.hc-pill--warning  { --pill-color: #ff9800; }
+.hc-pill--info     { --pill-color: #2196f3; }
+.hc-pill--muted    { --pill-color: var(--hc-text-muted); }
+.hc-pill--active   { background: color-mix(in srgb, var(--pill-color) 12%, var(--hc-surface)); border-color: color-mix(in srgb, var(--pill-color) 40%, transparent); }
+.hc-pill--active .material-icons { color: var(--pill-color); }
+
+/* ── Overview badge (two-line pill) ────────────────────────────────────── */
+.overview-card {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 48px; padding: 0 14px;
+    border-radius: 24px;
+    background: var(--hc-surface); border: 1px solid var(--hc-border);
+    text-decoration: none; color: var(--hc-text);
+    cursor: pointer;
+    transition: box-shadow 180ms ease-in-out, border-color 180ms ease-in-out;
+    --badge-color: var(--hc-text-muted);
+}
+.overview-card:hover { border-color: var(--badge-color); box-shadow: 0 0 0 1px var(--badge-color); }
+.overview-card-icon { font-size: 20px; margin-left: -2px; color: var(--badge-color); transition: color 300ms; }
+.overview-card-body { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; }
+.overview-card-label { font-size: 10px; font-weight: 500; color: var(--hc-text-muted); letter-spacing: 0.1px; }
+.overview-card-count { font-size: 14px; font-weight: 700; transition: color 300ms; }
+.overview-card--good  { --badge-color: #4caf50; }
+.overview-card--good .overview-card-count { color: #4caf50; }
+.overview-card--alert { --badge-color: #f44336; }
+.overview-card--alert .overview-card-count { color: #f44336; }
+.overview-card--alert { background: color-mix(in srgb, #f44336 8%, var(--hc-surface)); border-color: color-mix(in srgb, #f44336 30%, transparent); }
+
+/* ── Overview chip (compact single-line variant) ───────────────────────── */
+.overview-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 36px; padding: 0 12px;
+    border-radius: 18px;
+    background: var(--hc-surface); border: 1px solid var(--hc-border);
+    text-decoration: none; color: var(--hc-text);
+    font-size: 12px; font-weight: 500; cursor: pointer;
+    transition: box-shadow 180ms ease-in-out, border-color 180ms ease-in-out;
+    --badge-color: var(--hc-text-muted);
+}
+.overview-chip:hover { border-color: var(--badge-color); box-shadow: 0 0 0 1px var(--badge-color); }
+.overview-chip .material-icons { font-size: 18px; margin-left: -4px; color: var(--badge-color); transition: color 180ms; }
+.overview-chip-count { font-weight: 700; }
+.overview-chip-label { color: var(--hc-text-muted); }
+.overview-chip--good  { --badge-color: #4caf50; }
+.overview-chip--good .overview-chip-count { color: #4caf50; }
+.overview-chip--alert { --badge-color: #f44336; background: color-mix(in srgb, #f44336 8%, var(--hc-surface)); border-color: color-mix(in srgb, #f44336 30%, transparent); }
+.overview-chip--alert .overview-chip-count { color: #f44336; }
+
+/* ── Stat chips (single-line pills) ────────────────────────────────────── */
+.stat-chips-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 0.75rem; justify-content: flex-start; }
+.stat-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 36px; padding: 0 12px;
+    border-radius: 18px;
+    background: var(--hc-surface); border: 1px solid var(--hc-border);
+    font-size: 12px; font-weight: 500;
+    transition: box-shadow 180ms ease-in-out, border-color 180ms ease-in-out;
+}
+.stat-chip-icon { font-size: 18px !important; margin-left: -4px; color: var(--hc-text-muted); transition: color 180ms; }
+.stat-chip--active .stat-chip-icon { color: #4caf50; }
+.stat-chip--warn .stat-chip-icon { color: #ff9800; }
+.stat-chip--offline .stat-chip-icon { color: #f44336; }
+.stat-chip-label { color: var(--hc-text-muted); white-space: nowrap; }
+.stat-chip-value { font-weight: 700; color: var(--hc-text); white-space: nowrap; }
+.stat-chip--active { border-color: color-mix(in srgb, #4caf50 40%, transparent); background: color-mix(in srgb, #4caf50 8%, var(--hc-surface)); }
+.stat-chip--active .stat-chip-value { color: #4caf50; }
+.stat-chip--warn { border-color: color-mix(in srgb, #ff9800 40%, transparent); background: color-mix(in srgb, #ff9800 8%, var(--hc-surface)); }
+.stat-chip--warn .stat-chip-value { color: #ff9800; }
+.stat-chip--offline { border-color: color-mix(in srgb, #f44336 40%, transparent); background: color-mix(in srgb, #f44336 8%, var(--hc-surface)); }
+.stat-chip--offline .stat-chip-value { color: #f44336; }
+
+/* ── Mode chips (interactive pills) ────────────────────────────────────── */
+.mode-chips-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 0.75rem; }
+.mode-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 36px; min-width: 36px; padding: 0 12px;
+    border-radius: 18px;
+    background: var(--hc-surface); border: 1px solid var(--hc-border);
+    font-size: 12px; font-weight: 500; font-family: inherit;
+    color: var(--hc-text); cursor: pointer;
+    transition: box-shadow 180ms ease-in-out, border-color 180ms ease-in-out, background 180ms ease-in-out;
+    --pill-color: var(--hc-text-muted);
+}
+.mode-chip:hover { border-color: var(--pill-color); box-shadow: 0 0 0 1px var(--pill-color); }
+.mode-chip .material-icons { font-size: 18px; margin-left: -4px; color: var(--pill-color); transition: color 180ms; }
+.mode-chip--on {
+    --pill-color: #2196f3;
+    background: color-mix(in srgb, #2196f3 12%, var(--hc-surface));
+    border-color: color-mix(in srgb, #2196f3 40%, transparent);
+}
+.mode-chip--on .material-icons { color: #2196f3; }
+.mode-chip:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+
+/* ── Scene buttons (pill style) ────────────────────────────────────────── */
+.scene-buttons-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 0.75rem; }
+.scene-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 36px; padding: 0 12px;
+    border-radius: 18px;
+    background: var(--hc-surface); border: 1px solid var(--hc-border);
+    font-size: 12px; font-weight: 500; font-family: inherit;
+    color: var(--hc-text); cursor: pointer;
+    transition: box-shadow 180ms ease-in-out, border-color 180ms ease-in-out, background 180ms ease-in-out;
+}
+.scene-btn:hover { border-color: #4caf50; box-shadow: 0 0 0 1px #4caf50; }
+.scene-btn .material-icons { font-size: 18px; margin-left: -4px; color: var(--hc-text-muted); transition: color 180ms; }
+.scene-btn:hover .material-icons { color: #4caf50; }
+.scene-btn--recent {
+    background: color-mix(in srgb, #4caf50 12%, var(--hc-surface));
+    border-color: color-mix(in srgb, #4caf50 40%, transparent);
+}
+.scene-btn--recent .material-icons { color: #4caf50; }
+.scene-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+
+/* ── Add card panel ────────────────────────────────────────────────────── */
+.add-card-panel { margin-top: 1rem; padding: 1rem; border: 2px dashed var(--hc-border); border-radius: var(--hc-radius-lg); }
+.add-card-panel h3 { margin: 0 0 0.75rem; font-size: 0.95rem; }
+.add-card-type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
+.add-card-type-btn { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; padding: 0.75rem 0.5rem; border: 1px solid var(--hc-border); border-radius: var(--hc-radius-md); background: var(--hc-surface); cursor: pointer; font-size: 0.82rem; font-weight: 500; color: var(--hc-text); font-family: inherit; transition: all 0.15s; }
+.add-card-type-btn:hover { background: var(--hc-surface-soft); border-color: var(--hc-accent); }
+.add-card-type-btn .material-icons { font-size: 24px; color: var(--hc-text-muted); }
+.add-card-form { }
+.add-card-form-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+.add-card-fields { display: flex; flex-direction: column; gap: 0.5rem; }
+.add-card-fields label { font-size: 0.82rem; font-weight: 600; color: var(--hc-text-muted); }
+.add-card-fields .input { font-size: 0.85rem; }
+
+/* ── Dashboard mobile responsive ───────────────────────────────────────── */
+@media (max-width: 700px) {
+    .dashboard-widget--sm, .dashboard-widget--md, .dashboard-widget--lg { width: 100%; min-width: 0; }
+    .entities-slider { width: 60px; }
+}
+
 /* ── Backup & Data section ──────────────────────────────────────────────── */
 .admin-data-group { padding: 0.75rem 0; border-top: 1px solid var(--hc-border); }
 .admin-data-group:first-of-type { border-top: none; padding-top: 0; }

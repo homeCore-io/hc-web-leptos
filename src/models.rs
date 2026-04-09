@@ -14,6 +14,10 @@ use std::collections::HashMap;
 // ── Re-exports from hc-types (shared with core) ────────────────────────────
 
 pub use hc_types::rule::{Rule, RunMode, Trigger};
+pub use hc_types::dashboard::{
+    DashboardDefinition, DashboardRefreshPolicy, DashboardResponse, DashboardVisibility,
+    DashboardWidget, DashboardWidgetType,
+};
 
 // ── Admin types ─────────────────────────────────────────────────────────────
 
@@ -162,6 +166,9 @@ pub struct DeviceState {
     pub area: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_type: Option<String>,
+    /// User-set UI presentation hint (e.g. "light", "door", "window", "garage").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_hint: Option<String>,
     pub available: bool,
     pub attributes: HashMap<String, serde_json::Value>,
     pub last_seen: Option<DateTime<Utc>>,
@@ -506,6 +513,31 @@ pub fn supports_inline_toggle(d: &DeviceState) -> bool {
 }
 
 pub fn presentation_device_type_key(d: &DeviceState) -> &'static str {
+    // User-set ui_hint takes highest priority.
+    if let Some(ref hint) = d.ui_hint {
+        match hint.trim().to_lowercase().as_str() {
+            "light" => return "light",
+            "dimmer" | "dimmer_light" => return "dimmer",
+            "switch" => return "switch",
+            "lock" => return "lock",
+            "shade" | "blind" | "cover" => return "shade",
+            "door" | "contact_sensor" | "window" | "garage" | "gate" => return "contact_sensor",
+            "motion" | "motion_sensor" => return "motion_sensor",
+            "occupancy" | "occupancy_sensor" => return "occupancy_sensor",
+            "leak" | "leak_sensor" | "water" => return "leak_sensor",
+            "vibration" | "vibration_sensor" => return "vibration_sensor",
+            "temperature" | "temperature_sensor" => return "temperature_sensor",
+            "humidity" | "humidity_sensor" => return "humidity_sensor",
+            "environment" | "environment_sensor" => return "environment_sensor",
+            "media_player" => return "media_player",
+            "keypad" => return "keypad",
+            "remote" => return "remote",
+            "timer" => return "timer",
+            "sensor" => return "sensor",
+            _ => {} // unrecognized hint — fall through to auto-detection
+        }
+    }
+
     let raw = d.device_type.as_deref().unwrap_or("").trim().to_lowercase();
 
     if is_media_player(d) {
@@ -651,15 +683,15 @@ pub fn device_mdi_icon(d: &DeviceState) -> &'static str {
         "motion_sensor" => if motion { "mdi-motion-sensor" } else { "mdi-motion-sensor-off" },
         "occupancy_sensor" => if occupied { "mdi-home-account" } else { "mdi-home-outline" },
         "contact_sensor" => {
-            // Check if it's a door-type sensor by name
+            // Check ui_hint first, then fall back to name-based detection
+            let hint = d.ui_hint.as_deref().unwrap_or("").to_lowercase();
             let name = d.name.to_lowercase();
-            if name.contains("garage") || name.contains("oh1") || name.contains("oh2") || name.contains("overhead") {
+            if hint == "garage" || hint == "gate" || name.contains("garage") || name.contains("oh1") || name.contains("oh2") || name.contains("overhead") || name.contains("gate") {
                 if open { "mdi-garage-open" } else { "mdi-garage" }
-            } else if name.contains("door") {
-                if open { "mdi-door-open" } else { "mdi-door-closed" }
-            } else if name.contains("window") {
+            } else if hint == "window" || name.contains("window") {
                 if open { "mdi-window-open" } else { "mdi-window-closed" }
             } else {
+                // door is the default for contact sensors
                 if open { "mdi-door-open" } else { "mdi-door-closed" }
             }
         }

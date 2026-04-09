@@ -240,7 +240,7 @@ fn CardTimerCountdown(
 // ── DeviceCard ────────────────────────────────────────────────────────────────
 
 #[component]
-fn DeviceCard(device_id: String) -> impl IntoView {
+pub fn DeviceCard(device_id: String) -> impl IntoView {
     let ws = use_ws();
     let auth = use_auth();
 

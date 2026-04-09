@@ -17,65 +17,26 @@
 
 ---
 
-## Phase 1 — Dashboard Page (Priority: Critical)
+## Phase 1 — Overview Page (Priority: Critical) — IMPLEMENTED
 
-**Why:** First page users see after login. Currently redirects to `/devices` — needs a proper landing page with system overview.
+**Status:** Implemented as a single admin Overview page (not a full multi-dashboard system).
 
-**Backend endpoints available (all exist, none consumed yet):**
-- `GET /dashboards` — list dashboards
-- `POST /dashboards` — create dashboard
-- `GET /dashboards/templates` — list built-in templates
-- `POST /dashboards/templates/:id` — instantiate template
-- `GET /dashboards/:id` — get dashboard
-- `PUT /dashboards/:id` — update dashboard
-- `DELETE /dashboards/:id` — delete dashboard
-- `GET /dashboards/:id/export` — export dashboard JSON
-- `POST /dashboards/import` — import dashboard JSON
-- `POST /dashboards/:id/duplicate` — clone dashboard
-- `POST /dashboards/:id/default` — set as user default
-
-**New file:** `src/pages/dashboards.rs`
-
-### Tasks
-
-1. **Add API functions** in `src/api.rs`:
-   - `fetch_dashboards()`, `fetch_dashboard(id)`, `create_dashboard()`, `update_dashboard(id)`
-   - `delete_dashboard(id)`, `duplicate_dashboard(id)`, `set_default_dashboard(id)`
-   - `fetch_dashboard_templates()`, `instantiate_template(id)`
-   - `export_dashboard(id)`, `import_dashboard(json)`
-
-2. **Add types** in `src/models.rs`:
-   - Import/define Dashboard, DashboardWidget, DashboardTemplate types from hc-types
-
-3. **Implement DashboardsPage** (`/dashboards`):
-   - List view of user's dashboards (cards or grid)
-   - "New Dashboard" button (blank or from template)
-   - Set default dashboard
-   - Delete, duplicate, export actions per dashboard
-
-4. **Implement DashboardDetailPage** (`/dashboards/:id`):
-   - Widget grid layout (read-only initially, then editable)
-   - Widget types to support (based on backend schema):
-     - Device status summary (count by type, availability)
-     - Mode indicators (active modes)
-     - Recent events feed
-     - Scene quick-activate buttons
-     - Plugin health overview
-     - System stats (uptime, memory, DB size)
-   - Edit mode toggle: rearrange/add/remove widgets
-   - Save layout changes
-
-5. **Update router** in `src/app.rs`:
-   - Add `/dashboards` → DashboardsPage
-   - Add `/dashboards/:id` → DashboardDetailPage
-   - Change HomeRedirect (`/`) to redirect to user's default dashboard (fall back to `/devices`)
-
-6. **CSS** in `style/main.css`:
-   - Dashboard grid layout (CSS Grid with configurable columns)
-   - Widget card styles (consistent with existing `.detail-card`)
-   - Edit mode visual indicators
-
-### Estimated scope: ~800-1200 lines Rust, ~200 lines CSS
+**What was done:**
+- Dashboard types re-exported from hc-types (DashboardDefinition, DashboardWidget, etc.)
+- 6 API functions: fetch_dashboards, fetch_dashboard, create_from_template, update, set_default, templates
+- `DashboardsPage` at `/dashboards` — auto-creates from "Home Overview" template on first visit
+- HomeRedirect changed from `/devices` to `/dashboards`
+- 6 card components:
+  - **Single Device** — wraps existing DeviceCard with full controls
+  - **Entities Card** — HA-style: user-picked devices stacked with name + inline toggle/slider
+  - **Overview Counter** — configurable stat counter (device type + attribute + value filter, click → /devices)
+  - **Stat Chips** — compact sensor reading badges
+  - **Mode Chips** — toggle chips for mode_* devices
+  - **Scene Buttons** — quick-activate scene buttons
+- Edit mode with toolbar (Edit/Save/Reset), per-widget remove/reorder controls
+- AddCardPanel with type picker and config forms for each card type
+- 12-column CSS Grid layout with small/medium/large card sizes
+- Mobile responsive (collapses to single column at 700px)
 
 ---
 
@@ -263,7 +224,7 @@ Phases 2, 3, 4 are independent and can be done in any order or in parallel.
 
 | Phase | Rust LOC | CSS LOC | Priority |
 |-------|----------|---------|----------|
-| 1 — Dashboard | 800-1200 | 200 | Critical |
+| 1 — Dashboard | ~~800-1200~~ done | ~~200~~ done | Critical |
 | 2 — Rule Groups | ~~300-500~~ done | ~~80~~ done | High |
 | 3 — Calendars | ~~200-350~~ done | ~~50~~ done | Medium |
 | 4 — Import/Export | ~~200-300~~ done | ~~30~~ done | Medium |
@@ -278,7 +239,7 @@ Phases 2, 3, 4 are independent and can be done in any order or in parallel.
 
 Before hc-web-leptos ships as the default admin interface:
 
-- [ ] **Phase 1 complete** — Dashboard page functional with at least system overview widgets
+- [x] **Phase 1 complete** — Overview page with 6 card types, edit mode, auto-creation
 - [x] **Phase 2 complete** — Rule groups visible and manageable
 - [x] **Phase 4 complete** — Import/export for rules and scenes (merged into Admin "Backup & Data")
 - [x] **Phase 6 complete** — Schema viewer, stale refs, backup restore, plugin restart info

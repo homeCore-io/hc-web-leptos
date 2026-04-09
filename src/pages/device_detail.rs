@@ -137,11 +137,13 @@ fn sync_edit_fields(
     edit_area: RwSignal<String>,
     edit_canonical: RwSignal<String>,
     edit_icon: RwSignal<String>,
+    edit_ui_hint: RwSignal<String>,
 ) {
     edit_name.set(device.name.clone());
     edit_area.set(device.area.clone().unwrap_or_default());
     edit_canonical.set(device.canonical_name.clone().unwrap_or_default());
     edit_icon.set(device.status_icon.clone().unwrap_or_default());
+    edit_ui_hint.set(device.ui_hint.clone().unwrap_or_default());
 }
 
 #[component]
@@ -165,6 +167,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
     let edit_area = RwSignal::new(String::new());
     let edit_canonical = RwSignal::new(String::new());
     let edit_icon = RwSignal::new(String::new());
+    let edit_ui_hint = RwSignal::new(String::new());
     let delete_confirm = RwSignal::new(String::new());
     let timer_secs = RwSignal::new("60".to_string());
     let selected_favorite = RwSignal::new(String::new());
@@ -231,7 +234,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                         m.insert(d.device_id.clone(), d.clone());
                     });
                     if device.get_untracked().is_none() || !show_edit.get_untracked() {
-                        sync_edit_fields(&d, edit_name, edit_area, edit_canonical, edit_icon);
+                        sync_edit_fields(&d, edit_name, edit_area, edit_canonical, edit_icon, edit_ui_hint);
                     }
                     device.set(Some(d));
                 }
@@ -288,11 +291,13 @@ pub fn DeviceDetailPage() -> impl IntoView {
         let area_val = edit_area.get();
         let canonical_val = edit_canonical.get();
         let icon_val = edit_icon.get();
+        let hint_val = edit_ui_hint.get();
         let body = serde_json::json!({
             "name": name_val.trim(),
             "area": if area_val.trim().is_empty() { serde_json::Value::Null } else { area_val.trim().into() },
             "canonical_name": if canonical_val.trim().is_empty() { serde_json::Value::Null } else { canonical_val.trim().into() },
             "status_icon": if icon_val.trim().is_empty() { serde_json::Value::Null } else { icon_val.trim().into() },
+            "ui_hint": if hint_val.trim().is_empty() { serde_json::Value::Null } else { hint_val.trim().into() },
         });
         busy.set(true);
         error.set(None);
@@ -300,7 +305,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
         spawn_local(async move {
             match update_device_meta(&token, &id, &body).await {
                 Ok(updated) => {
-                    sync_edit_fields(&updated, edit_name, edit_area, edit_canonical, edit_icon);
+                    sync_edit_fields(&updated, edit_name, edit_area, edit_canonical, edit_icon, edit_ui_hint);
                     device.set(Some(updated));
                     notice.set(Some("Device updated.".into()));
                     show_edit.set(false);
@@ -568,6 +573,37 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                         placeholder="e.g. power, lock (blank to clear)"
                                     />
                                 </div>
+                                <div class="edit-field">
+                                    <label>"UI Hint"</label>
+                                    <select
+                                        prop:value=move || edit_ui_hint.get()
+                                        on:change=move |ev| edit_ui_hint.set(event_target_value(&ev))
+                                    >
+                                        <option value="" selected=move || edit_ui_hint.get().is_empty()>"Auto-detect"</option>
+                                        <option value="light">"Light"</option>
+                                        <option value="dimmer">"Dimmer"</option>
+                                        <option value="switch">"Switch"</option>
+                                        <option value="lock">"Lock"</option>
+                                        <option value="shade">"Shade / Blind"</option>
+                                        <option value="door">"Door (contact sensor)"</option>
+                                        <option value="window">"Window (contact sensor)"</option>
+                                        <option value="garage">"Garage door"</option>
+                                        <option value="gate">"Gate"</option>
+                                        <option value="motion">"Motion sensor"</option>
+                                        <option value="occupancy">"Occupancy sensor"</option>
+                                        <option value="leak">"Leak sensor"</option>
+                                        <option value="temperature">"Temperature sensor"</option>
+                                        <option value="humidity">"Humidity sensor"</option>
+                                        <option value="environment">"Environment (temp+humidity)"</option>
+                                        <option value="media_player">"Media player"</option>
+                                        <option value="keypad">"Keypad"</option>
+                                        <option value="remote">"Remote"</option>
+                                        <option value="sensor">"Generic sensor"</option>
+                                    </select>
+                                    <span class="cell-subtle">
+                                        "Overrides auto-detection for icons and dashboard counters."
+                                    </span>
+                                </div>
                             </div>
                             <div class="edit-actions">
                                 <button
@@ -587,6 +623,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                 edit_area,
                                                 edit_canonical,
                                                 edit_icon,
+                                                edit_ui_hint,
                                             );
                                         }
                                         delete_confirm.set(String::new());
@@ -604,6 +641,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                 edit_area,
                                                 edit_canonical,
                                                 edit_icon,
+                                                edit_ui_hint,
                                             );
                                         }
                                         delete_confirm.set(String::new());

@@ -6,6 +6,7 @@ use crate::pages::shared::{ToastContainer, ToastContext};
 use crate::pages::{
     admin::AdminPage,
     areas::AreasPage,
+    dashboards::DashboardsPage,
     device_cards::DeviceCardsPage,
     device_detail::DeviceDetailPage,
     events::EventsPage,
@@ -48,6 +49,9 @@ pub fn App() -> impl IntoView {
             <Routes fallback=|| view! { <p class="msg-error">"Page not found."</p> }>
                 <Route path=path!("/")        view=HomeRedirect />
                 <Route path=path!("/login")   view=LoginPage />
+                <Route path=path!("/dashboards") view=move || view! {
+                    <AuthGuard><DashboardsPage /></AuthGuard>
+                }/>
                 <Route path=path!("/areas") view=move || view! {
                     <AuthGuard><AreasPage /></AuthGuard>
                 }/>
@@ -111,7 +115,7 @@ pub fn App() -> impl IntoView {
 fn HomeRedirect() -> impl IntoView {
     let navigate = leptos_router::hooks::use_navigate();
     Effect::new(move |_| {
-        navigate("/devices", Default::default());
+        navigate("/dashboards", Default::default());
     });
     view! {}
 }

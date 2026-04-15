@@ -2,8 +2,8 @@
 //! navigation to detail pages.
 
 use crate::api::{
-    fetch_plugin, fetch_plugin_config, fetch_plugins, patch_plugin, restart_plugin, start_plugin,
-    stop_plugin, update_plugin_config,
+    fetch_plugin, fetch_plugin_config, fetch_plugins, patch_plugin, restart_plugin,
+    send_plugin_command, start_plugin, stop_plugin, update_plugin_config,
 };
 use crate::auth::use_auth;
 use crate::models::PluginInfo;
@@ -371,6 +371,21 @@ pub fn PluginDetailPage() -> impl IntoView {
         });
     };
 
+    // Rescan (yolink-specific): triggers immediate device inventory sync.
+    let rescan_busy = RwSignal::new(false);
+    let do_rescan = move || {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let id = plugin_id();
+        rescan_busy.set(true);
+        spawn_local(async move {
+            match send_plugin_command(&token, &id, "rescan_devices", json!({})).await {
+                Ok(_) => notice.set(Some("Device rescan triggered.".into())),
+                Err(e) => error.set(Some(format!("Rescan failed: {e}"))),
+            }
+            rescan_busy.set(false);
+        });
+    };
+
     // Save config
     let save_config = move || {
         let token = match auth.token.get_untracked() { Some(t) => t, None => return };
@@ -531,6 +546,25 @@ pub fn PluginDetailPage() -> impl IntoView {
                         </div>
                     </section>
                 }
+            })}
+
+            // ── Plugin commands (per-plugin custom actions) ─────────────────
+            {move || (plugin.get().map(|p| p.plugin_id).as_deref() == Some("plugin.yolink")).then(|| view! {
+                <section class="detail-card">
+                    <h3 class="detail-card-title">"Plugin commands"</h3>
+                    <div style="display:flex; align-items:center; gap:0.75rem">
+                        <button class="hc-btn hc-btn--sm hc-btn--primary"
+                            disabled=move || rescan_busy.get()
+                            on:click=move |_| do_rescan()
+                        >
+                            {move || if rescan_busy.get() { "Rescanning…" } else { "Rescan devices" }}
+                        </button>
+                        <span class="msg-muted" style="font-size:0.8rem">
+                            "Fetch the current device list from the YoLink hub. \
+                             Use this after pairing a new device."
+                        </span>
+                    </div>
+                </section>
             })}
 
             // ── Configuration ───────────────────────────────────────────────

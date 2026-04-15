@@ -561,6 +561,22 @@ pub async fn update_plugin_config(token: &str, id: &str, body: &serde_json::Valu
     put_json(&format!("/plugins/{id}/config"), token, body).await.map(|_: serde_json::Value| ())
 }
 
+/// Send a plugin-specific management command (e.g. yolink `rescan_devices`).
+/// `params` is merged into the request body alongside `action`.
+pub async fn send_plugin_command(
+    token: &str,
+    id: &str,
+    action: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut body = params;
+    if !body.is_object() {
+        body = serde_json::json!({});
+    }
+    body["action"] = serde_json::Value::String(action.to_string());
+    post_json(&format!("/plugins/{id}/command"), token, &body).await
+}
+
 // ── Events API ───────────────────────────────────────────────────────────────
 
 pub async fn fetch_events(token: &str, limit: u32) -> Result<Vec<Value>, String> {

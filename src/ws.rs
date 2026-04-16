@@ -137,6 +137,32 @@ fn schedule_reconnect(trigger: RwSignal<u32>, attempt: u32) {
 /// socket before the Effect re-runs, so there is never more than one socket
 /// open at a time.
 pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
+    // Seed the shared device + plugin maps from REST so every page has data
+    // immediately, even when navigated to directly (e.g. /plugins/:id).
+    Effect::new(move |_| {
+        let token = match auth_token.get() {
+            Some(t) => t,
+            None => return,
+        };
+        let ws = ctx;
+        leptos::task::spawn_local(async move {
+            if let Ok(list) = crate::api::fetch_devices(&token).await {
+                ws.devices.update(|m| {
+                    for d in list {
+                        m.entry(d.device_id.clone()).or_insert(d);
+                    }
+                });
+            }
+            if let Ok(list) = crate::api::fetch_plugins(&token).await {
+                ws.plugins.update(|m| {
+                    for p in list {
+                        m.entry(p.plugin_id.clone()).or_insert(p);
+                    }
+                });
+            }
+        });
+    });
+
     let reconnect_trigger: RwSignal<u32> = RwSignal::new(0);
 
     Effect::new(move |_| {

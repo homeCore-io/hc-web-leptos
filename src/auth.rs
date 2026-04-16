@@ -6,6 +6,7 @@
 
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::JsCast;
 
 pub const API_BASE: &str = "/api/v1";
 const TOKEN_KEY: &str = "hc-leptos:token";
@@ -31,7 +32,18 @@ pub struct AuthState {
 
 impl AuthState {
     pub fn new() -> Self {
-        let token = RwSignal::new(ls_get(TOKEN_KEY));
+        // Drop any stored token that's already expired so the AuthGuard
+        // redirects to /login silently instead of showing a "session expired"
+        // toast after the first 401 from an API call.
+        let stored = ls_get(TOKEN_KEY).filter(|t| {
+            if jwt_is_expired(t) {
+                ls_remove(TOKEN_KEY);
+                false
+            } else {
+                true
+            }
+        });
+        let token = RwSignal::new(stored);
         let user = RwSignal::new(None::<HcUser>);
         let ready = RwSignal::new(true); // token read synchronously; user loaded lazily
         Self { token, user, ready }
@@ -90,6 +102,49 @@ pub async fn api_login(username: &str, password: &str) -> Result<String, String>
         .as_str()
         .map(str::to_string)
         .ok_or_else(|| "No token in response".to_string())
+}
+
+// ── JWT expiry check ──────────────────────────────────────────────────────────
+
+/// Return `true` if the JWT's `exp` claim is in the past, or if the token
+/// can't be decoded (safer to treat as expired than to trust it).
+///
+/// Doesn't verify the signature — that's the server's job.  We only look at
+/// `exp` to decide whether to bother sending the token at all.
+fn jwt_is_expired(token: &str) -> bool {
+    let Some(payload_b64) = token.split('.').nth(1) else {
+        return true;
+    };
+    let Some(json) = b64url_decode_to_string(payload_b64) else {
+        return true;
+    };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&json) else {
+        return true;
+    };
+    let Some(exp) = val.get("exp").and_then(|v| v.as_f64()) else {
+        // No exp claim — treat as non-expiring.
+        return false;
+    };
+    let now_secs = js_sys::Date::now() / 1000.0;
+    now_secs >= exp
+}
+
+/// Decode a base64url string (no padding, `-_` alphabet) using the browser's
+/// built-in `atob`.  Returns `None` on any decode/UTF-8 error.
+fn b64url_decode_to_string(input: &str) -> Option<String> {
+    // Convert base64url → base64 standard and re-pad.
+    let mut s = input.replace('-', "+").replace('_', "/");
+    while s.len() % 4 != 0 {
+        s.push('=');
+    }
+    let decoded = js_sys::global()
+        .dyn_into::<web_sys::Window>()
+        .ok()?
+        .atob(&s)
+        .ok()?;
+    // `atob` returns a binary string (each char is a byte 0..=255).  JWT
+    // payloads are UTF-8 JSON and typically ASCII, so this is sufficient.
+    Some(decoded)
 }
 
 // ── localStorage helpers ──────────────────────────────────────────────────────

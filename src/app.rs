@@ -179,28 +179,30 @@ fn NavShell(children: Children) -> impl IntoView {
                             (!r.is_empty()).then(|| view! { <span class="role">{r}</span> })
                         }}
                     </div>
-                    <button
-                        class="btn btn-icon"
-                        title="Toggle theme"
-                        on:click=move |_| {
-                            let doc = web_sys::window().unwrap().document().unwrap();
-                            let root = doc.document_element().unwrap();
-                            let current = root.get_attribute("data-theme").unwrap_or_default();
-                            let next = if current == "dark" { "" } else { "dark" };
-                            let _ = root.set_attribute("data-theme", next);
-                            if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
-                                let _ = storage.set_item("hc-leptos:theme", next);
+                    <div class="topbar-actions">
+                        <button
+                            class="btn btn-icon"
+                            title="Toggle theme"
+                            on:click=move |_| {
+                                let doc = web_sys::window().unwrap().document().unwrap();
+                                let root = doc.document_element().unwrap();
+                                let current = root.get_attribute("data-theme").unwrap_or_default();
+                                let next = if current == "dark" { "" } else { "dark" };
+                                let _ = root.set_attribute("data-theme", next);
+                                if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
+                                    let _ = storage.set_item("hc-leptos:theme", next);
+                                }
                             }
-                        }
-                    >
-                        <span class="material-icons" style="font-size:18px">"dark_mode"</span>
-                    </button>
-                    <button
-                        class="btn btn-outline"
-                        on:click=move |_| auth.logout()
-                    >
-                        "Logout"
-                    </button>
+                        >
+                            <span class="material-icons" style="font-size:18px">"dark_mode"</span>
+                        </button>
+                        <button
+                            class="btn btn-outline"
+                            on:click=move |_| auth.logout()
+                        >
+                            "Logout"
+                        </button>
+                    </div>
                 </header>
                 <main class="content">
                     {children()}

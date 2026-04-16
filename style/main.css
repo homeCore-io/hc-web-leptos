@@ -122,7 +122,6 @@ a { color: inherit; }
 
 .topbar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   padding: 0.9rem 1.4rem;
   background: color-mix(in srgb, var(--hc-surface) 88%, transparent);
@@ -133,6 +132,7 @@ a { color: inherit; }
 }
 
 .topbar .user-info { display: flex; align-items: center; gap: 0.45rem; }
+.topbar .topbar-actions { display: flex; align-items: center; gap: 0.5rem; margin-left: auto; }
 .topbar .role { color: var(--hc-text-muted); font-size: 0.82rem; }
 
 .content {

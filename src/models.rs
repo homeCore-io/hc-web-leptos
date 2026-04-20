@@ -277,6 +277,10 @@ pub fn is_timer_device(d: &DeviceState) -> bool {
         || str_attr(d.attributes.get("kind")) == Some("timer")
 }
 
+pub fn is_thermostat_device(d: &DeviceState) -> bool {
+    d.device_id.starts_with("thermostat_") || d.device_type.as_deref() == Some("thermostat")
+}
+
 pub fn is_plugin_scene_active(d: &DeviceState) -> bool {
     bool_attr(d.attributes.get("on"))
         .or_else(|| bool_attr(d.attributes.get("active")))

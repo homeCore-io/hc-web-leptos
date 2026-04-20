@@ -420,6 +420,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let is_timer  = d.plugin_id.starts_with("core.timer");
                 let is_switch = d.plugin_id.starts_with("core.switch");
                 let is_media  = is_media_player(&d);
+                let is_thermostat = is_thermostat_device(&d);
                 let has_on    = bool_attr(d.attributes.get("on")).is_some();
                 let has_bri   = d.attributes.get("brightness_pct").and_then(|v| v.as_f64()).is_some();
                 let has_ct    = d.attributes.get("color_temp").and_then(|v| v.as_f64()).is_some();
@@ -771,7 +772,15 @@ pub fn DeviceDetailPage() -> impl IntoView {
                             </table>
                         </div>
 
-                        // Controls card
+                        // Thermostat-specific card (includes controls + diagnostics
+                        // + config + chart), rendered in place of the generic Controls
+                        // card when the device is a thermostat.
+                        {is_thermostat.then(|| view! {
+                            <crate::pages::thermostat_card::ThermostatCard device=d.clone() />
+                        })}
+
+                        // Generic Controls card (suppressed for thermostats)
+                        {(!is_thermostat).then(|| view! {
                         <div class="detail-card">
                             <h2 class="card-title">"Controls"</h2>
 
@@ -1411,6 +1420,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                 </p>
                             })}
                         </div>
+                        })}
                     </div>
 
                     // ── Raw attributes ────────────────────────────────────────

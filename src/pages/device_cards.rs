@@ -16,6 +16,7 @@
 use crate::api::{fetch_devices, set_device_state};
 use crate::auth::use_auth;
 use crate::models::*;
+use serde_json::json;
 use crate::pages::shared::{
     card_size_canvas_class, common_card_prefs_map, json_str_set, load_common_card_prefs,
     load_pref_json, ls_set, set_to_json_array, CardSize, CardSizeSelect, CommonCardPrefs,
@@ -291,6 +292,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                 let is_timer  = is_timer_device(&d);
                 let is_media  = is_media_player(&d);
                 let is_scene  = is_scene_like(&d);
+                let is_thermostat = is_thermostat_device(&d);
                 let can_toggle = supports_inline_toggle(&d);
                 let has_brightness = d.attributes.get("brightness_pct").and_then(|v| v.as_f64()).is_some();
                 let brightness_pct = d.attributes.get("brightness_pct")
@@ -435,6 +437,91 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                 <a href=detail_href.clone() class="card-detail-link">
                                     <span class="material-icons" style="font-size:15px">"open_in_new"</span>
                                 </a>
+                            </div>
+                        </div>
+                    }.into_any()
+
+                } else if is_thermostat {
+                    // ── Thermostat Card ───────────────────────────────────────
+                    let sp = d.attributes.get("setpoint").and_then(|v| v.as_f64()).unwrap_or(70.0);
+                    let temp = d.attributes.get("current_temperature").and_then(|v| v.as_f64());
+                    let mode = d.attributes.get("mode").and_then(|v| v.as_str()).unwrap_or("off").to_string();
+                    let call = d.attributes.get("call_for").and_then(|v| v.as_str()).unwrap_or("idle").to_string();
+                    let pill_class = match call.as_str() {
+                        "heat" => "pill-heat",
+                        "cool" => "pill-cool",
+                        "stale" => "pill-stale",
+                        _ => "pill-idle",
+                    };
+                    let temp_str = temp.map(|t| format!("{t:.1}°")).unwrap_or_else(|| "—".to_string());
+
+                    let send_sp_minus = send.clone();
+                    let send_sp_plus = send.clone();
+                    let send_heat = send.clone();
+                    let send_cool = send.clone();
+                    let send_off = send.clone();
+                    let mode_heat = mode == "heat";
+                    let mode_cool = mode == "cool";
+                    let mode_off = mode == "off";
+
+                    view! {
+                        <div class="device-card device-card--thermostat"
+                            class:device-card--offline=!avail
+                        >
+                            <div class="card-header">
+                                <span class=format!("card-status-icon status-badge-sm {}", tone.css_class())>
+                                    <i class="mdi mdi-thermostat card-mdi-icon"></i>
+                                </span>
+                                <div class="card-header-text">
+                                    <p class="card-name" title=name.clone()>{name.clone()}</p>
+                                    <p class="card-meta">
+                                        {area.clone().map(|a| view! {
+                                            <span>{a}</span>
+                                            <span class="card-meta-sep">" · "</span>
+                                        })}
+                                        <span>"Thermostat"</span>
+                                    </p>
+                                </div>
+                                <a href=detail_href.clone() class="card-detail-link"
+                                    title="Open detail">
+                                    <span class="material-icons" style="font-size:15px">"open_in_new"</span>
+                                </a>
+                            </div>
+
+                            <div class="card-body">
+                                <div class="thermostat-card-compact">
+                                    <div class="thermostat-temp" style="font-size:1.7rem">{temp_str}</div>
+                                    <div class="thermostat-status">
+                                        <span class=format!("pill {pill_class}")>{call}</span>
+                                        <span class="glue-meta">{format!(" → {sp:.1}°")}</span>
+                                    </div>
+
+                                    <div class="glue-ctrl-row" style="margin-top:0.4rem">
+                                        <div class="glue-ctrl-btns">
+                                            <button class="hc-btn hc-btn--sm"
+                                                on:click=move |_| send_sp_minus(json!({"command":"set_setpoint","value": sp - 0.5}))
+                                            >"−"</button>
+                                            <span class="glue-ctrl-value" style="font-size:1rem; min-width:3rem">{format!("{sp:.1}°")}</span>
+                                            <button class="hc-btn hc-btn--sm"
+                                                on:click=move |_| send_sp_plus(json!({"command":"set_setpoint","value": sp + 0.5}))
+                                            >"+"</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="glue-ctrl-row" style="margin-top:0.4rem">
+                                        <div class="toggle-group">
+                                            <button class:active=mode_heat
+                                                on:click=move |_| send_heat(json!({"command":"set_mode","value":"heat"}))
+                                            >"Heat"</button>
+                                            <button class:active=mode_cool
+                                                on:click=move |_| send_cool(json!({"command":"set_mode","value":"cool"}))
+                                            >"Cool"</button>
+                                            <button class:active=mode_off
+                                                on:click=move |_| send_off(json!({"command":"set_mode","value":"off"}))
+                                            >"Off"</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     }.into_any()

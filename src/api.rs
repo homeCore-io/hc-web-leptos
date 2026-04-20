@@ -419,6 +419,30 @@ pub async fn fetch_device_history(
     get_json(&format!("/devices/{id}/history?limit={limit}"), token).await
 }
 
+/// `GET /devices/{id}/history` with optional time range + attribute filter.
+/// `from`/`to` are RFC3339 timestamps; `attribute` limits to a single attr.
+#[allow(dead_code)]
+pub async fn fetch_device_history_range(
+    token: &str,
+    id: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+    attribute: Option<&str>,
+    limit: u32,
+) -> Result<Vec<HistoryEntry>, String> {
+    let mut q = format!("limit={limit}");
+    if let Some(f) = from {
+        q.push_str(&format!("&from={f}"));
+    }
+    if let Some(t) = to {
+        q.push_str(&format!("&to={t}"));
+    }
+    if let Some(a) = attribute {
+        q.push_str(&format!("&attribute={a}"));
+    }
+    get_json(&format!("/devices/{id}/history?{q}"), token).await
+}
+
 #[derive(Debug, Deserialize)]
 pub struct DeleteDeviceResponse {
     pub deleted: bool,

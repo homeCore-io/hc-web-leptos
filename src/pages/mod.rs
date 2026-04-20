@@ -12,5 +12,6 @@ pub mod rule_detail;
 pub mod rules;
 pub mod scene_detail;
 pub mod scenes;
+pub mod thermostat_card;
 #[allow(dead_code)]
 pub mod shared;

@@ -120,6 +120,7 @@ fn is_glue_device(plugin_id: &str) -> bool {
     matches!(plugin_id, "core.glue" | "core.timer" | "core.switch")
 }
 
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 #[component]

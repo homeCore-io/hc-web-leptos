@@ -386,6 +386,80 @@ pub fn PluginDetailPage() -> impl IntoView {
         });
     };
 
+    // Thermostat-specific commands.
+    let therm_recalc_busy = RwSignal::new(false);
+    let do_therm_recalc = move || {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let id = plugin_id();
+        therm_recalc_busy.set(true);
+        spawn_local(async move {
+            match send_plugin_command(&token, &id, "recalculate_all", json!({})).await {
+                Ok(_) => notice.set(Some("Recalculated all thermostats.".into())),
+                Err(e) => error.set(Some(format!("Recalculate failed: {e}"))),
+            }
+            therm_recalc_busy.set(false);
+        });
+    };
+    let therm_reload_busy = RwSignal::new(false);
+    let do_therm_reload = move || {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let id = plugin_id();
+        therm_reload_busy.set(true);
+        spawn_local(async move {
+            match send_plugin_command(&token, &id, "reload_config", json!({})).await {
+                Ok(_) => notice.set(Some("Config reloaded from disk.".into())),
+                Err(e) => error.set(Some(format!("Reload failed: {e}"))),
+            }
+            therm_reload_busy.set(false);
+        });
+    };
+
+    // Create thermostat wizard state.
+    let therm_wizard_open = RwSignal::new(false);
+    let therm_new_id = RwSignal::new(String::new());
+    let therm_new_name = RwSignal::new(String::new());
+    let therm_new_sensors: RwSignal<Vec<String>> = RwSignal::new(Vec::new());
+    let therm_new_actuator = RwSignal::new(String::new());
+    let therm_new_setpoint = RwSignal::new(70.0f64);
+    let therm_new_hyst = RwSignal::new(1.0f64);
+    let therm_new_mode = RwSignal::new("off".to_string());
+    let therm_new_min_on = RwSignal::new(0u64);
+    let therm_new_min_off = RwSignal::new(0u64);
+    let therm_create_busy = RwSignal::new(false);
+
+    let do_therm_create = move || {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let id = plugin_id();
+        let config = json!({
+            "id": therm_new_id.get_untracked().trim(),
+            "name": therm_new_name.get_untracked().trim(),
+            "sensor_device_ids": therm_new_sensors.get_untracked(),
+            "sensor_attribute": "temperature",
+            "aggregation": "average",
+            "setpoint": therm_new_setpoint.get_untracked(),
+            "hysteresis": therm_new_hyst.get_untracked(),
+            "mode": therm_new_mode.get_untracked(),
+            "actuator_device_id": therm_new_actuator.get_untracked(),
+            "min_on_secs": therm_new_min_on.get_untracked(),
+            "min_off_secs": therm_new_min_off.get_untracked(),
+        });
+        therm_create_busy.set(true);
+        spawn_local(async move {
+            match send_plugin_command(&token, &id, "add_thermostat", json!({"config": config})).await {
+                Ok(_) => {
+                    notice.set(Some("Thermostat created.".into()));
+                    therm_wizard_open.set(false);
+                    therm_new_id.set(String::new());
+                    therm_new_name.set(String::new());
+                    therm_new_sensors.set(Vec::new());
+                    therm_new_actuator.set(String::new());
+                }
+                Err(e) => error.set(Some(format!("Create failed: {e}"))),
+            }
+            therm_create_busy.set(false);
+        });
+    };
+
     // Save config
     let save_config = move || {
         let token = match auth.token.get_untracked() { Some(t) => t, None => return };
@@ -567,6 +641,164 @@ pub fn PluginDetailPage() -> impl IntoView {
                 </section>
             })}
 
+            // ── Thermostat-specific command panel ───────────────────────────
+            {move || (plugin.get().map(|p| p.plugin_id).as_deref() == Some("plugin.thermostat")).then(|| view! {
+                <section class="detail-card">
+                    <h3 class="detail-card-title">"Thermostat commands"</h3>
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap">
+                        <button class="hc-btn hc-btn--sm"
+                            disabled=move || therm_recalc_busy.get()
+                            on:click=move |_| do_therm_recalc()
+                        >
+                            {move || if therm_recalc_busy.get() { "Recalculating…" } else { "Recalculate all" }}
+                        </button>
+                        <button class="hc-btn hc-btn--sm"
+                            disabled=move || therm_reload_busy.get()
+                            on:click=move |_| do_therm_reload()
+                        >
+                            {move || if therm_reload_busy.get() { "Reloading…" } else { "Reload config" }}
+                        </button>
+                        <button class="hc-btn hc-btn--sm hc-btn--primary"
+                            on:click=move |_| therm_wizard_open.update(|v| *v = !*v)
+                        >
+                            {move || if therm_wizard_open.get() { "Cancel" } else { "+ New thermostat" }}
+                        </button>
+                    </div>
+
+                    <Show when=move || therm_wizard_open.get()>
+                        <div class="thermostat-wizard" style="margin-top:0.75rem">
+                            <h4 class="field-label">"Create Thermostat"</h4>
+
+                            <label class="field-label">"ID (slug)"</label>
+                            <input type="text" class="hc-input" placeholder="e.g. living_room"
+                                prop:value=move || therm_new_id.get()
+                                on:input=move |ev| therm_new_id.set(event_target_value(&ev))
+                            />
+
+                            <label class="field-label">"Display Name"</label>
+                            <input type="text" class="hc-input" placeholder="e.g. Living Room Thermostat"
+                                prop:value=move || therm_new_name.get()
+                                on:input=move |ev| therm_new_name.set(event_target_value(&ev))
+                            />
+
+                            <label class="field-label">"Temperature Sensors"</label>
+                            {move || {
+                                let devmap = ws.devices.get();
+                                let candidates = therm_sensor_candidates(&devmap);
+                                let selected = therm_new_sensors.get();
+                                view! {
+                                    <div class="thermostat-sensor-list">
+                                        {candidates.into_iter().map(|(id, label)| {
+                                            let id_for_cb = id.clone();
+                                            let checked = selected.contains(&id);
+                                            view! {
+                                                <label class="thermostat-check-row">
+                                                    <input type="checkbox" prop:checked=checked
+                                                        on:change=move |ev| {
+                                                            let on = event_target_checked(&ev);
+                                                            therm_new_sensors.update(|v| {
+                                                                if on {
+                                                                    if !v.contains(&id_for_cb) { v.push(id_for_cb.clone()); }
+                                                                } else {
+                                                                    v.retain(|s| s != &id_for_cb);
+                                                                }
+                                                            });
+                                                        }
+                                                    />
+                                                    <span>{label}</span>
+                                                </label>
+                                            }
+                                        }).collect_view()}
+                                    </div>
+                                }
+                            }}
+
+                            <div class="thermostat-wizard-row">
+                                <div style="flex:1">
+                                    <label class="field-label">"Setpoint"</label>
+                                    <input type="number" class="hc-input" step="0.5"
+                                        prop:value=move || therm_new_setpoint.get().to_string()
+                                        on:input=move |ev| {
+                                            if let Ok(v) = event_target_value(&ev).parse::<f64>() { therm_new_setpoint.set(v); }
+                                        }
+                                    />
+                                </div>
+                                <div style="flex:1">
+                                    <label class="field-label">"Hysteresis"</label>
+                                    <input type="number" class="hc-input" step="0.5" min="0"
+                                        prop:value=move || therm_new_hyst.get().to_string()
+                                        on:input=move |ev| {
+                                            if let Ok(v) = event_target_value(&ev).parse::<f64>() { therm_new_hyst.set(v.max(0.0)); }
+                                        }
+                                    />
+                                </div>
+                                <div style="flex:1">
+                                    <label class="field-label">"Mode"</label>
+                                    <select class="hc-select"
+                                        on:change=move |ev| therm_new_mode.set(event_target_value(&ev))
+                                    >
+                                        {["off", "heat", "cool"].iter().map(|m| view! {
+                                            <option value=*m selected=move || therm_new_mode.get() == *m>{*m}</option>
+                                        }).collect_view()}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <label class="field-label">"Actuator Device"</label>
+                            {move || {
+                                let devmap = ws.devices.get();
+                                let candidates = therm_actuator_candidates(&devmap);
+                                view! {
+                                    <select class="hc-select"
+                                        on:change=move |ev| therm_new_actuator.set(event_target_value(&ev))
+                                    >
+                                        <option value="" selected=move || therm_new_actuator.get().is_empty()>"— none —"</option>
+                                        {candidates.into_iter().map(|(id, label)| {
+                                            let id_for_selected = id.clone();
+                                            view! {
+                                                <option value=id.clone()
+                                                    selected=move || therm_new_actuator.get() == id_for_selected
+                                                >{label}</option>
+                                            }
+                                        }).collect_view()}
+                                    </select>
+                                }
+                            }}
+
+                            <div class="thermostat-wizard-row">
+                                <div style="flex:1">
+                                    <label class="field-label">"Min on (sec)"</label>
+                                    <input type="number" class="hc-input" min="0"
+                                        prop:value=move || therm_new_min_on.get().to_string()
+                                        on:input=move |ev| {
+                                            if let Ok(v) = event_target_value(&ev).parse::<u64>() { therm_new_min_on.set(v); }
+                                        }
+                                    />
+                                </div>
+                                <div style="flex:1">
+                                    <label class="field-label">"Min off (sec)"</label>
+                                    <input type="number" class="hc-input" min="0"
+                                        prop:value=move || therm_new_min_off.get().to_string()
+                                        on:input=move |ev| {
+                                            if let Ok(v) = event_target_value(&ev).parse::<u64>() { therm_new_min_off.set(v); }
+                                        }
+                                    />
+                                </div>
+                            </div>
+
+                            <button class="hc-btn hc-btn--primary" style="margin-top:0.5rem"
+                                disabled=move || therm_create_busy.get()
+                                    || therm_new_id.get().trim().is_empty()
+                                    || therm_new_name.get().trim().is_empty()
+                                on:click=move |_| do_therm_create()
+                            >
+                                {move || if therm_create_busy.get() { "Creating…" } else { "Create" }}
+                            </button>
+                        </div>
+                    </Show>
+                </section>
+            })}
+
             // ── Configuration ───────────────────────────────────────────────
             <section class="detail-card">
                 <div style="display:flex; align-items:center; justify-content:space-between">
@@ -659,5 +891,45 @@ pub fn PluginDetailPage() -> impl IntoView {
             </section>
         </div>
     }
+}
+
+/// Candidates for thermostat sensor picker — devices with a numeric
+/// `temperature` attribute, excluding other thermostats.
+fn therm_sensor_candidates(
+    devices: &std::collections::HashMap<String, crate::models::DeviceState>,
+) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = devices
+        .values()
+        .filter(|d| d.device_type.as_deref() != Some("thermostat"))
+        .filter(|d| {
+            d.attributes
+                .get("temperature")
+                .and_then(|v| v.as_f64())
+                .is_some()
+        })
+        .map(|d| {
+            let t = d.attributes.get("temperature")
+                .and_then(|v| v.as_f64())
+                .map(|v| format!("{v:.1}°"))
+                .unwrap_or_default();
+            (d.device_id.clone(), format!("{} ({}) — {}", d.name, d.device_id, t))
+        })
+        .collect();
+    out.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+    out
+}
+
+/// Candidates for thermostat actuator picker — devices with an `on` boolean.
+fn therm_actuator_candidates(
+    devices: &std::collections::HashMap<String, crate::models::DeviceState>,
+) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = devices
+        .values()
+        .filter(|d| d.device_type.as_deref() != Some("thermostat"))
+        .filter(|d| d.attributes.get("on").and_then(|v| v.as_bool()).is_some())
+        .map(|d| (d.device_id.clone(), format!("{} ({})", d.name, d.device_id)))
+        .collect();
+    out.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+    out
 }
 

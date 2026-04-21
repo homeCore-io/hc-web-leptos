@@ -516,6 +516,10 @@ pub fn supports_inline_toggle(d: &DeviceState) -> bool {
     bool_attr(d.attributes.get("on")).is_some()
 }
 
+pub fn supports_inline_lock(d: &DeviceState) -> bool {
+    bool_attr(d.attributes.get("locked")).is_some()
+}
+
 pub fn presentation_device_type_key(d: &DeviceState) -> &'static str {
     // User-set ui_hint takes highest priority.
     if let Some(ref hint) = d.ui_hint {

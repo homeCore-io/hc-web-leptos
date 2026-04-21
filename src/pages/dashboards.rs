@@ -814,10 +814,13 @@ fn EntityRow(device: Memo<Option<DeviceState>>, device_id: String) -> impl IntoV
             let tone = status_tone(&d);
             let tone_class = format!("entities-row-status entities-row-status--{}", tone.css_class());
             let has_toggle = supports_inline_toggle(&d);
+            let has_lock = supports_inline_lock(&d);
             let is_on = bool_attr(d.attributes.get("on")).unwrap_or(false);
+            let is_locked = bool_attr(d.attributes.get("locked")).unwrap_or(false);
             let has_brightness = num_attr(d.attributes.get("brightness_pct")).is_some();
             let brightness_val = num_attr(d.attributes.get("brightness_pct")).unwrap_or(0.0) as i64;
             let did_toggle = did.clone();
+            let did_lock = did.clone();
             let did_bright = did.clone();
             let avail = d.available;
 
@@ -844,6 +847,25 @@ fn EntityRow(device: Memo<Option<DeviceState>>, device_id: String) -> impl IntoV
                                     }
                                 >
                                     <span class="material-icons" style="font-size:22px">{if is_on { "toggle_on" } else { "toggle_off" }}</span>
+                                </button>
+                            }
+                        })}
+                        {(has_lock && avail).then(|| {
+                            let did_l = did_lock.clone();
+                            view! {
+                                <button
+                                    class=move || if is_locked { "entities-toggle entities-toggle--on" } else { "entities-toggle" }
+                                    disabled=move || busy.get()
+                                    title=if is_locked { "Unlock" } else { "Lock" }
+                                    on:click=move |_| {
+                                        let token = auth.token_str().unwrap_or_default();
+                                        let id = did_l.clone();
+                                        let v = !is_locked;
+                                        busy.set(true);
+                                        spawn_local(async move { let _ = set_device_state(&token, &id, &json!({"locked": v})).await; busy.set(false); });
+                                    }
+                                >
+                                    <span class="material-icons" style="font-size:22px">{if is_locked { "lock" } else { "lock_open" }}</span>
                                 </button>
                             }
                         })}

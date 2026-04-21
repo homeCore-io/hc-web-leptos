@@ -49,6 +49,7 @@ enum Density {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CommandIntent {
     Toggle(bool),
+    Lock(bool),
     Play,
     Pause,
 }
@@ -883,6 +884,10 @@ fn DeviceListRow(
                                     CommandIntent::Toggle(on) => {
                                         d.attributes.insert("on".into(), serde_json::json!(on));
                                     }
+                                    CommandIntent::Lock(locked) => {
+                                        d.attributes
+                                            .insert("locked".into(), serde_json::json!(locked));
+                                    }
                                     CommandIntent::Play => {
                                         d.attributes.insert(
                                             "state".into(),
@@ -1020,6 +1025,29 @@ where
                         body.clone(),
                         label.to_string(),
                         CommandIntent::Toggle(!is_on),
+                    );
+                }
+            >
+                {label}
+            </button>
+        }
+        .into_any()
+    } else if supports_inline_lock(&device) {
+        let is_locked = bool_attr(device.attributes.get("locked")) == Some(true);
+        let label = if is_locked { "Unlock" } else { "Lock" };
+        let body = serde_json::json!({ "locked": !is_locked });
+        let click_id = did.clone();
+        view! {
+            <button
+                class="secondary device-action-control"
+                disabled=move || busy_id.get().as_deref() == Some(&did)
+                on:click=move |ev: web_sys::MouseEvent| {
+                    ev.stop_propagation();
+                    on_cmd.clone()(
+                        click_id.clone(),
+                        body.clone(),
+                        label.to_string(),
+                        CommandIntent::Lock(!is_locked),
                     );
                 }
             >

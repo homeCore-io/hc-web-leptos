@@ -294,11 +294,13 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                 let is_scene  = is_scene_like(&d);
                 let is_thermostat = is_thermostat_device(&d);
                 let can_toggle = supports_inline_toggle(&d);
+                let can_lock = supports_inline_lock(&d);
                 let has_brightness = d.attributes.get("brightness_pct").and_then(|v| v.as_f64()).is_some();
                 let brightness_pct = d.attributes.get("brightness_pct")
                     .and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
 
                 let cur_on  = bool_attr(d.attributes.get("on")).unwrap_or(false);
+                let cur_locked = bool_attr(d.attributes.get("locked")).unwrap_or(false);
                 let pb      = playback_state(&d);
                 let is_playing = pb == "playing";
                 let timer_st = str_attr(d.attributes.get("state"))
@@ -531,6 +533,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                     let send_on  = send.clone();
                     let send_off = send.clone();
                     let send_bri = send.clone();
+                    let send_lock = send.clone();
 
                     view! {
                         <div
@@ -574,8 +577,9 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                 })}
 
                                 // Sensor / switch / generic state badge
-                                // Hidden for devices with a toggle button (state is shown on the button)
-                                {(!is_timer && !is_scene && !can_toggle).then(|| view! {
+                                // Hidden for devices with a toggle or lock button
+                                // (state is shown on the button itself).
+                                {(!is_timer && !is_scene && !can_toggle && !can_lock).then(|| view! {
                                     <div class="card-state-row">
                                         <span class=format!(
                                             "card-state-badge card-state-badge--tone-{}",
@@ -607,6 +611,24 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                         >
                                             <span class="material-icons" style="font-size:18px">"power_settings_new"</span>
                                             {if cur_on { " Turn off" } else { " Turn on" }}
+                                        </button>
+                                    })}
+
+                                    // Lock/unlock toggle
+                                    {can_lock.then(move || view! {
+                                        <button
+                                            class="card-ctrl-btn"
+                                            class:card-ctrl-btn--on=cur_locked
+                                            class:card-ctrl-btn--off=!cur_locked
+                                            disabled={move || busy.get() || !avail}
+                                            on:click=move |_| {
+                                                send_lock(serde_json::json!({"locked": !cur_locked}));
+                                            }
+                                        >
+                                            <span class="material-icons" style="font-size:18px">
+                                                {if cur_locked { "lock" } else { "lock_open" }}
+                                            </span>
+                                            {if cur_locked { " Unlock" } else { " Lock" }}
                                         </button>
                                     })}
                                 </div>

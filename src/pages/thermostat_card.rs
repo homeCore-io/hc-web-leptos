@@ -5,7 +5,7 @@
 
 use crate::api::{fetch_device_history_range, send_plugin_command, set_device_state};
 use crate::auth::use_auth;
-use crate::models::{DeviceState, HistoryEntry};
+use crate::models::{thermostat_temperature_unit, DeviceState, HistoryEntry};
 use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -192,9 +192,22 @@ pub fn ThermostatCard(device: DeviceState) -> impl IntoView {
         diagnostics.push(format!("Last actuator publish failed: {msg}"));
     }
 
-    let temp_str = temp
-        .map(|t| format!("{t:.1}°"))
-        .unwrap_or_else(|| "—".to_string());
+    let temp_unit = thermostat_temperature_unit(&device, &devmap);
+    let fmt_temp = |t: f64| -> String {
+        match temp_unit {
+            Some(unit) => format!("{t:.1} {unit}"),
+            None => format!("{t:.1}°"),
+        }
+    };
+    let fmt_deadband = |d: f64| -> String {
+        match temp_unit {
+            Some(unit) => format!("±{d:.1} {unit}"),
+            None => format!("±{d:.1}°"),
+        }
+    };
+    let temp_str = temp.map(fmt_temp).unwrap_or_else(|| "—".to_string());
+    let setpoint_str = fmt_temp(sp);
+    let deadband_str = fmt_deadband(hyst / 2.0);
     let pill_class = match call.as_str() {
         "heat" => "pill-heat",
         "cool" => "pill-cool",
@@ -264,8 +277,8 @@ pub fn ThermostatCard(device: DeviceState) -> impl IntoView {
                     </span>
                 </div>
                 <div class="thermostat-setpoint">
-                    "target " <strong>{format!("{sp:.1}°")}</strong>
-                    <span class="glue-meta">{format!(" (deadband ±{:.1}°)", hyst / 2.0)}</span>
+                    "target " <strong>{setpoint_str.clone()}</strong>
+                    <span class="glue-meta">{format!(" (deadband {deadband_str})")}</span>
                 </div>
             </div>
 
@@ -275,7 +288,7 @@ pub fn ThermostatCard(device: DeviceState) -> impl IntoView {
                     <div class="glue-ctrl-btns">
                         <button class="hc-btn hc-btn--sm" disabled=move || busy.get()
                             on:click=sp_minus>"−"</button>
-                        <span class="glue-ctrl-value">{format!("{sp:.1}°")}</span>
+                        <span class="glue-ctrl-value">{setpoint_str.clone()}</span>
                         <button class="hc-btn hc-btn--sm" disabled=move || busy.get()
                             on:click=sp_plus>"+"</button>
                     </div>
@@ -307,7 +320,7 @@ pub fn ThermostatCard(device: DeviceState) -> impl IntoView {
                             }
                         }
                     />
-                    <span class="glue-ctrl-value">{format!("±{:.1}°", hyst / 2.0)}</span>
+                    <span class="glue-ctrl-value">{deadband_str.clone()}</span>
                 </div>
             </div>
 

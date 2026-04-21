@@ -231,6 +231,29 @@ pub fn temperature_unit(d: &DeviceState) -> Option<&'static str> {
     }
 }
 
+/// Resolve the temperature unit the UI should use for a thermostat, by first
+/// checking the thermostat's own `temperature_unit` attribute and falling back
+/// to the first configured sensor's unit. Returns `None` if no unit is
+/// discoverable — callers typically fall back to a bare `°` symbol.
+pub fn thermostat_temperature_unit(
+    d: &DeviceState,
+    devices: &std::collections::HashMap<String, DeviceState>,
+) -> Option<&'static str> {
+    if let Some(unit) = temperature_unit(d) {
+        return Some(unit);
+    }
+    let sensor_ids = d.attributes.get("sensor_ids").and_then(|v| v.as_array())?;
+    for sid_v in sensor_ids {
+        let Some(sid) = sid_v.as_str() else { continue };
+        if let Some(sensor) = devices.get(sid) {
+            if let Some(unit) = temperature_unit(sensor) {
+                return Some(unit);
+            }
+        }
+    }
+    None
+}
+
 pub fn illuminance_value(d: &DeviceState) -> Option<f64> {
     num_attr(
         d.attributes

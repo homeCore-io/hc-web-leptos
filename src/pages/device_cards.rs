@@ -455,7 +455,15 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                         "stale" => "pill-stale",
                         _ => "pill-idle",
                     };
-                    let temp_str = temp.map(|t| format!("{t:.1}°")).unwrap_or_else(|| "—".to_string());
+                    let temp_unit = thermostat_temperature_unit(&d, &ws.devices.get());
+                    let fmt_temp = |t: f64| -> String {
+                        match temp_unit {
+                            Some(unit) => format!("{t:.1} {unit}"),
+                            None => format!("{t:.1}°"),
+                        }
+                    };
+                    let temp_str = temp.map(fmt_temp).unwrap_or_else(|| "—".to_string());
+                    let sp_str = fmt_temp(sp);
 
                     let send_sp_minus = send.clone();
                     let send_sp_plus = send.clone();
@@ -495,7 +503,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                     <div class="thermostat-temp" style="font-size:1.7rem">{temp_str}</div>
                                     <div class="thermostat-status">
                                         <span class=format!("pill {pill_class}")>{call}</span>
-                                        <span class="glue-meta">{format!(" → {sp:.1}°")}</span>
+                                        <span class="glue-meta">{format!(" → {sp_str}")}</span>
                                     </div>
 
                                     <div class="glue-ctrl-row" style="margin-top:0.4rem">
@@ -503,7 +511,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                             <button class="hc-btn hc-btn--sm"
                                                 on:click=move |_| send_sp_minus(json!({"command":"set_setpoint","value": sp - 0.5}))
                                             >"−"</button>
-                                            <span class="glue-ctrl-value" style="font-size:1rem; min-width:3rem">{format!("{sp:.1}°")}</span>
+                                            <span class="glue-ctrl-value" style="font-size:1rem; min-width:3rem">{sp_str.clone()}</span>
                                             <button class="hc-btn hc-btn--sm"
                                                 on:click=move |_| send_sp_plus(json!({"command":"set_setpoint","value": sp + 0.5}))
                                             >"+"</button>

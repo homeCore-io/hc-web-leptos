@@ -1,10 +1,12 @@
 //! Audit log viewer — admin-only page.
 //!
-//! Filter by actor, event type, target, result, and date range. Paginated.
-//! Uses the server's GET /api/v1/audit endpoint under the hood.
+//! Layout: compact filter bar, day-grouped list of expandable rows.
+//! Denied/error events are color-coded; successes stay quiet. Detail JSON
+//! is hidden by default and revealed with a click on the row.
 
 use crate::api::{fetch_audit, AuditFilter};
 use crate::auth::use_auth;
+use chrono::{DateTime, Datelike, Local, Utc};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde_json::Value;
@@ -15,7 +17,7 @@ const PAGE_SIZE: u32 = 100;
 pub fn AuditPage() -> impl IntoView {
     let auth = use_auth();
 
-    // Filter inputs.
+    // Filter state.
     let actor_type = RwSignal::new(String::new());
     let event_type = RwSignal::new(String::new());
     let target_kind = RwSignal::new(String::new());
@@ -25,6 +27,7 @@ pub fn AuditPage() -> impl IntoView {
     let to_field = RwSignal::new(String::new());
     let offset = RwSignal::new(0u32);
 
+    // Data state.
     let rows: RwSignal<Vec<Value>> = RwSignal::new(Vec::new());
     let loading = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
@@ -58,7 +61,6 @@ pub fn AuditPage() -> impl IntoView {
         });
     };
 
-    // Load on mount.
     Effect::new(move |_| {
         load();
     });
@@ -88,8 +90,10 @@ pub fn AuditPage() -> impl IntoView {
         let load = load.clone();
         move |_| {
             let cur = offset.get();
-            offset.set(cur.saturating_sub(PAGE_SIZE));
-            load();
+            if cur > 0 {
+                offset.set(cur.saturating_sub(PAGE_SIZE));
+                load();
+            }
         }
     };
     let next_page = {
@@ -103,89 +107,123 @@ pub fn AuditPage() -> impl IntoView {
     };
 
     view! {
-        <section class="page">
-            <div class="page-header">
-                <h1>"Audit Log"</h1>
-                <p class="page-subtitle">
-                    "Who did what, when. Admin-scoped. Retention is controlled by "
-                    <code>"[auth].audit_retention_days"</code>" (default 365)."
-                </p>
-            </div>
+        <section class="audit-view">
+            <header class="audit-header">
+                <div class="audit-title">
+                    <span class="material-icons audit-title-icon">"fact_check"</span>
+                    <div>
+                        <h1>"Audit log"</h1>
+                        <p class="audit-subtitle">
+                            "Who did what, when. Admin-scoped. Retention controlled by "
+                            <code>"[auth].audit_retention_days"</code>"."
+                        </p>
+                    </div>
+                </div>
+            </header>
 
-            <div class="filter-bar">
-                <label>
-                    "Actor type"
-                    <select
-                        prop:value=move || actor_type.get()
-                        on:change=move |ev| actor_type.set(event_target_value(&ev))
-                    >
-                        <option value="">"(any)"</option>
-                        <option value="user">"user"</option>
-                        <option value="api_key">"api_key"</option>
-                        <option value="local_admin">"local_admin"</option>
-                        <option value="ip_whitelist">"ip_whitelist"</option>
-                        <option value="anonymous">"anonymous"</option>
-                        <option value="system">"system"</option>
-                    </select>
-                </label>
-                <label>
-                    "Event"
-                    <input
-                        type="text"
-                        placeholder="auth.login, api_key.created, …"
-                        prop:value=move || event_type.get()
-                        on:input=move |ev| event_type.set(event_target_value(&ev))
-                    />
-                </label>
-                <label>
-                    "Target kind"
-                    <input
-                        type="text"
-                        placeholder="user, api_key, rule, device"
-                        prop:value=move || target_kind.get()
-                        on:input=move |ev| target_kind.set(event_target_value(&ev))
-                    />
-                </label>
-                <label>
-                    "Target ID"
-                    <input
-                        type="text"
-                        prop:value=move || target_id.get()
-                        on:input=move |ev| target_id.set(event_target_value(&ev))
-                    />
-                </label>
-                <label>
-                    "Result"
-                    <select
-                        prop:value=move || result_filter.get()
-                        on:change=move |ev| result_filter.set(event_target_value(&ev))
-                    >
-                        <option value="">"(any)"</option>
-                        <option value="success">"success"</option>
-                        <option value="denied">"denied"</option>
-                        <option value="error">"error"</option>
-                    </select>
-                </label>
-                <label>
-                    "From"
-                    <input
-                        type="datetime-local"
-                        prop:value=move || from.get()
-                        on:input=move |ev| from.set(event_target_value(&ev))
-                    />
-                </label>
-                <label>
-                    "To"
-                    <input
-                        type="datetime-local"
-                        prop:value=move || to_field.get()
-                        on:input=move |ev| to_field.set(event_target_value(&ev))
-                    />
-                </label>
+            <div class="audit-filter-card">
+                <div class="audit-filter-row">
+                    <div class="audit-field">
+                        <span class="material-icons audit-field-icon">"person"</span>
+                        <select
+                            class="audit-input"
+                            prop:value=move || actor_type.get()
+                            on:change=move |ev| actor_type.set(event_target_value(&ev))
+                        >
+                            <option value="">"Any actor"</option>
+                            <option value="user">"User"</option>
+                            <option value="api_key">"API key"</option>
+                            <option value="local_admin">"Local admin"</option>
+                            <option value="ip_whitelist">"IP whitelist"</option>
+                            <option value="anonymous">"Anonymous"</option>
+                            <option value="system">"System"</option>
+                        </select>
+                    </div>
 
-                <div class="filter-bar-actions">
-                    <button class="hc-btn hc-btn--sm" on:click=do_search disabled=move || loading.get()>"Search"</button>
-                    <button class="hc-btn hc-btn--sm hc-btn--outline" on:click=reset_filters>"Reset"</button>
+                    <div class="audit-field audit-field--wide">
+                        <span class="material-icons audit-field-icon">"bolt"</span>
+                        <input
+                            type="text"
+                            class="audit-input"
+                            placeholder="Event — e.g. auth.login, api_key.created"
+                            prop:value=move || event_type.get()
+                            on:input=move |ev| event_type.set(event_target_value(&ev))
+                        />
+                    </div>
+
+                    <div class="audit-field">
+                        <span class="material-icons audit-field-icon">"label"</span>
+                        <input
+                            type="text"
+                            class="audit-input"
+                            placeholder="Target kind"
+                            prop:value=move || target_kind.get()
+                            on:input=move |ev| target_kind.set(event_target_value(&ev))
+                        />
+                    </div>
+
+                    <div class="audit-field audit-field--wide">
+                        <span class="material-icons audit-field-icon">"fingerprint"</span>
+                        <input
+                            type="text"
+                            class="audit-input"
+                            placeholder="Target ID"
+                            prop:value=move || target_id.get()
+                            on:input=move |ev| target_id.set(event_target_value(&ev))
+                        />
+                    </div>
+
+                    <div class="audit-field">
+                        <span class="material-icons audit-field-icon">"check_circle"</span>
+                        <select
+                            class="audit-input"
+                            prop:value=move || result_filter.get()
+                            on:change=move |ev| result_filter.set(event_target_value(&ev))
+                        >
+                            <option value="">"Any result"</option>
+                            <option value="success">"Success"</option>
+                            <option value="denied">"Denied"</option>
+                            <option value="error">"Error"</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="audit-filter-row audit-filter-row--sub">
+                    <div class="audit-field">
+                        <span class="audit-field-label">"From"</span>
+                        <input
+                            type="datetime-local"
+                            class="audit-input"
+                            prop:value=move || from.get()
+                            on:input=move |ev| from.set(event_target_value(&ev))
+                        />
+                    </div>
+                    <div class="audit-field">
+                        <span class="audit-field-label">"To"</span>
+                        <input
+                            type="datetime-local"
+                            class="audit-input"
+                            prop:value=move || to_field.get()
+                            on:input=move |ev| to_field.set(event_target_value(&ev))
+                        />
+                    </div>
+
+                    <div class="audit-filter-actions">
+                        <button
+                            class="hc-btn hc-btn--sm hc-btn--primary"
+                            on:click=do_search
+                            disabled=move || loading.get()
+                        >
+                            <span class="material-icons" style="font-size:16px">"search"</span>
+                            "Search"
+                        </button>
+                        <button
+                            class="hc-btn hc-btn--sm hc-btn--outline"
+                            on:click=reset_filters
+                        >
+                            "Reset"
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -193,85 +231,206 @@ pub fn AuditPage() -> impl IntoView {
                 <div class="hc-alert hc-alert--error">{e}</div>
             })}
 
-            <div class="audit-table-wrap">
-                <table class="audit-table">
-                    <thead>
-                        <tr>
-                            <th>"Timestamp"</th>
-                            <th>"Result"</th>
-                            <th>"Event"</th>
-                            <th>"Actor"</th>
-                            <th>"Target"</th>
-                            <th>"Detail"</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {move || {
-                            if rows.get().is_empty() {
-                                let msg = if loading.get() { "Loading…" } else { "(no matching events)" };
-                                view! {
-                                    <tr><td colspan="6" class="audit-empty">{msg}</td></tr>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <>
-                                        {rows.get().into_iter().map(|r| {
-                                            let ts = r.get("ts").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                                            let result = r.get("result").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                                            let event = r.get("event_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                                            let actor = r.get("actor_label").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                                            let target = format!(
-                                                "{} {}",
-                                                r.get("target_kind").and_then(|v| v.as_str()).unwrap_or(""),
-                                                r.get("target_id").and_then(|v| v.as_str()).unwrap_or("")
-                                            );
-                                            let detail = r.get("detail").map(|d| d.to_string()).unwrap_or_default();
-                                            let ts_short = ts.splitn(2, '.').next().unwrap_or(&ts).replace('T', " ");
-                                            let result_cls = format!("audit-pill audit-pill--{}", result);
-                                            view! {
-                                                <tr>
-                                                    <td class="audit-ts">{ts_short}</td>
-                                                    <td><span class=result_cls>{result}</span></td>
-                                                    <td class="audit-event">{event}</td>
-                                                    <td class="audit-actor">{actor}</td>
-                                                    <td class="audit-target">{target}</td>
-                                                    <td class="audit-detail"><code>{detail}</code></td>
-                                                </tr>
-                                            }
-                                        }).collect_view()}
-                                    </>
-                                }.into_any()
-                            }
-                        }}
-                    </tbody>
-                </table>
+            <div class="audit-stream">
+                {move || {
+                    if loading.get() && rows.get().is_empty() {
+                        view! {
+                            <div class="audit-empty">
+                                <span class="material-icons audit-empty-icon">"hourglass_empty"</span>
+                                <p>"Loading…"</p>
+                            </div>
+                        }.into_any()
+                    } else if rows.get().is_empty() {
+                        view! {
+                            <div class="audit-empty">
+                                <span class="material-icons audit-empty-icon">"search_off"</span>
+                                <p>"No matching events."</p>
+                                <p class="audit-empty-hint">
+                                    "Try widening the date range or clearing a filter."
+                                </p>
+                            </div>
+                        }.into_any()
+                    } else {
+                        let grouped = group_by_day(rows.get());
+                        view! {
+                            <>
+                                {grouped.into_iter().map(|(label, day_rows)| view! {
+                                    <div class="audit-day">
+                                        <span class="audit-day-label">{label}</span>
+                                        <span class="audit-day-count">{format!("{} events", day_rows.len())}</span>
+                                    </div>
+                                    {day_rows.into_iter().map(render_entry).collect_view()}
+                                }).collect_view()}
+                            </>
+                        }.into_any()
+                    }
+                }}
             </div>
 
-            <div class="page-pager">
-                <button
-                    class="hc-btn hc-btn--sm"
-                    on:click=prev_page
-                    disabled=move || offset.get() == 0 || loading.get()
-                >
-                    "← Prev"
-                </button>
-                <span class="glue-meta">
-                    {move || format!(
-                        "showing rows {}–{}",
-                        offset.get() + 1,
-                        offset.get() + total_returned.get()
-                    )}
+            <footer class="audit-pager">
+                <span class="audit-pager-range">
+                    {move || {
+                        if total_returned.get() == 0 {
+                            String::new()
+                        } else {
+                            format!(
+                                "{}–{}",
+                                offset.get() + 1,
+                                offset.get() + total_returned.get()
+                            )
+                        }
+                    }}
                 </span>
-                <button
-                    class="hc-btn hc-btn--sm"
-                    on:click=next_page
-                    disabled=move || total_returned.get() < PAGE_SIZE || loading.get()
-                >
-                    "Next →"
-                </button>
-            </div>
+                <div class="audit-pager-buttons">
+                    <button
+                        class="hc-btn hc-btn--sm hc-btn--outline"
+                        on:click=prev_page
+                        disabled=move || offset.get() == 0 || loading.get()
+                    >
+                        <span class="material-icons" style="font-size:16px">"chevron_left"</span>
+                        "Prev"
+                    </button>
+                    <button
+                        class="hc-btn hc-btn--sm hc-btn--outline"
+                        on:click=next_page
+                        disabled=move || total_returned.get() < PAGE_SIZE || loading.get()
+                    >
+                        "Next"
+                        <span class="material-icons" style="font-size:16px">"chevron_right"</span>
+                    </button>
+                </div>
+            </footer>
         </section>
     }
+}
+
+// ─── Rendering helpers ───────────────────────────────────────────────────────
+
+fn render_entry(r: Value) -> impl IntoView {
+    let ts_raw = r.get("ts").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let parsed = DateTime::parse_from_rfc3339(&ts_raw).ok();
+    let ts_local = parsed
+        .map(|d| d.with_timezone(&Local).format("%H:%M:%S").to_string())
+        .unwrap_or_default();
+
+    let result = r.get("result").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let event = r.get("event_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let actor = r.get("actor_label").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let actor_type = r
+        .get("actor_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let target_kind = r
+        .get("target_kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let target_id = r
+        .get("target_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let detail = r.get("detail").cloned().unwrap_or(Value::Null);
+    let detail_pretty = if detail.is_null() || (detail.is_object() && detail.as_object().map(|m| m.is_empty()).unwrap_or(false)) {
+        None
+    } else {
+        Some(serde_json::to_string_pretty(&detail).unwrap_or_default())
+    };
+
+    let has_target = !target_kind.is_empty() || !target_id.is_empty();
+    let entry_class = format!("audit-entry audit-entry--{}", result);
+    let pill_class = format!("audit-pill audit-pill--{}", result);
+    let actor_icon = actor_icon_for(&actor_type);
+
+    view! {
+        <details class=entry_class>
+            <summary class="audit-entry-summary">
+                <span class="audit-entry-time">{ts_local}</span>
+                <span class=pill_class title=result.clone()>{result.clone()}</span>
+                <span class="audit-entry-event">{event}</span>
+                <span class="audit-entry-actor">
+                    <span class="material-icons audit-entry-actor-icon">{actor_icon}</span>
+                    {actor}
+                </span>
+                {has_target.then(|| view! {
+                    <span class="audit-chip">
+                        {(!target_kind.is_empty()).then(|| view! {
+                            <span class="audit-chip-kind">{target_kind.clone()}</span>
+                        })}
+                        {(!target_id.is_empty()).then(|| view! {
+                            <span class="audit-chip-id">{target_id.clone()}</span>
+                        })}
+                    </span>
+                })}
+                {detail_pretty.is_some().then(|| view! {
+                    <span class="material-icons audit-entry-chev">"expand_more"</span>
+                })}
+            </summary>
+            {detail_pretty.map(|p| view! {
+                <div class="audit-entry-detail">
+                    <pre>{p}</pre>
+                </div>
+            })}
+        </details>
+    }
+}
+
+fn actor_icon_for(kind: &str) -> &'static str {
+    match kind {
+        "user" => "person",
+        "api_key" => "vpn_key",
+        "local_admin" => "shield",
+        "ip_whitelist" => "dns",
+        "anonymous" => "help_outline",
+        "system" => "settings",
+        _ => "help_outline",
+    }
+}
+
+/// Group rows by their local-timezone day, returning (label, rows) pairs in
+/// server-returned order (already ts DESC). Labels: "Today", "Yesterday",
+/// otherwise "Apr 22, 2026".
+fn group_by_day(rows: Vec<Value>) -> Vec<(String, Vec<Value>)> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let today = Local::now().date_naive();
+    let mut out: Vec<(String, Vec<Value>)> = Vec::new();
+    let mut current: Option<String> = None;
+    for r in rows {
+        let ts_raw = r.get("ts").and_then(|v| v.as_str()).unwrap_or("");
+        let day_label = DateTime::parse_from_rfc3339(ts_raw)
+            .ok()
+            .map(|d| d.with_timezone(&Local).date_naive())
+            .map(|d| {
+                if d == today {
+                    "Today".to_string()
+                } else if d == today.pred_opt().unwrap_or(today) {
+                    "Yesterday".to_string()
+                } else {
+                    format!(
+                        "{} {}, {}",
+                        month_short(d.month()),
+                        d.day(),
+                        d.year()
+                    )
+                }
+            })
+            .unwrap_or_else(|| "Unknown date".to_string());
+        if current.as_ref() != Some(&day_label) {
+            current = Some(day_label.clone());
+            out.push((day_label, Vec::new()));
+        }
+        out.last_mut().unwrap().1.push(r);
+    }
+    out
+}
+
+fn month_short(m: u32) -> &'static str {
+    [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ][(m as usize).saturating_sub(1).min(11)]
 }
 
 fn none_if_blank(s: &str) -> Option<String> {
@@ -283,10 +442,10 @@ fn none_if_blank(s: &str) -> Option<String> {
     }
 }
 
-/// Convert a `datetime-local` input value (e.g. `2026-04-22T14:30`) to an
-/// RFC3339 timestamp. The server parses both; we add `:00Z` as a suffix so
-/// it's unambiguous if the browser omitted seconds.
+/// Normalise a `datetime-local` value (`2026-04-22T14:30`) to RFC3339. Assume
+/// UTC for lack of a better signal.
 fn to_rfc3339(s: &str) -> String {
+    let _ = Utc::now(); // touch to pin import
     if s.contains('Z') || s.contains('+') {
         s.to_string()
     } else if s.len() == 16 {

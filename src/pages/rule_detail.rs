@@ -2818,12 +2818,25 @@ fn command_to_state(cmd: &str, d: &DeviceState) -> Value {
 /// Typed device state builder — renders command dropdown + controls.
 /// Reads device capabilities from context and reads/writes the state JSON
 /// inside a SetDeviceState or FadeDevice action.
+///
+/// Falls back to a raw-JSON editor when the device's capabilities don't
+/// match any known command shape (e.g. plugin-specific commands like
+/// Lutron `set_led`, `press_button`). Operators can also explicitly
+/// toggle into JSON mode for any device when the typed editor can't
+/// express what they need.
 #[component]
 fn TypedDeviceStateBuilder(
     get: Signal<Action>,
     set: Callback<Action>,
 ) -> impl IntoView {
     let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
+
+    // Persistent UI state — kept at component scope so it survives re-renders
+    // of the inner closure when the action signal updates.
+    let edit_as_json: RwSignal<bool> = RwSignal::new(false);
+    let raw_text: RwSignal<String> = RwSignal::new(String::new());
+    let raw_error: RwSignal<Option<String>> = RwSignal::new(None);
+    let last_synced: RwSignal<String> = RwSignal::new(String::new());
 
     // Read the device_id and state from the action
     let get_state_info = move || -> (String, Value) {
@@ -2845,6 +2858,19 @@ fn TypedDeviceStateBuilder(
         set.run(a);
     };
 
+    // Sync raw_text from the action's state when the action changes from
+    // outside (e.g. typed editor wrote a new command). We compare a canonical
+    // pretty-printed form so user keystrokes don't trigger a self-loop.
+    Effect::new(move |_| {
+        let (_, state) = get_state_info();
+        let canon = serde_json::to_string_pretty(&state).unwrap_or_default();
+        if canon != last_synced.get_untracked() {
+            raw_text.set(canon.clone());
+            last_synced.set(canon);
+            raw_error.set(None);
+        }
+    });
+
     view! {
         <div class="state-builder">
             {move || {
@@ -2858,9 +2884,89 @@ fn TypedDeviceStateBuilder(
                     None => return view! { <p class="msg-muted" style="font-size:0.85rem">"Device not found."</p> }.into_any(),
                 };
                 let cmds = device_commands(&d);
-                if cmds.is_empty() {
-                    return view! { <p class="msg-muted" style="font-size:0.85rem">"No known commands."</p> }.into_any();
+                let no_typed = cmds.is_empty();
+                // Default to JSON mode when nothing typed is available.
+                if no_typed && !edit_as_json.get_untracked() {
+                    edit_as_json.set(true);
                 }
+                let json_mode = edit_as_json.get();
+
+                // Always-available raw-JSON editor view. Used as fallback when
+                // no typed commands match and as opt-in for plugin-specific
+                // commands the typed editor can't express.
+                let raw_editor = move || {
+                    let banner = if no_typed {
+                        view! {
+                            <p class="msg-muted" style="font-size:0.82rem; margin: 0 0 0.4rem 0;">
+                                "This device has no recognised typed commands. Send arbitrary command JSON the device understands — see the plugin's README for the supported shape (e.g. "
+                                <code>{"{\"set_led\":{\"button\":1,\"state\":1}}"}</code>
+                                ")."
+                            </p>
+                        }.into_any()
+                    } else {
+                        view! { <span /> }.into_any()
+                    };
+                    view! {
+                        {banner}
+                        <label class="field-label">"Command JSON"</label>
+                        <textarea
+                            class="hc-input"
+                            style="width:100%; min-height: 7rem; font-family: ui-monospace, monospace; font-size: 0.85rem;"
+                            prop:value=move || raw_text.get()
+                            on:input=move |ev| {
+                                let txt = event_target_value(&ev);
+                                raw_text.set(txt.clone());
+                                let trimmed = txt.trim();
+                                let parsed: Result<Value, _> = if trimmed.is_empty() {
+                                    Ok(json!({}))
+                                } else {
+                                    serde_json::from_str::<Value>(trimmed)
+                                };
+                                match parsed {
+                                    Ok(v) => {
+                                        raw_error.set(None);
+                                        // Mark this as the last synced value so
+                                        // the Effect doesn't bounce it back.
+                                        last_synced.set(
+                                            serde_json::to_string_pretty(&v).unwrap_or_default()
+                                        );
+                                        set_state(v);
+                                    }
+                                    Err(e) => raw_error.set(Some(e.to_string())),
+                                }
+                            }
+                        />
+                        {move || raw_error.get().map(|e| view! {
+                            <p class="msg-error" style="font-size:0.78rem; margin-top:0.25rem; color: var(--hc-danger);">
+                                {format!("JSON parse error: {e}")}
+                            </p>
+                        })}
+                    }
+                };
+
+                if json_mode {
+                    let toggle = if no_typed {
+                        view! { <span /> }.into_any()
+                    } else {
+                        view! {
+                            <button
+                                type="button"
+                                class="hc-btn hc-btn--sm hc-btn--outline"
+                                style="margin-bottom: 0.4rem;"
+                                on:click=move |_| edit_as_json.set(false)
+                            >
+                                "← Use typed editor"
+                            </button>
+                        }.into_any()
+                    };
+                    return view! {
+                        <div>
+                            {toggle}
+                            {raw_editor()}
+                        </div>
+                    }.into_any();
+                }
+
                 let current_cmd = detect_command(&state);
                 let d_for_change = d.clone();
 
@@ -2990,7 +3096,19 @@ fn TypedDeviceStateBuilder(
                     _ => view! { <span /> }.into_any(),
                 };
 
-                view! { {cmd_view} {control} }.into_any()
+                let switch_to_json = view! {
+                    <div style="margin-top: 0.5rem;">
+                        <button
+                            type="button"
+                            class="hc-btn hc-btn--sm hc-btn--outline"
+                            on:click=move |_| edit_as_json.set(true)
+                        >
+                            "Edit as JSON…"
+                        </button>
+                    </div>
+                };
+
+                view! { {cmd_view} {control} {switch_to_json} }.into_any()
             }}
         </div>
     }

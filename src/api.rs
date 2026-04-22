@@ -240,6 +240,59 @@ async fn put_json<T: serde::de::DeserializeOwned>(
     resp.json::<T>().await.map_err(|e| e.to_string())
 }
 
+// ── Audit log ────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default)]
+pub struct AuditFilter {
+    pub actor_id: Option<String>,
+    pub actor_type: Option<String>,
+    pub event_type: Option<String>,
+    pub target_kind: Option<String>,
+    pub target_id: Option<String>,
+    pub result: Option<String>,
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+pub async fn fetch_audit(token: &str, f: &AuditFilter) -> Result<Vec<Value>, String> {
+    fn enc(s: &str) -> String {
+        // Minimal URL-encode: this is WASM so we pull from js_sys rather than
+        // adding another crate.
+        js_sys::encode_uri_component(s).as_string().unwrap_or_default()
+    }
+    let mut params: Vec<String> = Vec::new();
+    if let Some(v) = &f.actor_id {
+        params.push(format!("actor_id={}", enc(v)));
+    }
+    if let Some(v) = &f.actor_type {
+        params.push(format!("actor_type={}", enc(v)));
+    }
+    if let Some(v) = &f.event_type {
+        params.push(format!("event_type={}", enc(v)));
+    }
+    if let Some(v) = &f.target_kind {
+        params.push(format!("target_kind={}", enc(v)));
+    }
+    if let Some(v) = &f.target_id {
+        params.push(format!("target_id={}", enc(v)));
+    }
+    if let Some(v) = &f.result {
+        params.push(format!("result={}", enc(v)));
+    }
+    if let Some(v) = &f.from {
+        params.push(format!("from={}", enc(v)));
+    }
+    if let Some(v) = &f.to {
+        params.push(format!("to={}", enc(v)));
+    }
+    params.push(format!("limit={}", f.limit.max(1).min(500)));
+    params.push(format!("offset={}", f.offset));
+    let qs = params.join("&");
+    get_json(&format!("/audit?{qs}"), token).await
+}
+
 // ── Device API ────────────────────────────────────────────────────────────────
 
 pub async fn fetch_devices(token: &str) -> Result<Vec<DeviceState>, String> {

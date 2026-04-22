@@ -5,6 +5,7 @@ use crate::auth::{use_auth, AuthState};
 use crate::pages::shared::{ToastContainer, ToastContext};
 use crate::pages::{
     admin::AdminPage,
+    audit::AuditPage,
     areas::AreasPage,
     dashboards::DashboardsPage,
     device_cards::DeviceCardsPage,
@@ -102,6 +103,9 @@ pub fn App() -> impl IntoView {
                 }/>
                 <Route path=path!("/admin") view=move || view! {
                     <AuthGuard><AdminPage /></AuthGuard>
+                }/>
+                <Route path=path!("/audit") view=move || view! {
+                    <AuthGuard><AuditPage /></AuthGuard>
                 }/>
             </Routes>
         </Router>
@@ -234,6 +238,7 @@ const NAV_ITEMS: &[NavItem] = &[
     NavItem { id: "glue", href: "/glue", icon: "extension", label: "Glue" },
     NavItem { id: "plugins", href: "/plugins", icon: "widgets", label: "Plugins" },
     NavItem { id: "admin", href: "/admin", icon: "admin_panel_settings", label: "Admin" },
+    NavItem { id: "audit", href: "/audit", icon: "fact_check", label: "Audit" },
 ];
 
 fn load_nav_order() -> Vec<&'static str> {

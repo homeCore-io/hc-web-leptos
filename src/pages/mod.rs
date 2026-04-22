@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod audit;
 pub mod dashboards;
 pub mod areas;
 pub mod device_cards;

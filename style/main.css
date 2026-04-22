@@ -3680,3 +3680,114 @@ a.cell-link:hover { text-decoration: underline; }
   text-align: right;
   flex-shrink: 0;
 }
+
+/* ── Audit log viewer ─────────────────────────────────────────────────────── */
+
+.audit-table-wrap {
+  overflow-x: auto;
+  margin-top: 0.75rem;
+  border: 1px solid var(--hc-border);
+  border-radius: 6px;
+  background: var(--hc-surface);
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+}
+
+.audit-table thead {
+  background: var(--hc-surface-alt, rgba(0, 0, 0, 0.03));
+  text-align: left;
+}
+
+.audit-table th {
+  padding: 0.55rem 0.75rem;
+  font-weight: 600;
+  color: var(--hc-text-muted);
+  border-bottom: 1px solid var(--hc-border);
+}
+
+.audit-table td {
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--hc-border-soft, rgba(0, 0, 0, 0.06));
+  vertical-align: top;
+}
+
+.audit-table tr:last-child td {
+  border-bottom: none;
+}
+
+.audit-ts {
+  white-space: nowrap;
+  color: var(--hc-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-event {
+  font-family: var(--hc-font-mono, monospace);
+  white-space: nowrap;
+}
+
+.audit-actor {
+  font-family: var(--hc-font-mono, monospace);
+  white-space: nowrap;
+}
+
+.audit-target {
+  color: var(--hc-text-muted);
+  font-family: var(--hc-font-mono, monospace);
+  font-size: 0.82rem;
+}
+
+.audit-detail code {
+  display: block;
+  max-width: 28rem;
+  font-size: 0.78rem;
+  color: var(--hc-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audit-empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--hc-text-muted);
+}
+
+.audit-pill {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: var(--hc-surface-alt, rgba(0, 0, 0, 0.06));
+  color: var(--hc-text-muted);
+}
+
+.audit-pill--success {
+  background: rgba(60, 160, 100, 0.15);
+  color: #3ca064;
+}
+
+.audit-pill--denied {
+  background: rgba(210, 120, 40, 0.15);
+  color: #d27828;
+}
+
+.audit-pill--error {
+  background: rgba(200, 60, 60, 0.15);
+  color: #c83c3c;
+}
+
+.page-pager {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}

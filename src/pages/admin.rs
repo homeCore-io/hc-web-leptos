@@ -42,6 +42,11 @@ fn role_badge_class(role: &str) -> &'static str {
     match role {
         "admin" => "admin-badge admin-badge--admin",
         "user" => "admin-badge admin-badge--user",
+        "read_only" => "admin-badge admin-badge--readonly",
+        "observer" => "admin-badge admin-badge--observer",
+        "device_operator" => "admin-badge admin-badge--device-operator",
+        "rule_editor" => "admin-badge admin-badge--rule-editor",
+        "service_operator" => "admin-badge admin-badge--service-operator",
         _ => "admin-badge admin-badge--readonly",
     }
 }
@@ -51,6 +56,10 @@ fn role_display(role: &str) -> String {
         "admin" => "Admin".to_string(),
         "user" => "User".to_string(),
         "read_only" => "Read Only".to_string(),
+        "observer" => "Observer".to_string(),
+        "device_operator" => "Device Operator".to_string(),
+        "rule_editor" => "Rule Editor".to_string(),
+        "service_operator" => "Service Operator".to_string(),
         _ => role.to_string(),
     }
 }
@@ -429,6 +438,10 @@ fn UserManagementSection() -> impl IntoView {
                                                                                     <option value="admin" selected=move || edit_role.get() == "admin">"Admin"</option>
                                                                                     <option value="user" selected=move || edit_role.get() == "user">"User"</option>
                                                                                     <option value="read_only" selected=move || edit_role.get() == "read_only">"Read Only"</option>
+                                                                                    <option value="observer" selected=move || edit_role.get() == "observer">"Observer"</option>
+                                                                                    <option value="device_operator" selected=move || edit_role.get() == "device_operator">"Device Operator"</option>
+                                                                                    <option value="rule_editor" selected=move || edit_role.get() == "rule_editor">"Rule Editor"</option>
+                                                                                    <option value="service_operator" selected=move || edit_role.get() == "service_operator">"Service Operator"</option>
                                                                                 </select>
                                                                             </div>
                                                                         </div>
@@ -555,6 +568,10 @@ fn UserManagementSection() -> impl IntoView {
                     <option value="admin">"Admin"</option>
                     <option value="user" selected=true>"User"</option>
                     <option value="read_only">"Read Only"</option>
+                    <option value="observer">"Observer"</option>
+                    <option value="device_operator">"Device Operator"</option>
+                    <option value="rule_editor">"Rule Editor"</option>
+                    <option value="service_operator">"Service Operator"</option>
                 </select>
                 <button
                     class="btn btn-primary"

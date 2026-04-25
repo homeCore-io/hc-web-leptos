@@ -638,6 +638,24 @@ pub async fn update_plugin_config(token: &str, id: &str, body: &serde_json::Valu
     put_json(&format!("/plugins/{id}/config"), token, body).await.map(|_: serde_json::Value| ())
 }
 
+/// Bulk-wipe every device whose plugin_id matches `id`. The plugin
+/// itself stays registered — its devices will be re-registered on the
+/// plugin's next sync cycle. Returns the API's response JSON
+/// (`{ deleted, device_ids, affected_rules }`) so the caller can show
+/// the count + any rules that were patched on the way out.
+pub async fn wipe_plugin_devices(token: &str, id: &str) -> Result<Value, String> {
+    let resp = Request::delete(&format!("{API_BASE}/plugins/{id}/devices"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.ok() {
+        return Err(api_error(&resp).await);
+    }
+    resp.json::<Value>().await.map_err(|e| e.to_string())
+}
+
 /// Send a plugin-specific management command (e.g. yolink `rescan_devices`).
 /// `params` is merged into the request body alongside `action`.
 pub async fn send_plugin_command(

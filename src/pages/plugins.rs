@@ -3,7 +3,7 @@
 
 use crate::api::{
     fetch_plugin, fetch_plugin_config, fetch_plugins, patch_plugin, restart_plugin,
-    send_plugin_command, start_plugin, stop_plugin, update_plugin_config,
+    send_plugin_command, start_plugin, stop_plugin, update_plugin_config, wipe_plugin_devices,
 };
 use crate::auth::{plugin_stream_sse_url, use_auth};
 use crate::models::PluginInfo;
@@ -364,6 +364,8 @@ pub fn PluginDetailPage() -> impl IntoView {
         });
     };
 
+    let wipe_busy = RwSignal::new(false);
+
     // Log level change
     let on_log_level_change = move |level: String| {
         let token = match auth.token.get_untracked() { Some(t) => t, None => return };
@@ -461,6 +463,51 @@ pub fn PluginDetailPage() -> impl IntoView {
         list.sort_by(|a, b| a.name.cmp(&b.name));
         list
     });
+
+    // Bulk-wipe every device this plugin owns. Confirms first — this
+    // is destructive — then calls DELETE /plugins/:id/devices and
+    // surfaces the result. The plugin stays registered; its devices
+    // re-register on the next sync cycle. Useful for cleaning up
+    // zombies left over from config churn.
+    let do_wipe_devices = move || {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let id = plugin_id();
+        let device_count = plugin_devices.with(|d| d.len());
+        let prompt = format!(
+            "Wipe all {device_count} device(s) registered by '{id}'?\n\n\
+             The plugin stays registered. Devices will be re-registered \
+             on the plugin's next sync cycle. Any rules referencing the \
+             deleted devices will be patched (and disabled if the \
+             trigger device is wiped)."
+        );
+        let confirmed = web_sys::window()
+            .and_then(|w| w.confirm_with_message(&prompt).ok())
+            .unwrap_or(false);
+        if !confirmed { return; }
+        wipe_busy.set(true);
+        notice.set(None);
+        error.set(None);
+        spawn_local(async move {
+            match wipe_plugin_devices(&token, &id).await {
+                Ok(resp) => {
+                    let deleted = resp.get("deleted").and_then(Value::as_u64).unwrap_or(0);
+                    let affected = resp
+                        .get("affected_rules")
+                        .and_then(Value::as_array)
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    let msg = if affected == 0 {
+                        format!("Wiped {deleted} device(s).")
+                    } else {
+                        format!("Wiped {deleted} device(s); patched {affected} rule(s).")
+                    };
+                    notice.set(Some(msg));
+                }
+                Err(e) => error.set(Some(format!("Wipe failed: {e}"))),
+            }
+            wipe_busy.set(false);
+        });
+    };
 
     view! {
         <div class="plugin-detail">
@@ -814,7 +861,26 @@ pub fn PluginDetailPage() -> impl IntoView {
 
             // ── Devices ─────────────────────────────────────────────────────
             <section class="detail-card">
-                <h3 class="detail-card-title">"Devices"</h3>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem">
+                    <h3 class="detail-card-title" style="margin:0">"Devices"</h3>
+                    {move || {
+                        let is_admin = auth.user.get()
+                            .map(|u| u.role == "admin")
+                            .unwrap_or(false);
+                        let count = plugin_devices.with(|d| d.len());
+                        let do_wipe_devices = do_wipe_devices.clone();
+                        (is_admin && count > 0).then(|| view! {
+                            <button
+                                class="hc-btn hc-btn--sm hc-btn--outline"
+                                title="Unregister every device this plugin owns. Plugin stays registered; devices will re-register on next sync."
+                                disabled=move || wipe_busy.get()
+                                on:click=move |_| do_wipe_devices()
+                            >
+                                {move || if wipe_busy.get() { "Wiping…" } else { "Wipe all devices" }}
+                            </button>
+                        })
+                    }}
+                </div>
                 {move || {
                     let devs = plugin_devices.get();
                     if devs.is_empty() {

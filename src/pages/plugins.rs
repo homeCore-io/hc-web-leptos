@@ -285,6 +285,13 @@ pub fn PluginDetailPage() -> impl IntoView {
 
     let error: RwSignal<Option<String>> = RwSignal::new(None);
     let notice: RwSignal<Option<String>> = RwSignal::new(None);
+    // Distinct from `notice`: only the config-save path sets this true,
+    // because that's the only thing that genuinely needs the plugin to
+    // restart for the change to take effect. Action completions
+    // (rescan, refresh, discover, etc.) are runtime side-effects with
+    // no restart implication, so they should NOT show a Restart Now
+    // button alongside their "done" notice.
+    let restart_required = RwSignal::new(false);
     let busy = RwSignal::new(false);
 
     // Config editor state
@@ -435,6 +442,7 @@ pub fn PluginDetailPage() -> impl IntoView {
                     config_raw.set(Some(edit_text.get_untracked()));
                     editing.set(false);
                     notice.set(Some("Config saved. Restart plugin to apply changes.".into()));
+                    restart_required.set(true);
                 }
                 Err(e) => error.set(Some(format!("Save failed: {e}"))),
             }
@@ -509,11 +517,17 @@ pub fn PluginDetailPage() -> impl IntoView {
             {move || notice.get().map(|n| view! {
                 <div class="msg-warning" style="display:flex; align-items:center; gap:0.5rem">
                     <span>{n}</span>
-                    {move || plugin.get().map(|p| p.managed).unwrap_or(false).then(|| {
+                    {move || (restart_required.get()
+                        && plugin.get().map(|p| p.managed).unwrap_or(false)
+                    ).then(|| {
                         let do_action = do_action.clone();
                         view! {
                             <button class="hc-btn hc-btn--sm hc-btn--primary" disabled=move || busy.get()
-                                on:click=move |_| { notice.set(None); do_action("restart"); }
+                                on:click=move |_| {
+                                    notice.set(None);
+                                    restart_required.set(false);
+                                    do_action("restart");
+                                }
                             >"Restart Now"</button>
                         }
                     })}

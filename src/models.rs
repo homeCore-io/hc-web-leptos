@@ -1198,6 +1198,8 @@ pub struct PluginInfo {
     pub version: Option<String>,
     #[serde(default)]
     pub supports_management: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<hc_types::Capabilities>,
 }
 
 impl PluginInfo {

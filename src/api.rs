@@ -651,7 +651,24 @@ pub async fn send_plugin_command(
         body = serde_json::json!({});
     }
     body["action"] = serde_json::Value::String(action.to_string());
-    post_json(&format!("/plugins/{id}/command"), token, &body).await
+
+    // Custom send so we can surface the 409 body (concurrency:single
+    // busy responses) to the caller — `post_json` would squash it into
+    // a string error.
+    let resp = Request::post(&format!("{API_BASE}/plugins/{id}/command"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let status = resp.status();
+    if resp.ok() || status == 409 {
+        return resp.json::<serde_json::Value>().await.map_err(|e| e.to_string());
+    }
+    Err(api_error(&resp).await)
 }
 
 // ── Events API ───────────────────────────────────────────────────────────────

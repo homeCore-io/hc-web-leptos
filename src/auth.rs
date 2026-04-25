@@ -202,3 +202,20 @@ pub fn logs_ws_url(token: &str, history: u32) -> String {
 
     format!("{protocol}://{host}/api/v1/logs/stream?token={token}&history={history}&level=info")
 }
+
+/// Build the SSE URL for a plugin streaming-action request. `EventSource`
+/// can't set `Authorization`, so the token rides in `?token=`.
+pub fn plugin_stream_sse_url(plugin_id: &str, request_id: &str, token: &str) -> String {
+    let host = web_sys::window()
+        .and_then(|w| w.location().host().ok())
+        .unwrap_or_else(|| "localhost:8080".to_string());
+    let scheme = web_sys::window()
+        .and_then(|w| w.location().protocol().ok())
+        .unwrap_or_else(|| "http:".to_string());
+    let enc_pid = js_sys::encode_uri_component(plugin_id);
+    let enc_rid = js_sys::encode_uri_component(request_id);
+    let enc_tok = js_sys::encode_uri_component(token);
+    format!(
+        "{scheme}//{host}/api/v1/plugins/{enc_pid}/command/{enc_rid}/stream?token={enc_tok}"
+    )
+}

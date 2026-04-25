@@ -5,15 +5,18 @@ use crate::api::{
     fetch_plugin, fetch_plugin_config, fetch_plugins, patch_plugin, restart_plugin,
     send_plugin_command, start_plugin, stop_plugin, update_plugin_config,
 };
-use crate::auth::use_auth;
+use crate::auth::{plugin_stream_sse_url, use_auth};
 use crate::models::PluginInfo;
 use crate::pages::shared::{ErrorBanner, SearchField};
 use crate::ws::use_ws;
+use hc_types::{Action as CapAction, Capabilities, RequiresRole};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
-use serde_json::json;
-use std::collections::HashSet;
+use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -371,50 +374,9 @@ pub fn PluginDetailPage() -> impl IntoView {
         });
     };
 
-    // Rescan (yolink-specific): triggers immediate device inventory sync.
-    let rescan_busy = RwSignal::new(false);
-    let do_rescan = move || {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
-        let id = plugin_id();
-        rescan_busy.set(true);
-        spawn_local(async move {
-            match send_plugin_command(&token, &id, "rescan_devices", json!({})).await {
-                Ok(_) => notice.set(Some("Device rescan triggered.".into())),
-                Err(e) => error.set(Some(format!("Rescan failed: {e}"))),
-            }
-            rescan_busy.set(false);
-        });
-    };
-
-    // Thermostat-specific commands.
-    let therm_recalc_busy = RwSignal::new(false);
-    let do_therm_recalc = move || {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
-        let id = plugin_id();
-        therm_recalc_busy.set(true);
-        spawn_local(async move {
-            match send_plugin_command(&token, &id, "recalculate_all", json!({})).await {
-                Ok(_) => notice.set(Some("Recalculated all thermostats.".into())),
-                Err(e) => error.set(Some(format!("Recalculate failed: {e}"))),
-            }
-            therm_recalc_busy.set(false);
-        });
-    };
-    let therm_reload_busy = RwSignal::new(false);
-    let do_therm_reload = move || {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
-        let id = plugin_id();
-        therm_reload_busy.set(true);
-        spawn_local(async move {
-            match send_plugin_command(&token, &id, "reload_config", json!({})).await {
-                Ok(_) => notice.set(Some("Config reloaded from disk.".into())),
-                Err(e) => error.set(Some(format!("Reload failed: {e}"))),
-            }
-            therm_reload_busy.set(false);
-        });
-    };
-
-    // Create thermostat wizard state.
+    // Thermostat-specific wizard state — recalculate_all and reload_config
+    // come from the manifest now (see ActionsCard); the wizard remains
+    // hardcoded because it needs live device pickers.
     let therm_wizard_open = RwSignal::new(false);
     let therm_new_id = RwSignal::new(String::new());
     let therm_new_name = RwSignal::new(String::new());
@@ -622,42 +584,24 @@ pub fn PluginDetailPage() -> impl IntoView {
                 }
             })}
 
-            // ── Plugin commands (per-plugin custom actions) ─────────────────
-            {move || (plugin.get().map(|p| p.plugin_id).as_deref() == Some("plugin.yolink")).then(|| view! {
-                <section class="detail-card">
-                    <h3 class="detail-card-title">"Plugin commands"</h3>
-                    <div style="display:flex; align-items:center; gap:0.75rem">
-                        <button class="hc-btn hc-btn--sm hc-btn--primary"
-                            disabled=move || rescan_busy.get()
-                            on:click=move |_| do_rescan()
-                        >
-                            {move || if rescan_busy.get() { "Rescanning…" } else { "Rescan devices" }}
-                        </button>
-                        <span class="msg-muted" style="font-size:0.8rem">
-                            "Fetch the current device list from the YoLink hub. \
-                             Use this after pairing a new device."
-                        </span>
-                    </div>
-                </section>
+            // ── Plugin actions (manifest-driven) ────────────────────────────
+            {move || plugin.get().and_then(|p| p.capabilities).and_then(|caps| {
+                if caps.actions.is_empty() { return None; }
+                let pid = plugin_id();
+                Some(view! {
+                    <PluginActionsCard plugin_id=pid capabilities=caps notice=notice error=error />
+                })
             })}
 
-            // ── Thermostat-specific command panel ───────────────────────────
+            // ── Thermostat: New-thermostat wizard ───────────────────────────
+            // Recalculate / Reload are now manifest actions — see the
+            // ActionsCard above. The wizard stays hardcoded because it
+            // needs live device pickers (sensors + actuator), which the
+            // v1 capability schema subset can't represent.
             {move || (plugin.get().map(|p| p.plugin_id).as_deref() == Some("plugin.thermostat")).then(|| view! {
                 <section class="detail-card">
-                    <h3 class="detail-card-title">"Thermostat commands"</h3>
+                    <h3 class="detail-card-title">"New thermostat"</h3>
                     <div style="display:flex; gap:0.5rem; flex-wrap:wrap">
-                        <button class="hc-btn hc-btn--sm"
-                            disabled=move || therm_recalc_busy.get()
-                            on:click=move |_| do_therm_recalc()
-                        >
-                            {move || if therm_recalc_busy.get() { "Recalculating…" } else { "Recalculate all" }}
-                        </button>
-                        <button class="hc-btn hc-btn--sm"
-                            disabled=move || therm_reload_busy.get()
-                            on:click=move |_| do_therm_reload()
-                        >
-                            {move || if therm_reload_busy.get() { "Reloading…" } else { "Reload config" }}
-                        </button>
                         <button class="hc-btn hc-btn--sm hc-btn--primary"
                             on:click=move |_| therm_wizard_open.update(|v| *v = !*v)
                         >
@@ -933,3 +877,945 @@ fn therm_actuator_candidates(
     out
 }
 
+// ── Manifest-driven actions ─────────────────────────────────────────────────
+
+/// Renders the "Actions" card driven by the plugin's published capability
+/// manifest. Non-streaming actions become live buttons; streaming actions
+/// are shown disabled until the ActionDrawer ships (Phase 3 Slice C).
+#[component]
+fn PluginActionsCard(
+    plugin_id: String,
+    capabilities: Capabilities,
+    notice: RwSignal<Option<String>>,
+    error: RwSignal<Option<String>>,
+) -> impl IntoView {
+    let pid = plugin_id;
+    view! {
+        <section class="detail-card">
+            <h3 class="detail-card-title">"Actions"</h3>
+            <div class="plugin-actions-list">
+                {capabilities.actions.into_iter().map(|action| {
+                    let pid = pid.clone();
+                    view! { <ActionRow plugin_id=pid action=action notice=notice error=error /> }
+                }).collect_view()}
+            </div>
+        </section>
+    }
+}
+
+/// Parsed form definition for a single param field, derived from the
+/// JSON-schema subset that `pluginCapabilitiesPlan.md` §2 allows.
+#[derive(Clone, Debug)]
+struct ParamDef {
+    name: String,
+    ty: String,
+    default: Option<Value>,
+    enum_values: Option<Vec<Value>>,
+    required: bool,
+    minimum: Option<f64>,
+    maximum: Option<f64>,
+    description: Option<String>,
+}
+
+fn parse_params(params: Option<&Value>) -> Vec<ParamDef> {
+    let Some(obj) = params.and_then(|v| v.as_object()) else { return Vec::new() };
+    let mut out = Vec::with_capacity(obj.len());
+    for (name, spec) in obj {
+        let ty = spec
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("string")
+            .to_string();
+        out.push(ParamDef {
+            name: name.clone(),
+            ty,
+            default: spec.get("default").cloned(),
+            enum_values: spec
+                .get("enum")
+                .and_then(Value::as_array)
+                .cloned(),
+            required: spec.get("required").and_then(Value::as_bool).unwrap_or(false),
+            minimum: spec.get("minimum").and_then(Value::as_f64),
+            maximum: spec.get("maximum").and_then(Value::as_f64),
+            description: spec
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+fn initial_form_state(params: &[ParamDef]) -> HashMap<String, Value> {
+    let mut m = HashMap::new();
+    for p in params {
+        if let Some(d) = &p.default {
+            m.insert(p.name.clone(), d.clone());
+        }
+    }
+    m
+}
+
+#[component]
+fn ParamsForm(
+    params: Vec<ParamDef>,
+    state: RwSignal<HashMap<String, Value>>,
+) -> impl IntoView {
+    view! {
+        <div class="plugin-action-row__form">
+            {params.into_iter().map(|p| view! {
+                <ParamField def=p state=state />
+            }).collect_view()}
+        </div>
+    }
+}
+
+#[component]
+fn ActionRow(
+    plugin_id: String,
+    action: CapAction,
+    notice: RwSignal<Option<String>>,
+    error: RwSignal<Option<String>>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let busy = RwSignal::new(false);
+    let form_open = RwSignal::new(false);
+    let drawer_open = RwSignal::new(false);
+
+    let params = parse_params(action.params.as_ref());
+    let has_params = !params.is_empty();
+    let form_state: RwSignal<HashMap<String, Value>> =
+        RwSignal::new(initial_form_state(&params));
+
+    let is_streaming = action.stream;
+    let is_admin = matches!(action.requires_role, RequiresRole::Admin);
+    let label = action.label.clone();
+    let description = action.description.clone();
+    let action_id = action.id.clone();
+
+    // Non-streaming submit path.
+    let submit = {
+        let plugin_id = plugin_id.clone();
+        let action_id = action_id.clone();
+        let label = label.clone();
+        move || {
+            let Some(token) = auth.token.get_untracked() else { return };
+            let pid = plugin_id.clone();
+            let aid = action_id.clone();
+            let label = label.clone();
+            let body = Value::Object(
+                form_state
+                    .get_untracked()
+                    .into_iter()
+                    .collect::<serde_json::Map<_, _>>(),
+            );
+            busy.set(true);
+            spawn_local(async move {
+                match send_plugin_command(&token, &pid, &aid, body).await {
+                    Ok(_) => {
+                        notice.set(Some(format!("{label} — done.")));
+                        form_open.set(false);
+                    }
+                    Err(e) => error.set(Some(format!("{label}: {e}"))),
+                }
+                busy.set(false);
+            });
+        }
+    };
+
+    let submit_click = submit.clone();
+    let submit_run = submit;
+
+    let button_label = move || {
+        if busy.get() {
+            "Running…".to_string()
+        } else if is_streaming {
+            "Run".to_string()
+        } else if has_params {
+            if form_open.get() { "Hide".to_string() } else { "Configure…".to_string() }
+        } else {
+            "Run".to_string()
+        }
+    };
+
+    let params_for_form = params.clone();
+    let drawer_plugin_id = plugin_id.clone();
+    let drawer_action = action.clone();
+
+    view! {
+        <div class="plugin-action-row">
+            <div class="plugin-action-row__head">
+                <div class="plugin-action-row__meta">
+                    <div class="plugin-action-row__label">
+                        {label.clone()}
+                        {is_admin.then(|| view! {
+                            <span class="plugin-badge" style="margin-left:0.5rem; font-size:0.7rem">"admin"</span>
+                        })}
+                        {is_streaming.then(|| view! {
+                            <span class="plugin-badge" style="margin-left:0.35rem; font-size:0.7rem">"streaming"</span>
+                        })}
+                    </div>
+                    {description.clone().map(|d| view! {
+                        <div class="msg-muted" style="font-size:0.8rem; margin-top:0.15rem">{d}</div>
+                    })}
+                </div>
+                <div class="plugin-action-row__controls">
+                    <button
+                        class="hc-btn hc-btn--sm hc-btn--primary"
+                        disabled=move || busy.get()
+                        on:click=move |_| {
+                            if is_streaming {
+                                drawer_open.set(true);
+                            } else if has_params {
+                                form_open.update(|v| *v = !*v);
+                            } else {
+                                submit_click();
+                            }
+                        }
+                    >
+                        {button_label}
+                    </button>
+                </div>
+            </div>
+
+            <Show when=move || has_params && !is_streaming && form_open.get()>
+                <div class="plugin-action-row__form">
+                    {params_for_form.iter().cloned().map(|p| view! {
+                        <ParamField def=p state=form_state />
+                    }).collect_view()}
+                    <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
+                        <button
+                            class="hc-btn hc-btn--sm hc-btn--primary"
+                            disabled=move || busy.get()
+                            on:click={
+                                let submit_run = submit_run.clone();
+                                move |_| submit_run()
+                            }
+                        >
+                            {move || if busy.get() { "Running…" } else { "Run" }}
+                        </button>
+                        <button
+                            class="hc-btn hc-btn--sm hc-btn--outline"
+                            disabled=move || busy.get()
+                            on:click=move |_| form_open.set(false)
+                        >"Cancel"</button>
+                    </div>
+                </div>
+            </Show>
+
+            {is_streaming.then(move || view! {
+                <ActionDrawer
+                    plugin_id=drawer_plugin_id.clone()
+                    action=drawer_action.clone()
+                    open=drawer_open
+                    error=error
+                />
+            })}
+        </div>
+    }
+}
+
+/// Single input for one `ParamDef`. Writes directly into the shared
+/// `form_state` map under the param's name. Arrays and objects fall back
+/// to a raw-JSON textarea in v1.
+#[component]
+fn ParamField(def: ParamDef, state: RwSignal<HashMap<String, Value>>) -> impl IntoView {
+    let name = def.name.clone();
+    let label_text = if def.required {
+        format!("{} *", def.name)
+    } else {
+        def.name.clone()
+    };
+
+    let current = {
+        let name = name.clone();
+        move || state.get().get(&name).cloned().unwrap_or(Value::Null)
+    };
+
+    let set_val = {
+        let name = name.clone();
+        move |v: Value| {
+            state.update(|m| {
+                if v.is_null() {
+                    m.remove(&name);
+                } else {
+                    m.insert(name.clone(), v);
+                }
+            });
+        }
+    };
+
+    let help = def.description.clone().map(|d| view! {
+        <div class="msg-muted" style="font-size:0.75rem; margin-top:0.15rem">{d}</div>
+    });
+
+    let input = match def.ty.as_str() {
+        "boolean" => {
+            let set_val = set_val.clone();
+            let current = current.clone();
+            view! {
+                <label class="plugin-action-row__check">
+                    <input
+                        type="checkbox"
+                        prop:checked=move || current().as_bool().unwrap_or(false)
+                        on:change=move |ev| set_val(Value::Bool(event_target_checked(&ev)))
+                    />
+                    <span>{def.name.clone()}</span>
+                </label>
+            }.into_any()
+        }
+        "integer" | "number" => {
+            let is_int = def.ty == "integer";
+            let min_attr = def.minimum.map(|v| v.to_string()).unwrap_or_default();
+            let max_attr = def.maximum.map(|v| v.to_string()).unwrap_or_default();
+            let set_val = set_val.clone();
+            let current = current.clone();
+            view! {
+                <input
+                    type="number"
+                    class="hc-input"
+                    step=if is_int { "1" } else { "any" }
+                    min=min_attr
+                    max=max_attr
+                    prop:value=move || match current() {
+                        Value::Number(n) => n.to_string(),
+                        _ => String::new(),
+                    }
+                    on:input=move |ev| {
+                        let raw = event_target_value(&ev);
+                        if raw.is_empty() {
+                            set_val(Value::Null);
+                        } else if is_int {
+                            if let Ok(n) = raw.parse::<i64>() { set_val(json!(n)); }
+                        } else if let Ok(n) = raw.parse::<f64>() {
+                            set_val(json!(n));
+                        }
+                    }
+                />
+            }.into_any()
+        }
+        "string" if def.enum_values.is_some() => {
+            let options = def.enum_values.clone().unwrap_or_default();
+            let set_val = set_val.clone();
+            let current = current.clone();
+            view! {
+                <select
+                    class="hc-select"
+                    on:change=move |ev| set_val(Value::String(event_target_value(&ev)))
+                >
+                    {options.into_iter().map(|opt| {
+                        let s = opt.as_str().unwrap_or("").to_string();
+                        let s_for_selected = s.clone();
+                        let s_for_label = s.clone();
+                        let current = current.clone();
+                        let selected = move || current().as_str() == Some(s_for_selected.as_str());
+                        view! { <option value=s prop:selected=selected>{s_for_label}</option> }
+                    }).collect_view()}
+                </select>
+            }.into_any()
+        }
+        "string" => {
+            let set_val = set_val.clone();
+            let current = current.clone();
+            view! {
+                <input
+                    type="text"
+                    class="hc-input"
+                    prop:value=move || current().as_str().unwrap_or("").to_string()
+                    on:input=move |ev| {
+                        let s = event_target_value(&ev);
+                        if s.is_empty() { set_val(Value::Null); }
+                        else { set_val(Value::String(s)); }
+                    }
+                />
+            }.into_any()
+        }
+        _ => {
+            let set_val = set_val.clone();
+            let current = current.clone();
+            view! {
+                <textarea
+                    class="hc-textarea"
+                    rows="3"
+                    placeholder="JSON"
+                    prop:value=move || match current() {
+                        Value::Null => String::new(),
+                        v => serde_json::to_string(&v).unwrap_or_default(),
+                    }
+                    on:input=move |ev| {
+                        let raw = event_target_value(&ev);
+                        if raw.trim().is_empty() {
+                            set_val(Value::Null);
+                        } else if let Ok(v) = serde_json::from_str::<Value>(&raw) {
+                            set_val(v);
+                        }
+                    }
+                />
+            }.into_any()
+        }
+    };
+
+    view! {
+        <div class="plugin-action-row__field">
+            <label class="field-label">{label_text}</label>
+            {input}
+            {help}
+        </div>
+    }
+}
+
+// ── Streaming ActionDrawer ──────────────────────────────────────────────────
+
+/// Holds the live `EventSource` for a streaming action. Dropping the
+/// holder closes the connection; the registered `Closure`s keep themselves
+/// alive by being `.forget()`-ed into JS on registration.
+struct StreamHandle {
+    es: web_sys::EventSource,
+}
+
+impl Drop for StreamHandle {
+    fn drop(&mut self) {
+        let _ = self.es.close();
+    }
+}
+
+fn terminal_stage(s: &str) -> bool {
+    matches!(s, "complete" | "error" | "canceled" | "timeout")
+}
+
+/// Streaming drawer for a single action. POSTs the command, opens an SSE
+/// connection, and renders stage events live. The component lifecycle
+/// matches the `open` signal; closing the drawer tears down the SSE.
+#[component]
+fn ActionDrawer(
+    plugin_id: String,
+    action: CapAction,
+    open: RwSignal<bool>,
+    error: RwSignal<Option<String>>,
+) -> impl IntoView {
+    use std::rc::Rc;
+    let auth = use_auth();
+
+    // Run state — all Copy.
+    let starting = RwSignal::new(false);
+    let request_id: RwSignal<Option<String>> = RwSignal::new(None);
+    let items: RwSignal<Vec<Value>> = RwSignal::new(Vec::new());
+    let last_progress: RwSignal<Option<Value>> = RwSignal::new(None);
+    let warnings: RwSignal<Vec<Value>> = RwSignal::new(Vec::new());
+    let pending_prompt: RwSignal<Option<Value>> = RwSignal::new(None);
+    let terminal: RwSignal<Option<Value>> = RwSignal::new(None);
+    let started = RwSignal::new(false);
+
+    // Param form state (same shape as ActionRow's non-streaming form).
+    let params = parse_params(action.params.as_ref());
+    let has_params = !params.is_empty();
+    let form_state: RwSignal<HashMap<String, Value>> =
+        RwSignal::new(initial_form_state(&params));
+    let respond_state: RwSignal<HashMap<String, Value>> = RwSignal::new(HashMap::new());
+
+    // Non-Copy props go into StoredValue::new_local so click closures
+    // stay Fn without per-clone ceremony at every use site.
+    let plugin_id_sv: StoredValue<String, leptos::reactive::owner::LocalStorage> =
+        StoredValue::new_local(plugin_id);
+    let action_id_sv: StoredValue<String, leptos::reactive::owner::LocalStorage> =
+        StoredValue::new_local(action.id.clone());
+    let item_key_sv: StoredValue<Option<String>, leptos::reactive::owner::LocalStorage> =
+        StoredValue::new_local(action.item_key.clone());
+    let params_sv: StoredValue<Vec<ParamDef>, leptos::reactive::owner::LocalStorage> =
+        StoredValue::new_local(params.clone());
+
+    let cancelable = action.cancelable;
+    let label = action.label.clone();
+    let description = action.description.clone();
+    let is_admin = matches!(action.requires_role, RequiresRole::Admin);
+
+    // Keep the SSE handle + callbacks alive for the lifetime of the run.
+    let stream_holder: StoredValue<Option<StreamHandle>, leptos::reactive::owner::LocalStorage> =
+        StoredValue::new_local(None);
+
+    // Shared event apply logic; reads item_key from the StoredValue.
+    let apply_event = move |ev: Value| {
+        let stage = ev
+            .get("stage")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        match stage.as_str() {
+            "progress" => last_progress.set(Some(ev)),
+            "item" => {
+                let op = ev.get("op").and_then(Value::as_str).unwrap_or("").to_string();
+                let data = ev.get("data").cloned().unwrap_or(Value::Null);
+                let key = item_key_sv
+                    .with_value(|k| k.clone())
+                    .unwrap_or_else(|| "id".to_string());
+                let key_val = data.get(&key).cloned();
+                items.update(|list| {
+                    let matches_existing = |v: &Value| -> bool {
+                        match (&key_val, v.get(&key)) {
+                            (Some(k), Some(existing)) => k == existing,
+                            _ => false,
+                        }
+                    };
+                    match op.as_str() {
+                        "add" | "update" => {
+                            if let Some(pos) = list.iter().position(matches_existing) {
+                                list[pos] = data;
+                            } else {
+                                list.push(data);
+                            }
+                        }
+                        "remove" => list.retain(|v| !matches_existing(v)),
+                        _ => {}
+                    }
+                });
+            }
+            "awaiting_user" => {
+                respond_state.set(HashMap::new());
+                pending_prompt.set(Some(ev));
+            }
+            "warning" => warnings.update(|w| w.push(ev)),
+            s if terminal_stage(s) => {
+                terminal.set(Some(ev));
+                stream_holder.update_value(|h| *h = None);
+            }
+            _ => {}
+        }
+    };
+
+    // Start the action: POST command, open SSE on returned request_id.
+    let start_action: Rc<dyn Fn()> = Rc::new(move || {
+        let Some(token) = auth.token.get_untracked() else {
+            error.set(Some("not authenticated".into()));
+            return;
+        };
+        let pid = plugin_id_sv.with_value(|v| v.clone());
+        let aid = action_id_sv.with_value(|v| v.clone());
+        let body = Value::Object(
+            form_state
+                .get_untracked()
+                .into_iter()
+                .collect::<serde_json::Map<_, _>>(),
+        );
+        let apply_for_spawn = apply_event;
+        starting.set(true);
+        started.set(true);
+        spawn_local(async move {
+            match send_plugin_command(&token, &pid, &aid, body).await {
+                Ok(resp) => {
+                    // Concurrency:single busy response: server returned the
+                    // active_request_id of the in-flight invocation.
+                    // Surface it as a soft error and reset to the pre-start
+                    // form so the user can wait or hit Cancel separately.
+                    if resp.get("status").and_then(Value::as_str) == Some("busy") {
+                        let active = resp
+                            .get("active_request_id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        error.set(Some(format!(
+                            "another invocation is already running (request_id {active}); \
+                             wait for it to finish or cancel it first"
+                        )));
+                        started.set(false);
+                        starting.set(false);
+                        return;
+                    }
+                    let rid = resp
+                        .get("request_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    match rid {
+                        Some(rid) => {
+                            request_id.set(Some(rid.clone()));
+                            let url = plugin_stream_sse_url(&pid, &rid, &token);
+                            match web_sys::EventSource::new(&url) {
+                                Ok(es) => {
+                                    let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
+                                        move |ev: web_sys::MessageEvent| {
+                                            let raw = ev.data().as_string().unwrap_or_default();
+                                            if raw.is_empty() { return; }
+                                            if let Ok(v) = serde_json::from_str::<Value>(&raw) {
+                                                apply_for_spawn(v);
+                                            }
+                                        },
+                                    );
+                                    let _ = es.add_event_listener_with_callback(
+                                        "stream",
+                                        on_message.as_ref().unchecked_ref(),
+                                    );
+                                    on_message.forget();
+
+                                    let on_err = Closure::<dyn FnMut(web_sys::Event)>::new(
+                                        move |_ev: web_sys::Event| {},
+                                    );
+                                    es.set_onerror(Some(on_err.as_ref().unchecked_ref()));
+                                    on_err.forget();
+
+                                    stream_holder.update_value(|h| *h = Some(StreamHandle { es }));
+                                }
+                                Err(e) => {
+                                    error.set(Some(format!(
+                                        "failed to open stream: {}",
+                                        e.as_string().unwrap_or_else(|| "EventSource error".into())
+                                    )));
+                                    started.set(false);
+                                }
+                            }
+                        }
+                        None => {
+                            error.set(Some("plugin did not return request_id".into()));
+                            started.set(false);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error.set(Some(format!("start failed: {e}")));
+                    started.set(false);
+                }
+            }
+            starting.set(false);
+        });
+    });
+
+    let cancel_action: Rc<dyn Fn()> = Rc::new(move || {
+        let Some(token) = auth.token.get_untracked() else { return };
+        let Some(rid) = request_id.get_untracked() else { return };
+        let pid = plugin_id_sv.with_value(|v| v.clone());
+        spawn_local(async move {
+            let body = json!({ "target_request_id": rid });
+            if let Err(e) = send_plugin_command(&token, &pid, "cancel", body).await {
+                error.set(Some(format!("cancel failed: {e}")));
+            }
+        });
+    });
+
+    let respond_action: Rc<dyn Fn()> = Rc::new(move || {
+        let Some(token) = auth.token.get_untracked() else { return };
+        let Some(rid) = request_id.get_untracked() else { return };
+        let pid = plugin_id_sv.with_value(|v| v.clone());
+        let response = Value::Object(
+            respond_state
+                .get_untracked()
+                .into_iter()
+                .collect::<serde_json::Map<_, _>>(),
+        );
+        spawn_local(async move {
+            let body = json!({ "target_request_id": rid, "response": response });
+            match send_plugin_command(&token, &pid, "respond", body).await {
+                Ok(_) => pending_prompt.set(None),
+                Err(e) => error.set(Some(format!("respond failed: {e}"))),
+            }
+        });
+    });
+
+    let close_drawer: Rc<dyn Fn()> = Rc::new(move || {
+        started.set(false);
+        starting.set(false);
+        request_id.set(None);
+        items.set(Vec::new());
+        last_progress.set(None);
+        warnings.set(Vec::new());
+        pending_prompt.set(None);
+        terminal.set(None);
+        respond_state.set(HashMap::new());
+        stream_holder.update_value(|h| *h = None);
+        open.set(false);
+    });
+
+    // Store the Rc-wrapped closures so use sites can clone them cheaply.
+    let start_sv: StoredValue<Rc<dyn Fn()>, leptos::reactive::owner::LocalStorage> =
+        StoredValue::new_local(start_action);
+    let cancel_sv: StoredValue<Rc<dyn Fn()>, leptos::reactive::owner::LocalStorage> =
+        StoredValue::new_local(cancel_action);
+    let respond_sv: StoredValue<Rc<dyn Fn()>, leptos::reactive::owner::LocalStorage> =
+        StoredValue::new_local(respond_action);
+    let close_sv: StoredValue<Rc<dyn Fn()>, leptos::reactive::owner::LocalStorage> =
+        StoredValue::new_local(close_drawer);
+
+    on_cleanup(move || {
+        stream_holder.update_value(|h| *h = None);
+    });
+
+    view! {
+        <Show when=move || open.get()>
+            <div
+                class="action-drawer-backdrop"
+                on:click=move |_| close_sv.with_value(|f| f())
+            >
+                <div
+                    class="action-drawer"
+                    on:click=|ev: web_sys::MouseEvent| ev.stop_propagation()
+                >
+                    <header class="action-drawer__head">
+                        <div>
+                            <div class="action-drawer__title">{label.clone()}</div>
+                            {is_admin.then(|| view! {
+                                <span class="plugin-badge" style="margin-right:0.35rem; font-size:0.7rem">"admin"</span>
+                            })}
+                            <span class="plugin-badge" style="font-size:0.7rem">"streaming"</span>
+                        </div>
+                        <button
+                            class="hc-btn hc-btn--sm hc-btn--outline"
+                            on:click=move |_| close_sv.with_value(|f| f())
+                        >"Close"</button>
+                    </header>
+
+                    {description.clone().map(|d| view! {
+                        <p class="msg-muted action-drawer__desc">{d}</p>
+                    })}
+
+                    // Pre-start: show params form.
+                    <Show when=move || !started.get()>
+                        <div class="action-drawer__body">
+                            {move || has_params.then(|| {
+                                let params = params_sv.with_value(|v| v.clone());
+                                view! { <ParamsForm params=params state=form_state /> }
+                            })}
+                            <div class="action-drawer__footer">
+                                <button
+                                    class="hc-btn hc-btn--sm hc-btn--primary"
+                                    disabled=move || starting.get()
+                                    on:click=move |_| start_sv.with_value(|f| f())
+                                >
+                                    {move || if starting.get() { "Starting…" } else { "Run" }}
+                                </button>
+                            </div>
+                        </div>
+                    </Show>
+
+                    // Running: show live state.
+                    <Show when=move || started.get()>
+                        <div class="action-drawer__body">
+                            {move || last_progress.get().map(|ev| view! {
+                                <ProgressBanner ev=ev />
+                            })}
+
+                            {move || pending_prompt.get().map(|prompt_ev| view! {
+                                <AwaitingUserCard
+                                    ev=prompt_ev
+                                    state=respond_state
+                                    submit=move || respond_sv.with_value(|f| f())
+                                />
+                            })}
+
+                            {move || {
+                                let items = items.get();
+                                if items.is_empty() { return None; }
+                                let key = item_key_sv.with_value(|k| k.clone());
+                                Some(view! {
+                                    <div class="action-drawer__items">
+                                        <div class="field-label">"Items"</div>
+                                        <ul class="action-drawer__item-list">
+                                            {items.into_iter().map(|it| {
+                                                let key = key.clone();
+                                                view! { <StreamItemRow item=it item_key=key /> }
+                                            }).collect_view()}
+                                        </ul>
+                                    </div>
+                                })
+                            }}
+
+                            {move || {
+                                let ws = warnings.get();
+                                if ws.is_empty() { return None; }
+                                Some(view! {
+                                    <div class="action-drawer__warnings">
+                                        {ws.into_iter().map(|w| {
+                                            let msg = w.get("message")
+                                                .and_then(Value::as_str)
+                                                .unwrap_or("")
+                                                .to_string();
+                                            view! { <div class="action-drawer__warning">{msg}</div> }
+                                        }).collect_view()}
+                                    </div>
+                                })
+                            }}
+
+                            {move || terminal.get().map(|t| view! {
+                                <TerminalCard ev=t />
+                            })}
+
+                            <div class="action-drawer__footer">
+                                <Show when=move || cancelable && terminal.get().is_none()>
+                                    <button
+                                        class="hc-btn hc-btn--sm hc-btn--outline"
+                                        on:click=move |_| cancel_sv.with_value(|f| f())
+                                    >"Cancel"</button>
+                                </Show>
+                                <Show when=move || terminal.get().is_some()>
+                                    <button
+                                        class="hc-btn hc-btn--sm hc-btn--primary"
+                                        on:click=move |_| close_sv.with_value(|f| f())
+                                    >"Done"</button>
+                                </Show>
+                            </div>
+                        </div>
+                    </Show>
+                </div>
+            </div>
+        </Show>
+    }
+}
+
+#[component]
+fn ProgressBanner(ev: Value) -> impl IntoView {
+    let pct = ev.get("percent").and_then(Value::as_u64).map(|v| v as u8);
+    let label = ev
+        .get("label")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let message = ev
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let width = pct.map(|p| format!("{p}%")).unwrap_or_else(|| "0%".into());
+    view! {
+        <div class="action-drawer__progress">
+            <div class="action-drawer__progress-row">
+                <span class="action-drawer__progress-label">{label}</span>
+                {pct.map(|p| view! { <span class="action-drawer__progress-pct">{format!("{p}%")}</span> })}
+            </div>
+            <div class="action-drawer__progress-bar">
+                <div class="action-drawer__progress-bar-fill" style=format!("width:{width}")></div>
+            </div>
+            {message.map(|m| view! { <div class="msg-muted" style="font-size:0.8rem">{m}</div> })}
+        </div>
+    }
+}
+
+#[component]
+fn AwaitingUserCard(
+    ev: Value,
+    state: RwSignal<HashMap<String, Value>>,
+    submit: impl Fn() + Clone + 'static,
+) -> impl IntoView {
+    let prompt = ev
+        .get("prompt")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let schema = ev.get("response_schema").cloned();
+    let params = schema
+        .as_ref()
+        .map(|s| parse_params(Some(s)))
+        .unwrap_or_default();
+    let has_schema = !params.is_empty();
+
+    let submit_for_click = submit.clone();
+    view! {
+        <div class="action-drawer__prompt">
+            <div class="action-drawer__prompt-title">"Awaiting response"</div>
+            <div class="action-drawer__prompt-body">{prompt}</div>
+            {has_schema.then(move || view! {
+                <div class="plugin-action-row__form" style="margin-top:0.5rem">
+                    {params.iter().cloned().map(|p| view! {
+                        <ParamField def=p state=state />
+                    }).collect_view()}
+                </div>
+            })}
+            <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
+                <button
+                    class="hc-btn hc-btn--sm hc-btn--primary"
+                    on:click=move |_| submit_for_click()
+                >"Submit response"</button>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn TerminalCard(ev: Value) -> impl IntoView {
+    let stage = ev
+        .get("stage")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let class = match stage.as_str() {
+        "complete" => "action-drawer__terminal action-drawer__terminal--ok",
+        _ => "action-drawer__terminal action-drawer__terminal--err",
+    };
+    let message = ev
+        .get("message")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let data = ev.get("data").cloned();
+    view! {
+        <div class=class>
+            <div class="action-drawer__terminal-stage">{stage}</div>
+            {message.map(|m| view! { <div>{m}</div> })}
+            {data.and_then(|d| if d.is_null() { None } else {
+                Some(view! {
+                    <pre class="action-drawer__terminal-data">
+                        {serde_json::to_string_pretty(&d).unwrap_or_default()}
+                    </pre>
+                })
+            })}
+        </div>
+    }
+}
+
+/// One row in the streaming-item list. Renders the manifest's `item_key`
+/// field as the primary identifier, lifts `label`/`name` and `status` if
+/// present, and tucks the full JSON behind a click-to-expand twisty.
+/// Generic — works for every plugin's item shape.
+#[component]
+fn StreamItemRow(item: Value, item_key: Option<String>) -> impl IntoView {
+    let key = item_key.as_deref().unwrap_or("id");
+    let id_str = item
+        .get(key)
+        .map(|v| match v {
+            Value::String(s) => s.clone(),
+            Value::Number(n) => n.to_string(),
+            other => other.to_string(),
+        })
+        .unwrap_or_default();
+    let title = item
+        .get("label")
+        .and_then(Value::as_str)
+        .or_else(|| item.get("name").and_then(Value::as_str))
+        .or_else(|| item.get("manufacturer").and_then(Value::as_str))
+        .map(str::to_string);
+    let status = item
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let pretty = serde_json::to_string_pretty(&item).unwrap_or_default();
+    let expanded = RwSignal::new(false);
+
+    let status_class = status
+        .as_deref()
+        .map(|s| {
+            // Sanitize status into a CSS-safe modifier; unknown values
+            // still get a generic pill.
+            let safe: String = s
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+                .collect();
+            format!("action-drawer__item-status action-drawer__item-status--{safe}")
+        })
+        .unwrap_or_else(|| "action-drawer__item-status".into());
+
+    view! {
+        <li class="action-drawer__item">
+            <div
+                class="action-drawer__item-row"
+                on:click=move |_| expanded.update(|e| *e = !*e)
+            >
+                <span class="action-drawer__item-id">{id_str}</span>
+                {title.map(|t| view! {
+                    <span class="action-drawer__item-title">{t}</span>
+                })}
+                {status.map(|s| view! {
+                    <span class=status_class.clone()>{s}</span>
+                })}
+                <span class="action-drawer__item-twisty">
+                    {move || if expanded.get() { "▾" } else { "▸" }}
+                </span>
+            </div>
+            <Show when=move || expanded.get()>
+                <pre class="action-drawer__item-details">{pretty.clone()}</pre>
+            </Show>
+        </li>
+    }
+}

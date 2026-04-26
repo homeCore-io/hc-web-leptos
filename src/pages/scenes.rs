@@ -464,9 +464,7 @@ fn SceneCard(scene_key: String, native_scenes: RwSignal<HashMap<String, Scene>>)
                                 "card-status-icon status-badge-sm {}",
                                 if card_data.status_on { "tone-good" } else { "tone-idle" }
                             )>
-                                <span class="material-icons" style="font-size:18px">
-                                    {if card_data.status_on { "check_circle" } else { "radio_button_unchecked" }}
-                                </span>
+                                <i class=if card_data.status_on { "ph ph-check-circle" } else { "ph ph-circle" } style="font-size:18px"></i>
                             </span>
                             <div class="card-header-text">
                                 <p class="scene-card-kicker">{kicker_label}</p>
@@ -489,7 +487,7 @@ fn SceneCard(scene_key: String, native_scenes: RwSignal<HashMap<String, Scene>>)
                             </div>
 
                             <div class="scene-card-activity">
-                                <span class="material-icons" style="font-size:16px">"schedule"</span>
+                                <i class="ph ph-clock" style="font-size:16px"></i>
                                 <span>{activity_text}</span>
                             </div>
 
@@ -505,7 +503,7 @@ fn SceneCard(scene_key: String, native_scenes: RwSignal<HashMap<String, Scene>>)
                                     disabled=move || busy.get()
                                     on:click=activate
                                 >
-                                    <span class="material-icons" style="font-size:18px">"play_arrow"</span>
+                                    <i class="ph ph-play" style="font-size:18px"></i>
                                     {move || if busy.get() { " Activating…" } else { " Activate" }}
                                 </button>
                                 {matches!(card_data.source, SceneSource::Native).then(|| view! {
@@ -514,7 +512,7 @@ fn SceneCard(scene_key: String, native_scenes: RwSignal<HashMap<String, Scene>>)
                                         disabled=move || busy.get()
                                         on:click=clone_scene
                                     >
-                                        <span class="material-icons" style="font-size:18px">"content_copy"</span>
+                                        <i class="ph ph-copy" style="font-size:18px"></i>
                                         " Clone"
                                     </button>
                                 })}
@@ -551,7 +549,7 @@ fn SceneCard(scene_key: String, native_scenes: RwSignal<HashMap<String, Scene>>)
                                 <span class="scene-card-footer-meta">{source_label}</span>
                             </div>
                             <a href=href class="card-detail-link" aria-label="Open scene details">
-                                <span class="material-icons" style="font-size:15px">"open_in_new"</span>
+                                <i class="ph ph-arrow-square-out" style="font-size:15px"></i>
                             </a>
                         </div>
                     </div>
@@ -816,7 +814,7 @@ pub fn ScenesPage() -> impl IntoView {
                         class="primary"
                         style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.6rem 0.9rem;border-radius:0.8rem;"
                     >
-                        <span class="material-icons" style="font-size:18px">"add"</span>
+                        <i class="ph ph-plus" style="font-size:18px"></i>
                         "New Scene"
                     </a>
                 </div>
@@ -902,23 +900,26 @@ pub fn ScenesPage() -> impl IntoView {
             <div class=canvas_class data-canvas="scenes-cards">
                 {move || {
                     if card_keys.get().is_empty() {
-                        view! {
-                            <div class="cards-empty scene-empty-state">
-                                <span class="material-icons" style="font-size:34px">"auto_awesome_motion"</span>
-                                <p>
-                                    {if loading.get() {
-                                        "Loading scenes…"
-                                    } else {
-                                        "No scenes match the current filters."
-                                    }}
-                                </p>
-                                {(!loading.get()).then(|| view! {
-                                    <span class="scene-empty-subtitle">
-                                        "Try clearing filters or create a new native scene."
-                                    </span>
-                                })}
-                            </div>
-                        }.into_any()
+                        if loading.get() {
+                            view! {
+                                <div class="cards-empty">
+                                    <crate::pages::shared::SkeletonCards count=4 />
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <div class="cards-empty">
+                                    <div class="hc-empty">
+                                        <i class="ph ph-stack hc-empty__icon"></i>
+                                        <div class="hc-empty__title">"No scenes yet"</div>
+                                        <p class="hc-empty__body">
+                                            "Try clearing filters, or create a new native scene to \
+                                             group lights, switches, and other devices."
+                                        </p>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        }
                     } else {
                         view! {
                             <For

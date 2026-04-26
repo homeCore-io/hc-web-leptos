@@ -958,7 +958,7 @@ fn CriteriaClauseEditor(
                                             });
                                         }
                                     >
-                                        <span class="material-icons" style="font-size:16px">"delete"</span>
+                                        <i class="ph ph-trash" style="font-size:16px"></i>
                                         "Remove"
                                     </button>
                                 </div>
@@ -977,7 +977,7 @@ fn CriteriaClauseEditor(
                         });
                     }
                 >
-                    <span class="material-icons" style="font-size:16px">"add"</span>
+                    <i class="ph ph-plus" style="font-size:16px"></i>
                     "Device criterion"
                 </button>
                 <button
@@ -988,7 +988,7 @@ fn CriteriaClauseEditor(
                         });
                     }
                 >
-                    <span class="material-icons" style="font-size:16px">"add_circle"</span>
+                    <i class="ph ph-plus-circle" style="font-size:16px"></i>
                     "Mode criterion"
                 </button>
             </div>
@@ -1341,9 +1341,7 @@ fn ModeCard(
                                 "card-status-icon status-badge-sm {}",
                                 if state_on { "tone-good" } else { "tone-idle" }
                             )>
-                                <span class="material-icons" style="font-size:18px">
-                                    {if state_on { "toggle_on" } else { "toggle_off" }}
-                                </span>
+                                <i class=if state_on { "ph ph-toggle-right" } else { "ph ph-toggle-left" } style="font-size:18px"></i>
                             </span>
                             <div class="card-header-text">
                                 <p class="card-name" title=record.config.name.clone()>{record.config.name.clone()}</p>
@@ -1406,7 +1404,7 @@ fn ModeCard(
                                             disabled=move || busy.get()
                                             on:click=move |_| toggle_solar_editor.run(())
                                         >
-                                            <span class="material-icons" style="font-size:18px">"schedule"</span>
+                                            <i class="ph ph-clock" style="font-size:18px"></i>
                                             {move || if show_solar_editor.get() { "Hide Offsets" } else { "Edit Offsets" }}
                                         </button>
                                     </div>
@@ -1443,7 +1441,7 @@ fn ModeCard(
                                                     disabled=move || busy.get()
                                                     on:click=move |_| save_solar_offsets.run(())
                                                 >
-                                                    <span class="material-icons" style="font-size:18px">"save"</span>
+                                                    <i class="ph ph-floppy-disk" style="font-size:18px"></i>
                                                     {move || if busy.get() { "Saving…" } else { "Save Offsets" }}
                                                 </button>
                                             </div>
@@ -1478,7 +1476,7 @@ fn ModeCard(
                                                     }
                                                 }
                                             >
-                                                <span class="material-icons" style="font-size:18px">"toggle_on"</span>
+                                                <i class="ph ph-toggle-right" style="font-size:18px"></i>
                                                 "On"
                                             </button>
                                             <button
@@ -1502,7 +1500,7 @@ fn ModeCard(
                                                     }
                                                 }
                                             >
-                                                <span class="material-icons" style="font-size:18px">"toggle_off"</span>
+                                                <i class="ph ph-toggle-left" style="font-size:18px"></i>
                                                 "Off"
                                             </button>
                                             <button
@@ -1510,7 +1508,7 @@ fn ModeCard(
                                                 disabled=move || busy.get()
                                                 on:click=move |_| open_criteria_editor.run(())
                                             >
-                                                <span class="material-icons" style="font-size:18px">"rule"</span>
+                                                <i class="ph ph-list-checks" style="font-size:18px"></i>
                                                 {move || if show_criteria_editor.get() { "Hide Criteria" } else { "Add Criteria" }}
                                             </button>
                                             {(!built_in).then(|| view! {
@@ -1519,7 +1517,7 @@ fn ModeCard(
                                                     disabled=move || busy.get()
                                                     on:click=delete_mode
                                                 >
-                                                    <span class="material-icons" style="font-size:18px">"delete"</span>
+                                                    <i class="ph ph-trash" style="font-size:18px"></i>
                                                     "Delete"
                                                 </button>
                                             })}
@@ -1538,7 +1536,7 @@ fn ModeCard(
                                                         disabled=move || busy.get()
                                                         on:click=move |_| save_criteria.run(())
                                                     >
-                                                        <span class="material-icons" style="font-size:18px">"auto_fix_high"</span>
+                                                        <i class="ph ph-magic-wand" style="font-size:18px"></i>
                                                         {move || if busy.get() { "Saving…" } else { "Save Criteria" }}
                                                     </button>
                                                 </div>
@@ -1588,7 +1586,7 @@ fn ModeCard(
                                                 disabled=move || busy.get()
                                                 on:click=move |_| open_criteria_editor.run(())
                                             >
-                                                <span class="material-icons" style="font-size:18px">"edit"</span>
+                                                <i class="ph ph-pencil-simple" style="font-size:18px"></i>
                                                 {move || if show_criteria_editor.get() { "Hide Editor" } else { "Edit Criteria" }}
                                             </button>
                                             <button
@@ -1596,7 +1594,7 @@ fn ModeCard(
                                                 disabled=move || busy.get()
                                                 on:click=remove_criteria
                                             >
-                                                <span class="material-icons" style="font-size:18px">"toggle_off"</span>
+                                                <i class="ph ph-toggle-left" style="font-size:18px"></i>
                                                 "Remove Criteria"
                                             </button>
                                             {(!built_in).then(|| view! {
@@ -1605,7 +1603,7 @@ fn ModeCard(
                                                     disabled=move || busy.get()
                                                     on:click=delete_mode
                                                 >
-                                                    <span class="material-icons" style="font-size:18px">"delete"</span>
+                                                    <i class="ph ph-trash" style="font-size:18px"></i>
                                                     "Delete"
                                                 </button>
                                             })}
@@ -1624,7 +1622,7 @@ fn ModeCard(
                                                         disabled=move || busy.get()
                                                         on:click=move |_| save_criteria.run(())
                                                     >
-                                                        <span class="material-icons" style="font-size:18px">"save"</span>
+                                                        <i class="ph ph-floppy-disk" style="font-size:18px"></i>
                                                         {move || if busy.get() { "Saving…" } else { "Save Criteria" }}
                                                     </button>
                                                 </div>
@@ -2025,7 +2023,7 @@ pub fn ModesPage() -> impl IntoView {
                         disabled=move || create_busy.get()
                         on:click=create_mode
                     >
-                        <span class="material-icons" style="font-size:18px">"add"</span>
+                        <i class="ph ph-plus" style="font-size:18px"></i>
                         {move || if create_busy.get() { "Creating…" } else { "Create Mode" }}
                     </button>
                 </div>
@@ -2097,7 +2095,7 @@ pub fn ModesPage() -> impl IntoView {
                     view! {
                         <div class="cards-empty">
                             <div class="scene-empty-state">
-                                <span class="material-icons" style="font-size:32px">"tune"</span>
+                                <i class="ph ph-sliders-horizontal" style="font-size:32px"></i>
                                 <strong>"No modes match the current filters."</strong>
                                 <span class="scene-empty-subtitle">
                                     "Try clearing filters or create a new manual or criteria-driven mode."

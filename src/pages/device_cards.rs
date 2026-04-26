@@ -16,7 +16,7 @@
 use crate::api::{fetch_devices, set_device_state};
 use crate::auth::use_auth;
 use crate::models::*;
-use serde_json::json;
+use serde_json::{json, Value};
 use crate::pages::shared::{
     card_size_canvas_class, common_card_prefs_map, json_str_set, load_common_card_prefs,
     load_pref_json, ls_set, set_to_json_array, CardSize, CardSizeSelect, CommonCardPrefs,
@@ -33,6 +33,23 @@ use wasm_bindgen::JsCast;
 // ── Prefs ─────────────────────────────────────────────────────────────────────
 
 const CARDS_PREFS_KEY: &str = "hc-leptos:cards:prefs";
+const COLLAPSED_AREAS_KEY: &str = "hc-leptos:cards:collapsed-areas";
+
+/// Returns the set of area labels the user has chosen to collapse on
+/// the device-cards page. Defaults to empty (all areas expanded).
+fn load_collapsed_areas() -> HashSet<String> {
+    crate::pages::shared::ls_get(COLLAPSED_AREAS_KEY)
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+        .map(|v| v.into_iter().collect())
+        .unwrap_or_default()
+}
+
+fn save_collapsed_areas(set: &HashSet<String>) {
+    let arr: Vec<&String> = set.iter().collect();
+    if let Ok(json) = serde_json::to_string(&arr) {
+        ls_set(COLLAPSED_AREAS_KEY, &json);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SortKey {
@@ -257,6 +274,9 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
     let device: Memo<Option<DeviceState>> = Memo::new(move |_| ws.devices.get().get(&did).cloned());
 
     let busy = RwSignal::new(false);
+    // Brief command-sent pulse: set true on click, auto-clears 600ms
+    // later. CSS animates `.device-card--pulse` for that window.
+    let pulse = RwSignal::new(false);
 
     // Convenience: send a state command to this device
     let did_cmd = device_id.clone();
@@ -264,6 +284,13 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
         let token = auth.token_str().unwrap_or_default();
         let id = did_cmd.clone();
         busy.set(true);
+        // Trigger the pulse animation and schedule its clear. Use a
+        // restart pattern: re-set false→true via toggling so a rapid
+        // double-click re-runs the animation.
+        pulse.set(false);
+        let p = pulse;
+        gloo_timers::callback::Timeout::new(0, move || p.set(true)).forget();
+        gloo_timers::callback::Timeout::new(600, move || p.set(false)).forget();
         spawn_local(async move {
             let _ = set_device_state(&token, &id, &body).await;
             busy.set(false);
@@ -288,6 +315,9 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                 let _icon   = status_icon_name(&d);
                 let mdi     = device_mdi_icon(&d);
                 let last    = last_change_time(&d).copied();
+                // Card visual props: type rim, color reflection, brightness halo
+                let type_class = card_type_class(&d);
+                let color_css = device_color_css(&d);
 
                 let is_timer  = is_timer_device(&d);
                 let is_media  = is_media_player(&d);
@@ -338,7 +368,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                 } else {
                                     view! {
                                         <div class="card-media-art card-media-art--placeholder">
-                                            <span class="material-icons">"music_note"</span>
+                                            <i class="ph ph-music-note"></i>
                                         </div>
                                     }.into_any()
                                 }}
@@ -376,7 +406,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                             send_prev(serde_json::json!({"action":"previous"}));
                                         }
                                     >
-                                        <span class="material-icons">"skip_previous"</span>
+                                        <i class="ph ph-skip-back"></i>
                                     </button>
                                 })}
                                 <button
@@ -390,9 +420,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                         }
                                     }
                                 >
-                                    <span class="material-icons">
-                                        {if is_playing { "pause" } else { "play_arrow" }}
-                                    </span>
+                                    <i class=move || if is_playing { "ph ph-pause" } else { "ph ph-play" }></i>
                                 </button>
                                 {sup_next.then(move || view! {
                                     <button
@@ -402,14 +430,14 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                             send_next(serde_json::json!({"action":"next"}));
                                         }
                                     >
-                                        <span class="material-icons">"skip_next"</span>
+                                        <i class="ph ph-skip-forward"></i>
                                     </button>
                                 })}
                             </div>
 
                             // ── Volume row ────────────────────────────────────
                             <div class="card-media-vol-row">
-                                <span class="material-icons card-media-vol-icon">"volume_down"</span>
+                                <i class="ph ph-speaker-low card-media-vol-icon"></i>
                                 <input
                                     type="range"
                                     class="card-media-vol-slider"
@@ -437,7 +465,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                     <span>{type_label}</span>
                                 </span>
                                 <a href=detail_href.clone() class="card-detail-link">
-                                    <span class="material-icons" style="font-size:15px">"open_in_new"</span>
+                                    <i class="ph ph-arrow-square-out" style="font-size:15px"></i>
                                 </a>
                             </div>
                         </div>
@@ -480,7 +508,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                         >
                             <div class="card-header">
                                 <span class=format!("card-status-icon status-badge-sm {}", tone.css_class())>
-                                    <i class="mdi mdi-thermostat card-mdi-icon"></i>
+                                    <i class="ph ph-thermometer-simple card-mdi-icon"></i>
                                 </span>
                                 <div class="card-header-text">
                                     <p class="card-name" title=name.clone()>{name.clone()}</p>
@@ -494,7 +522,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                 </div>
                                 <a href=detail_href.clone() class="card-detail-link"
                                     title="Open detail">
-                                    <span class="material-icons" style="font-size:15px">"open_in_new"</span>
+                                    <i class="ph ph-arrow-square-out" style="font-size:15px"></i>
                                 </a>
                             </div>
 
@@ -543,16 +571,41 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                     let send_bri = send.clone();
                     let send_lock = send.clone();
 
+                    // Compose dynamic style: --card-color set when the
+                    // device exposes color_xy; --card-brightness scales
+                    // the success-glow opacity (0.0 → no halo, 1.0 →
+                    // full halo). Defaults to 1.0 for non-dimmers.
+                    let style_str = {
+                        let mut s = String::new();
+                        if has_brightness {
+                            s.push_str(&format!("--card-brightness:{:.2};", (brightness_pct as f64) / 100.0));
+                        }
+                        if let Some(c) = color_css.as_ref() {
+                            s.push_str(&format!("--card-color:{};", c));
+                        }
+                        s
+                    };
+                    // Precompute static facts so the move-closures below
+                    // don't have to borrow `d`.
+                    let is_lighting = matches!(
+                        presentation_device_type_key(&d),
+                        "light" | "dimmer" | "switch" | "virtual_switch"
+                    );
+                    let show_on_glow = cur_on && is_lighting;
+
                     view! {
                         <div
-                            class="device-card"
+                            class={format!("device-card {}", type_class)}
                             class:device-card--offline=!avail
                             class:device-card--scene=is_scene
+                            class:device-card--on=show_on_glow
+                            class:device-card--pulse=move || pulse.get()
+                            style=style_str
                         >
                             // ── Header ────────────────────────────────────────
                             <div class="card-header">
                                 <span class=format!("card-status-icon status-badge-sm {}", tone.css_class())>
-                                    <i class=format!("mdi {} card-mdi-icon", mdi)></i>
+                                    <i class=format!("{} card-mdi-icon", mdi)></i>
                                 </span>
                                 <div class="card-header-text">
                                     <p class="card-name" title=name.clone()>{name.clone()}</p>
@@ -617,7 +670,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                                 }
                                             }
                                         >
-                                            <span class="material-icons" style="font-size:18px">"power_settings_new"</span>
+                                            <i class="ph ph-power" style="font-size:18px"></i>
                                             {if cur_on { " Turn off" } else { " Turn on" }}
                                         </button>
                                     })}
@@ -633,9 +686,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                                 send_lock(serde_json::json!({"locked": !cur_locked}));
                                             }
                                         >
-                                            <span class="material-icons" style="font-size:18px">
-                                                {if cur_locked { "lock" } else { "lock_open" }}
-                                            </span>
+                                            <i class=move || if cur_locked { "ph ph-lock" } else { "ph ph-lock-open" } style="font-size:18px"></i>
                                             {if cur_locked { " Unlock" } else { " Lock" }}
                                         </button>
                                     })}
@@ -644,7 +695,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                 // Brightness slider for dimmer devices
                                 {has_brightness.then(move || view! {
                                     <div class="card-brightness-row">
-                                        <span class="material-icons card-brightness-icon">"light_mode"</span>
+                                        <i class="ph ph-sun card-brightness-icon"></i>
                                         <input
                                             type="range"
                                             class="card-brightness-slider"
@@ -671,7 +722,7 @@ pub fn DeviceCard(device_id: String) -> impl IntoView {
                                     {format_abs(last.as_ref())}
                                 </span>
                                 <a href=detail_href.clone() class="card-detail-link">
-                                    <span class="material-icons" style="font-size:15px">"open_in_new"</span>
+                                    <i class="ph ph-arrow-square-out" style="font-size:15px"></i>
                                 </a>
                             </div>
                         </div>
@@ -797,6 +848,23 @@ pub fn DeviceCardsPage() -> impl IntoView {
         plugins.into_iter().map(|p| (p.clone(), p)).collect()
     });
 
+    // ── Focus filter (URL-driven) ────────────────────────────────────────────
+    //
+    // The hero's Security tile navigates here with `?focus=security` to
+    // pre-filter to security-tagged devices currently in alert state. Read
+    // once via the location hash; reactive on URL change.
+    let location = leptos_router::hooks::use_location();
+    let focus: Memo<Option<String>> = Memo::new(move |_| {
+        let raw = location.search.get();
+        // Parse "?focus=security&x=y" — first match wins.
+        raw.trim_start_matches('?')
+            .split('&')
+            .find_map(|kv| {
+                let (k, v) = kv.split_once('=')?;
+                (k == "focus").then(|| v.to_string())
+            })
+    });
+
     // ── Sorted + filtered device ID list ─────────────────────────────────────
     //
     // Produces Vec<String> (ordered IDs) — not Vec<DeviceState>.
@@ -810,10 +878,74 @@ pub fn DeviceCardsPage() -> impl IntoView {
         let plugin_f = plugin_filter.get();
         let sb = sort_by.get();
         let sd = sort_dir.get();
+        let focus_value = focus.get();
+
+        // Pre-compute once: which devices are in the security set?
+        let security_tags = load_security_tags();
+        let in_security_set = |d: &DeviceState| -> bool {
+            if !security_tags.is_empty() {
+                security_tags.contains(&d.device_id)
+            } else {
+                matches!(
+                    d.device_type.as_deref(),
+                    Some("lock") | Some("contact_sensor")
+                )
+            }
+        };
+        let device_in_alert = |d: &DeviceState| -> bool {
+            match d.device_type.as_deref() {
+                Some("lock") => !d
+                    .attributes
+                    .get("locked")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                Some("contact_sensor") => d
+                    .attributes
+                    .get("open")
+                    .and_then(Value::as_bool)
+                    .or_else(|| d.attributes.get("contact").and_then(Value::as_bool))
+                    .unwrap_or(false),
+                _ => false,
+            }
+        };
 
         let mut result: Vec<&DeviceState> = all
             .values()
             .filter(|d| !is_scene_like(d))
+            .filter(|d| {
+                // Focus filter trumps the manual filters. Each focus
+                // mode narrows the list to "what the user clicked
+                // through to see":
+                //   security → security-relevant + in alert
+                //   lighting → lights/dimmers/switches currently on
+                //   climate  → all thermostats
+                //   media    → all media players
+                //   energy   → all power monitors
+                match focus_value.as_deref() {
+                    Some("security") => in_security_set(d) && device_in_alert(d),
+                    Some("lighting") => {
+                        // Match the hero's count exactly: lights + dimmers
+                        // only, currently on. Switches are excluded — they
+                        // often control non-light loads (fans, outlets,
+                        // appliances) and including them would inflate
+                        // "lighting on" beyond what the user means.
+                        let is_lighting = matches!(
+                            d.device_type.as_deref(),
+                            Some("light") | Some("dimmer")
+                        );
+                        let is_on = d
+                            .attributes
+                            .get("on")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
+                        is_lighting && is_on
+                    }
+                    Some("climate") => d.device_type.as_deref() == Some("thermostat"),
+                    Some("media") => d.device_type.as_deref() == Some("media_player"),
+                    Some("energy") => d.device_type.as_deref() == Some("power_monitor"),
+                    _ => true,
+                }
+            })
             .filter(|d| {
                 avail_f.is_empty() || {
                     let key = if d.available { "online" } else { "offline" };
@@ -877,6 +1009,48 @@ pub fn DeviceCardsPage() -> impl IntoView {
 
     let canvas_class = move || card_size_canvas_class(card_size.get());
 
+    // ── Chapters: bucket card_ids by area ─────────────────────────────────
+    //
+    // Each chapter is (area_label, device_ids_in_that_area), in chapter
+    // display order: alphabetical by area name, with "Unassigned"
+    // pinned last. Within a chapter, device order follows the sorted
+    // card_ids (so the existing sort_by preference still applies inside
+    // each chapter).
+    let chapters: Memo<Vec<(String, Vec<String>)>> = Memo::new(move |_| {
+        let ids = card_ids.get();
+        let devmap = ws.devices.get();
+        let mut groups: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for id in &ids {
+            let label = devmap
+                .get(id)
+                .and_then(|d| d.area.as_deref())
+                .map(display_area_name)
+                .unwrap_or_else(|| "Unassigned".to_string());
+            groups.entry(label).or_default().push(id.clone());
+        }
+        let mut chapters: Vec<(String, Vec<String>)> = groups.into_iter().collect();
+        // Pin "Unassigned" to the bottom — areas-with-names first.
+        chapters.sort_by(|a, b| match (a.0 == "Unassigned", b.0 == "Unassigned") {
+            (true, false) => std::cmp::Ordering::Greater,
+            (false, true) => std::cmp::Ordering::Less,
+            _ => a.0.cmp(&b.0),
+        });
+        chapters
+    });
+
+    // Per-area collapse state — persisted to localStorage so reload
+    // preserves which rooms the user has collapsed.
+    let collapsed_areas: RwSignal<HashSet<String>> = RwSignal::new(load_collapsed_areas());
+    Effect::new(move |_| {
+        save_collapsed_areas(&collapsed_areas.get());
+    });
+
+    // Per-chapter "all off" pending flag, keyed by area label. Used to
+    // disable the button + show a sending state while POSTs are in
+    // flight. Not persisted — purely transient UI state.
+    let chapter_sending: RwSignal<HashSet<String>> = RwSignal::new(HashSet::new());
+
     view! {
         <div class="page">
             <div class="heading">
@@ -891,6 +1065,62 @@ pub fn DeviceCardsPage() -> impl IntoView {
             </div>
 
             <LiveStatusBanner status=Signal::derive(move || ws.status.get()) />
+
+            // Focus banner — appears when the URL carries ?focus={system}
+            // (e.g. user clicked a hero tile). Reminds them they're
+            // seeing a filtered subset and provides a way out.
+            <Show when=move || focus.get().is_some()>
+                {move || {
+                    let f = focus.get().unwrap_or_default();
+                    let (icon, headline, hint) = match f.as_str() {
+                        "security" => (
+                            "ph ph-shield-check",
+                            "Security-relevant devices currently needing attention.",
+                            if load_security_tags().is_empty() {
+                                "No devices are tagged yet — falling back to all locks and contact sensors. \
+                                 Mark specific devices on their detail page."
+                            } else {
+                                ""
+                            },
+                        ),
+                        "lighting" => (
+                            "ph ph-lightbulb",
+                            "Lights and switches currently on.",
+                            "",
+                        ),
+                        "climate" => (
+                            "ph ph-thermometer-simple",
+                            "Climate devices in your home.",
+                            "",
+                        ),
+                        "media" => (
+                            "ph ph-speaker-hifi",
+                            "Media players in your home.",
+                            "",
+                        ),
+                        "energy" => (
+                            "ph ph-lightning",
+                            "Power monitors in your home.",
+                            "",
+                        ),
+                        _ => (
+                            "ph ph-funnel",
+                            "Filtered view.",
+                            "",
+                        ),
+                    };
+                    view! {
+                        <div class="hc-focus-banner">
+                            <i class={icon}></i>
+                            <span class="hc-focus-banner__text">
+                                {headline}
+                                {(!hint.is_empty()).then(|| view! { " " {hint} })}
+                            </span>
+                            <a class="hc-focus-banner__clear" href="/devices">"Clear filter"</a>
+                        </div>
+                    }
+                }}
+            </Show>
 
             // ── Filter/sort toolbar ───────────────────────────────────────────
             <div class="filter-panel panel">
@@ -959,30 +1189,143 @@ pub fn DeviceCardsPage() -> impl IntoView {
             //   1. Add on:dragover + on:drop handlers here
             //   2. Add draggable="true" to .card-slot
             //   3. Maintain canvas_layout: RwSignal<Vec<String>> for ordering
-            <div
-                class=canvas_class
-                data-canvas="device-cards"
-            >
+            <div data-canvas="device-cards">
                 {move || {
                     if card_ids.get().is_empty() {
-                        view! {
-                            <p class="cards-empty">
-                                {if ws.devices.get().is_empty() {
-                                    "Loading devices…"
-                                } else {
-                                    "No devices match the current filters."
-                                }}
-                            </p>
-                        }.into_any()
+                        if ws.devices.get().is_empty() {
+                            view! {
+                                <div class="cards-empty hc-skeleton-grid">
+                                    <div class="hc-skeleton hc-skeleton--card"></div>
+                                    <div class="hc-skeleton hc-skeleton--card"></div>
+                                    <div class="hc-skeleton hc-skeleton--card"></div>
+                                    <div class="hc-skeleton hc-skeleton--card"></div>
+                                    <div class="hc-skeleton hc-skeleton--card"></div>
+                                    <div class="hc-skeleton hc-skeleton--card"></div>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <div class="cards-empty">
+                                    <div class="hc-empty">
+                                        <i class="ph ph-funnel hc-empty__icon"></i>
+                                        <div class="hc-empty__title">"No devices match"</div>
+                                        <p class="hc-empty__body">
+                                            "Try clearing filters or widening the search to see all \
+                                             registered devices."
+                                        </p>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        }
                     } else {
+                        let canvas_cls = canvas_class();
                         view! {
-                            <For
-                                each=move || card_ids.get()
-                                key=|id| id.clone()
-                                children=move |device_id| view! {
-                                    <DeviceCard device_id=device_id />
-                                }
-                            />
+                            <div>
+                                {chapters.get().into_iter().map(|(area, ids)| {
+                                    // Wrap area + id list in StoredValue so child
+                                    // closures can read them without moving —
+                                    // StoredValue is Copy and Fn-safe.
+                                    let area_sv: StoredValue<String, leptos::reactive::owner::LocalStorage> =
+                                        StoredValue::new_local(area.clone());
+                                    let ids_sv: StoredValue<Vec<String>, leptos::reactive::owner::LocalStorage> =
+                                        StoredValue::new_local(ids.clone());
+                                    let count = ids.len();
+
+                                    view! {
+                                        <section
+                                            class="hc-chapter"
+                                            class:hc-chapter--collapsed=move || area_sv.with_value(|a| collapsed_areas.get().contains(a))
+                                        >
+                                            <header class="hc-chapter__head">
+                                                <span class="hc-chapter__name">
+                                                    {area.to_lowercase()}
+                                                </span>
+                                                <span class="hc-chapter__count">
+                                                    {format!("{count} {}", if count == 1 { "device" } else { "devices" })}
+                                                </span>
+                                                <span class="hc-chapter__sep"></span>
+                                                <Show when=move || {
+                                                    let devmap = ws.devices.get();
+                                                    ids_sv.with_value(|ids| ids.iter().any(|id| {
+                                                        devmap.get(id)
+                                                            .and_then(|d| d.attributes.get("on"))
+                                                            .and_then(|v| v.as_bool())
+                                                            .unwrap_or(false)
+                                                    }))
+                                                }>
+                                                    <button
+                                                        class="hc-chapter__action"
+                                                        title="Turn off every light/switch in this room that's currently on"
+                                                        disabled=move || area_sv.with_value(|a| chapter_sending.get().contains(a))
+                                                        on:click=move |_| {
+                                                            let token = auth.token_str().unwrap_or_default();
+                                                            let key = area_sv.with_value(|a| a.clone());
+                                                            let devmap = ws.devices.get();
+                                                            let targets: Vec<String> = ids_sv.with_value(|ids| {
+                                                                ids.iter()
+                                                                    .filter(|id| {
+                                                                        devmap
+                                                                            .get(*id)
+                                                                            .and_then(|d| d.attributes.get("on"))
+                                                                            .and_then(|v| v.as_bool())
+                                                                            .unwrap_or(false)
+                                                                    })
+                                                                    .cloned()
+                                                                    .collect()
+                                                            });
+                                                            if targets.is_empty() { return; }
+                                                            chapter_sending.update(|s| { s.insert(key.clone()); });
+                                                            spawn_local(async move {
+                                                                for id in targets {
+                                                                    let _ = set_device_state(
+                                                                        &token,
+                                                                        &id,
+                                                                        &serde_json::json!({"on": false}),
+                                                                    ).await;
+                                                                }
+                                                                chapter_sending.update(|s| { s.remove(&key); });
+                                                            });
+                                                        }
+                                                    >
+                                                        {move || if area_sv.with_value(|a| chapter_sending.get().contains(a)) {
+                                                            "sending…"
+                                                        } else {
+                                                            "all off"
+                                                        }}
+                                                    </button>
+                                                </Show>
+                                                <button
+                                                    class="hc-chapter__collapse"
+                                                    title="Collapse / expand"
+                                                    on:click=move |_| {
+                                                        let key = area_sv.with_value(|a| a.clone());
+                                                        collapsed_areas.update(|s| {
+                                                            if !s.remove(&key) { s.insert(key); }
+                                                        });
+                                                    }
+                                                >
+                                                    <i class=move || {
+                                                        if area_sv.with_value(|a| collapsed_areas.get().contains(a)) {
+                                                            "ph ph-caret-right"
+                                                        } else {
+                                                            "ph ph-caret-down"
+                                                        }
+                                                    }></i>
+                                                </button>
+                                            </header>
+                                            <div class={format!("hc-chapter__body {canvas_cls}")}>
+                                                <For
+                                                    each=move || ids_sv.with_value(|v| v.clone())
+                                                    key=|id| id.clone()
+                                                    children=move |device_id| view! {
+                                                        <DeviceCard device_id=device_id />
+                                                    }
+                                                />
+                                            </div>
+                                        </section>
+                                    }
+                                }).collect_view()}
+                            </div>
                         }.into_any()
                     }
                 }}

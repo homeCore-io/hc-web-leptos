@@ -146,6 +146,29 @@ fn sync_edit_fields(
     edit_ui_hint.set(device.ui_hint.clone().unwrap_or_default());
 }
 
+/// Local checkbox bound to the localStorage security-tag set for one
+/// device. Pulled out so the parent edit-panel `view!` doesn't have
+/// to manage the inline `let` block + closure shape (which trips
+/// Leptos's FnMut requirement when nested inside `then(...)`).
+#[component]
+fn SecurityToggleField(device_id: String) -> impl IntoView {
+    let is_security = RwSignal::new(is_security_tagged(&device_id));
+    let did_for_toggle = device_id.clone();
+    view! {
+        <label style="display:flex; align-items:center; gap:0.5rem; font-weight:400;">
+            <input
+                type="checkbox"
+                prop:checked=move || is_security.get()
+                on:change=move |_| {
+                    toggle_security_tag(&did_for_toggle);
+                    is_security.update(|v| *v = !*v);
+                }
+            />
+            <span>{move || if is_security.get() { "Counted in Security tile" } else { "Not counted" }}</span>
+        </label>
+    }
+}
+
 #[component]
 pub fn DeviceDetailPage() -> impl IntoView {
     let auth = use_auth();
@@ -355,7 +378,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
             // Back link
             <div>
                 <a href="/devices" class="back-link">
-                    <span class="material-icons" style="font-size:18px;vertical-align:middle">"arrow_back"</span>
+                    <i class="ph ph-arrow-left" style="font-size:18px;vertical-align:middle"></i>
                     " Devices"
                 </a>
             </div>
@@ -371,7 +394,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 view! {
                     <div class="detail-title-row">
                         <span class=format!("status-badge-lg {}", tone.css_class())>
-                            <span class="material-icons" style="font-size:26px">{icon}</span>
+                            <i class={format!("ph ph-{}", icon)} style="font-size:26px"></i>
                         </span>
                         <div class="detail-name-block">
                             <h1>{name}</h1>
@@ -388,7 +411,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                 class="btn btn-outline"
                                 on:click=move |_| show_edit.update(|v| *v = !*v)
                             >
-                                <span class="material-icons" style="font-size:16px;vertical-align:middle">"edit"</span>
+                                <i class="ph ph-pencil-simple" style="font-size:16px;vertical-align:middle"></i>
                                 {move || if show_edit.get() { " Close editor" } else { " Edit" }}
                             </button>
                         </div>
@@ -503,6 +526,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let delete_confirm_label = d.device_id.clone();
                 let delete_confirm_target = d.device_id.clone();
                 let delete_request_target = d.device_id.clone();
+                let security_target = d.device_id.clone();
 
                 view! {
                     // ── Edit form ─────────────────────────────────────────────
@@ -511,6 +535,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                         let delete_confirm_label = delete_confirm_label.clone();
                         let delete_confirm_target = delete_confirm_target.clone();
                         let delete_request_target = delete_request_target.clone();
+                        let security_target = security_target.clone();
                         move || view! {
                         <div class="detail-card edit-card">
                             <h2 class="card-title">"Edit Device"</h2>
@@ -603,6 +628,15 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                     </select>
                                     <span class="cell-subtle">
                                         "Overrides auto-detection for icons and dashboard counters."
+                                    </span>
+                                </div>
+                                <div class="edit-field">
+                                    <label>"Security relevant"</label>
+                                    <SecurityToggleField device_id=security_target.clone() />
+                                    <span class="cell-subtle">
+                                        "Mark interior doors / windows as not security-relevant so the Overview \
+                                         hero only flags devices you care about. If no devices are marked, the \
+                                         Security tile falls back to all locks and contact sensors."
                                     </span>
                                 </div>
                             </div>
@@ -885,7 +919,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                     busy.set(false);
                                                 });
                                             }>
-                                            <span class="material-icons" style="font-size:16px;vertical-align:middle">"lock"</span>" Lock"
+                                            <i class="ph ph-lock" style="font-size:16px;vertical-align:middle"></i>" Lock"
                                         </button>
                                         <button class:active=!cur_lock disabled=move || busy.get()
                                             on:click=move |_| {
@@ -897,7 +931,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                     busy.set(false);
                                                 });
                                             }>
-                                            <span class="material-icons" style="font-size:16px;vertical-align:middle">"lock_open"</span>" Unlock"
+                                            <i class="ph ph-lock-open" style="font-size:16px;vertical-align:middle"></i>" Unlock"
                                         </button>
                                     </div>
                                 </div>
@@ -943,7 +977,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                     } else {
                                                         view! {
                                                             <div class="media-thumb media-thumb-placeholder">
-                                                                <span class="material-icons">"album"</span>
+                                                                <i class="ph ph-record"></i>
                                                             </div>
                                                         }.into_any()
                                                     }
@@ -1025,7 +1059,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                                     busy.set(false);
                                                                 });
                                                             }>
-                                                            <span class="material-icons">"play_arrow"</span>" Play"
+                                                            <i class="ph ph-play"></i>" Play"
                                                         </button>
                                                     </div>
                                                 </div>
@@ -1071,7 +1105,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                                     busy.set(false);
                                                                 });
                                                             }>
-                                                            <span class="material-icons">"play_arrow"</span>" Play"
+                                                            <i class="ph ph-play"></i>" Play"
                                                         </button>
                                                     </div>
                                                 </div>
@@ -1087,7 +1121,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                             let did = id_prev.clone();
                                                             spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"action":"previous"})).await; });
                                                         }>
-                                                        <span class="material-icons">"skip_previous"</span>
+                                                        <i class="ph ph-skip-back"></i>
                                                     </button>
                                                 })}
                                                 {show_play.then(|| view! {
@@ -1101,7 +1135,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                                 busy.set(false);
                                                             });
                                                         }>
-                                                        <span class="material-icons">"play_arrow"</span>
+                                                        <i class="ph ph-play"></i>
                                                     </button>
                                                 })}
                                                 {show_pause.then(|| view! {
@@ -1115,7 +1149,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                                 busy.set(false);
                                                             });
                                                         }>
-                                                        <span class="material-icons">"pause"</span>
+                                                        <i class="ph ph-pause"></i>
                                                     </button>
                                                 })}
                                                 {sup_stop.then(|| view! {
@@ -1125,7 +1159,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                             let did = id_stop.clone();
                                                             spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"action":"stop"})).await; });
                                                         }>
-                                                        <span class="material-icons">"stop"</span>
+                                                        <i class="ph ph-stop"></i>
                                                     </button>
                                                 })}
                                                 {sup_next.then(|| view! {
@@ -1135,7 +1169,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                             let did = id_next.clone();
                                                             spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"action":"next"})).await; });
                                                         }>
-                                                        <span class="material-icons">"skip_next"</span>
+                                                        <i class="ph ph-skip-forward"></i>
                                                     </button>
                                                 })}
                                             </div>
@@ -1144,7 +1178,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                             <div class="control-row">
                                                 <span class="control-label">"Volume"</span>
                                                 <div class="slider-row">
-                                                    <span class="material-icons" style="font-size:18px;color:var(--hc-text-muted)">"volume_down"</span>
+                                                    <i class="ph ph-speaker-low" style="font-size:18px;color:var(--hc-text-muted)"></i>
                                                     <input type="range" min="0" max="100" step="1"
                                                         prop:value=cur_vol as i64
                                                         on:change=move |ev| {
@@ -1161,7 +1195,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                             }
                                                         }
                                                     />
-                                                    <span class="material-icons" style="font-size:18px;color:var(--hc-text-muted)">"volume_up"</span>
+                                                    <i class="ph ph-speaker-high" style="font-size:18px;color:var(--hc-text-muted)"></i>
                                                     <span class="slider-value">{format!("{:.0}%", cur_vol)}</span>
                                                 </div>
                                             </div>
@@ -1184,7 +1218,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                                             busy.set(false);
                                                                         });
                                                                     }>
-                                                                    <span class="material-icons">{if muted { "volume_off" } else { "volume_up" }}</span>
+                                                                    <i class=move || if muted { "ph ph-speaker-x" } else { "ph ph-speaker-high" }></i>
                                                                     {if muted { " Unmute" } else { " Mute" }}
                                                                 </button>
                                                             </div>
@@ -1207,7 +1241,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                                             busy.set(false);
                                                                         });
                                                                     }>
-                                                                    <span class="material-icons">"shuffle"</span>
+                                                                    <i class="ph ph-shuffle"></i>
                                                                     {if shuffle { " On" } else { " Off" }}
                                                                 </button>
                                                             </div>
@@ -1312,7 +1346,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                                             busy.set(false);
                                                                         });
                                                                     }>
-                                                                    <span class="material-icons">"graphic_eq"</span>
+                                                                    <i class="ph ph-equalizer"></i>
                                                                     {if loudness { " On" } else { " Off" }}
                                                                 </button>
                                                             </div>
@@ -1351,7 +1385,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                             let did = did_pause.clone();
                                                             spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"command":"pause"})).await; });
                                                         }>
-                                                        <span class="material-icons">"pause"</span>" Pause"
+                                                        <i class="ph ph-pause"></i>" Pause"
                                                     </button>
                                                 }.into_any()
                                             } else if state == "paused" {
@@ -1363,7 +1397,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                             let did = did_resume.clone();
                                                             spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"command":"resume"})).await; });
                                                         }>
-                                                        <span class="material-icons">"play_arrow"</span>" Resume"
+                                                        <i class="ph ph-play"></i>" Resume"
                                                     </button>
                                                 }.into_any()
                                             } else {
@@ -1378,7 +1412,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                 let did = id_tcanc.clone();
                                                 spawn_local(async move { let _ = set_device_state(&token, &did, &serde_json::json!({"command":"cancel"})).await; });
                                             }>
-                                            <span class="material-icons">"cancel"</span>" Cancel"
+                                            <i class="ph ph-x-circle"></i>" Cancel"
                                         </button>
                                     </div>
 
@@ -1405,7 +1439,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                                         busy.set(false);
                                                     });
                                                 }>
-                                                <span class="material-icons">"timer"</span>" Start"
+                                                <i class="ph ph-timer"></i>" Start"
                                             </button>
                                         </div>
                                     </div>
@@ -1415,7 +1449,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                             // No controls fallback
                             {no_controls.then(|| view! {
                                 <p class="no-controls-msg">
-                                    <span class="material-icons" style="font-size:18px;vertical-align:middle">"info"</span>
+                                    <i class="ph ph-info" style="font-size:18px;vertical-align:middle"></i>
                                     " Read-only device — no interactive controls."
                                 </p>
                             })}

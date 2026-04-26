@@ -722,7 +722,18 @@ fn DevicesListSection(
                     return view! { <SkeletonCards count=12 /> }.into_any();
                 }
                 if total_filtered.get() == 0 {
-                    return view! { <p class="device-list-empty">"No devices match the current filters."</p> }.into_any();
+                    return view! {
+                        <div class="device-list-empty">
+                            <div class="hc-empty">
+                                <i class="ph ph-funnel hc-empty__icon"></i>
+                                <div class="hc-empty__title">"No devices match"</div>
+                                <p class="hc-empty__body">
+                                    "Try clearing filters or widening the search to see all \
+                                     registered devices."
+                                </p>
+                            </div>
+                        </div>
+                    }.into_any();
                 }
 
                 view! {
@@ -935,7 +946,7 @@ fn DeviceListRow(
             <div class="device-row-main">
                 <div class="device-row-title">
                     <span class=format!("status-badge {}", tone.css_class()) title=status.clone()>
-                        <span class="material-icons" style="font-size:18px">{icon}</span>
+                        <i class={format!("ph ph-{}", icon)} style="font-size:18px"></i>
                     </span>
                     <div class="device-row-title-text">
                         <div class="device-row-name-line">

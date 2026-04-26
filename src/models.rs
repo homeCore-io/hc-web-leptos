@@ -692,8 +692,10 @@ pub fn presentation_device_type_label(d: &DeviceState) -> &'static str {
     }
 }
 
-/// Return the MDI icon class for a device based on its type and current state.
-/// Uses Material Design Icons (mdi-*) — requires @mdi/font CSS.
+/// Return the Phosphor icon class for a device based on its type and current
+/// state. Returns the full class string (`"ph ph-NAME"`) ready to slot
+/// directly into an `<i class=...>` tag. Phosphor regular weight; loaded via
+/// `@phosphor-icons/web` in index.html.
 pub fn device_mdi_icon(d: &DeviceState) -> &'static str {
     let key = presentation_device_type_key(d);
     let on = bool_attr(d.attributes.get("on")).unwrap_or(false);
@@ -705,39 +707,39 @@ pub fn device_mdi_icon(d: &DeviceState) -> &'static str {
     let motion = bool_attr(d.attributes.get("motion")).unwrap_or(false);
 
     match key {
-        "light" | "dimmer" => if on { "mdi-lightbulb-on" } else { "mdi-lightbulb-outline" },
-        "switch" => if on { "mdi-toggle-switch" } else { "mdi-toggle-switch-off-outline" },
-        "virtual_switch" => if on { "mdi-toggle-switch" } else { "mdi-toggle-switch-off-outline" },
-        "lock" => if locked { "mdi-lock" } else { "mdi-lock-open" },
-        "shade" => if open { "mdi-blinds-open" } else { "mdi-blinds" },
-        "media_player" => "mdi-speaker",
-        "motion_sensor" => if motion { "mdi-motion-sensor" } else { "mdi-motion-sensor-off" },
-        "occupancy_sensor" => if occupied { "mdi-home-account" } else { "mdi-home-outline" },
+        "light" | "dimmer" => if on { "ph ph-lightbulb-filament" } else { "ph ph-lightbulb" },
+        "switch" => if on { "ph ph-toggle-right" } else { "ph ph-toggle-left" },
+        "virtual_switch" => if on { "ph ph-toggle-right" } else { "ph ph-toggle-left" },
+        "lock" => if locked { "ph ph-lock" } else { "ph ph-lock-open" },
+        "shade" => if open { "ph ph-blinds" } else { "ph ph-blinds" },
+        "media_player" => "ph ph-speaker-hifi",
+        "motion_sensor" => if motion { "ph ph-person-simple-walk" } else { "ph ph-person-simple" },
+        "occupancy_sensor" => if occupied { "ph ph-user-circle" } else { "ph ph-house" },
         "contact_sensor" => {
             // Check ui_hint first, then fall back to name-based detection
             let hint = d.ui_hint.as_deref().unwrap_or("").to_lowercase();
             let name = d.name.to_lowercase();
             if hint == "garage" || hint == "gate" || name.contains("garage") || name.contains("oh1") || name.contains("oh2") || name.contains("overhead") || name.contains("gate") {
-                if open { "mdi-garage-open" } else { "mdi-garage" }
+                if open { "ph ph-garage" } else { "ph ph-garage" }
             } else if hint == "window" || name.contains("window") {
-                if open { "mdi-window-open" } else { "mdi-window-closed" }
+                if open { "ph ph-frame-corners" } else { "ph ph-square" }
             } else {
                 // door is the default for contact sensors
-                if open { "mdi-door-open" } else { "mdi-door-closed" }
+                if open { "ph ph-door-open" } else { "ph ph-door" }
             }
         }
-        "leak_sensor" => "mdi-water-alert",
-        "vibration_sensor" => "mdi-vibrate",
-        "temperature_sensor" => "mdi-thermometer",
-        "humidity_sensor" => "mdi-water-percent",
-        "environment_sensor" => "mdi-thermometer-lines",
-        "keypad" => "mdi-dialpad",
-        "remote" => "mdi-remote",
-        "timer" => "mdi-timer-outline",
-        "power_monitor" => "mdi-flash",
-        "sensor" => "mdi-eye",
-        "vcrx" => "mdi-garage-variant",
-        _ => "mdi-devices",
+        "leak_sensor" => "ph ph-drop",
+        "vibration_sensor" => "ph ph-vibrate",
+        "temperature_sensor" => "ph ph-thermometer",
+        "humidity_sensor" => "ph ph-drop-half",
+        "environment_sensor" => "ph ph-thermometer-simple",
+        "keypad" => "ph ph-grid-nine",
+        "remote" => "ph ph-device-mobile",
+        "timer" => "ph ph-timer",
+        "power_monitor" => "ph ph-lightning",
+        "sensor" => "ph ph-eye",
+        "vcrx" => "ph ph-garage",
+        _ => "ph ph-devices",
     }
 }
 
@@ -746,6 +748,121 @@ pub fn raw_device_type_label(d: &DeviceState) -> String {
         .as_deref()
         .unwrap_or("unknown")
         .replace('_', " ")
+}
+
+/// Returns a `device-card--type-X` class for the device-card type rim.
+/// `""` if the device's type doesn't have a category we'd visually
+/// differentiate (e.g. unknown/raw devices).
+pub fn card_type_class(d: &DeviceState) -> &'static str {
+    match presentation_device_type_key(d) {
+        "light" | "dimmer" => "device-card--type-light",
+        "switch" | "virtual_switch" => "device-card--type-switch",
+        "lock" => "device-card--type-lock",
+        "shade" => "device-card--type-shade",
+        "contact_sensor" => "device-card--type-contact",
+        "motion_sensor" => "device-card--type-motion",
+        "occupancy_sensor" => "device-card--type-occupancy",
+        "leak_sensor" => "device-card--type-leak",
+        "vibration_sensor" => "device-card--type-vibration",
+        "temperature_sensor" => "device-card--type-temp",
+        "humidity_sensor" | "environment_sensor" => "device-card--type-humidity",
+        "media_player" => "device-card--type-media",
+        "thermostat" => "device-card--type-thermo",
+        "keypad" => "device-card--type-keypad",
+        "remote" => "device-card--type-remote",
+        "timer" => "device-card--type-timer",
+        "power_monitor" => "device-card--type-power",
+        "sensor" => "device-card--type-sensor",
+        _ => "",
+    }
+}
+
+/// CIE xyY → sRGB conversion for color-capable lights (Hue, etc.).
+/// Y is fixed at 1.0 since we want the *hue*, not the brightness — the
+/// card body just needs to know what color the light is set to.
+/// Returns an `rgb(R,G,B)` string ready for CSS use.
+pub fn xy_to_rgb_string(x: f64, y: f64) -> String {
+    if !(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y) || y <= 0.0001 {
+        return "rgb(255,255,255)".into();
+    }
+    let z = 1.0 - x - y;
+    let big_y = 1.0_f64;
+    let big_x = (big_y / y) * x;
+    let big_z = (big_y / y) * z;
+
+    // Linear RGB via the Hue/sRGB matrix.
+    let r_lin = big_x * 1.656_492 - big_y * 0.354_851 - big_z * 0.255_038;
+    let g_lin = -big_x * 0.707_196 + big_y * 1.655_397 + big_z * 0.036_152;
+    let b_lin = big_x * 0.051_713 - big_y * 0.121_364 + big_z * 1.011_530;
+
+    // Normalize so the brightest channel sits at 1.0 — keeps highly
+    // saturated colors readable.
+    let max = r_lin.max(g_lin).max(b_lin).max(1.0);
+    let r_lin = (r_lin / max).max(0.0);
+    let g_lin = (g_lin / max).max(0.0);
+    let b_lin = (b_lin / max).max(0.0);
+
+    // Gamma to sRGB.
+    let to_srgb = |v: f64| -> u8 {
+        let v = if v <= 0.003_130_8 {
+            12.92 * v
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        };
+        (v * 255.0).clamp(0.0, 255.0) as u8
+    };
+    format!(
+        "rgb({},{},{})",
+        to_srgb(r_lin),
+        to_srgb(g_lin),
+        to_srgb(b_lin)
+    )
+}
+
+/// If the device exposes `color_xy: {x, y}`, return the corresponding
+/// sRGB string for use in `--card-color`. Otherwise None.
+pub fn device_color_css(d: &DeviceState) -> Option<String> {
+    let xy = d.attributes.get("color_xy")?.as_object()?;
+    let x = xy.get("x")?.as_f64()?;
+    let y = xy.get("y")?.as_f64()?;
+    Some(xy_to_rgb_string(x, y))
+}
+
+// ── Security tags ────────────────────────────────────────────────────────────
+//
+// Client-side per-device flag marking which locks / contact sensors count
+// toward the "Security" hero tile and the ?focus=security filter on the
+// Devices page. Stored in localStorage under SECURITY_TAGS_KEY as a JSON
+// array of device_ids. Lightweight, no backend dependency. If/when this
+// needs to roam between users or devices, promote to a server-side tags
+// field.
+
+const SECURITY_TAGS_KEY: &str = "hc-leptos:security-tags";
+
+pub fn load_security_tags() -> std::collections::HashSet<String> {
+    crate::pages::shared::ls_get(SECURITY_TAGS_KEY)
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+        .map(|v| v.into_iter().collect())
+        .unwrap_or_default()
+}
+
+pub fn save_security_tags(tags: &std::collections::HashSet<String>) {
+    let arr: Vec<&String> = tags.iter().collect();
+    if let Ok(json) = serde_json::to_string(&arr) {
+        crate::pages::shared::ls_set(SECURITY_TAGS_KEY, &json);
+    }
+}
+
+pub fn is_security_tagged(device_id: &str) -> bool {
+    load_security_tags().contains(device_id)
+}
+
+pub fn toggle_security_tag(device_id: &str) {
+    let mut tags = load_security_tags();
+    if !tags.remove(device_id) {
+        tags.insert(device_id.to_string());
+    }
+    save_security_tags(&tags);
 }
 
 fn humanize_identifier(value: &str) -> String {
@@ -1010,7 +1127,7 @@ pub fn status_tone(d: &DeviceState) -> StatusTone {
     StatusTone::Idle
 }
 
-// Maps logical icon names → Material Icons ligatures.
+// Maps logical icon names → Phosphor identifiers (slot into "ph ph-{name}").
 // Override order: explicit status_icon field → derived from device state.
 pub fn status_icon_name(d: &DeviceState) -> &'static str {
     // Explicit user override
@@ -1020,27 +1137,27 @@ pub fn status_icon_name(d: &DeviceState) -> &'static str {
         }
     }
     if !d.available {
-        return "wifi_off";
+        return "wifi-slash";
     }
     if is_media_player(d) {
         return match playback_state(d).as_str() {
-            "playing" => "play_arrow",
+            "playing" => "play",
             "paused" => "pause",
             "stopped" => "stop",
-            _ => "speaker",
+            _ => "speaker-hifi",
         };
     }
     if let Some(on) = bool_attr(d.attributes.get("on")) {
-        return if on { "power" } else { "power_off" };
+        return if on { "power" } else { "plugs" };
     }
     if let Some(locked) = bool_attr(d.attributes.get("locked")) {
-        return if locked { "lock" } else { "lock_open" };
+        return if locked { "lock" } else { "lock-open" };
     }
     if let Some(motion) = bool_attr(d.attributes.get("motion")) {
         return if motion {
-            "motion_sensor_active"
+            "person-simple-walk"
         } else {
-            "sensors"
+            "person-simple"
         };
     }
     if let Some(occupied) = bool_attr(
@@ -1048,7 +1165,7 @@ pub fn status_icon_name(d: &DeviceState) -> &'static str {
             .get("occupied")
             .or_else(|| d.attributes.get("occupancy")),
     ) {
-        return if occupied { "person" } else { "person_off" };
+        return if occupied { "user" } else { "user-minus" };
     }
     if bool_attr(
         d.attributes
@@ -1057,30 +1174,31 @@ pub fn status_icon_name(d: &DeviceState) -> &'static str {
     )
     .is_some()
     {
-        return "door_front";
+        return "door";
     }
     "devices"
 }
 
 fn map_icon_name(s: &str) -> Option<&'static str> {
+    // Returns Phosphor names (slot into "ph ph-{name}" by the view).
     Some(match s {
         "power" => "power",
-        "power_off" => "power_off",
+        "power_off" => "plugs",
         "lock" => "lock",
-        "lock_open" => "lock_open",
-        "motion" => "motion_sensor_active",
-        "occupied" => "person",
-        "unoccupied" => "person_off",
-        "open" => "door_open",
-        "closed" => "door_front",
-        "play" => "play_arrow",
+        "lock_open" => "lock-open",
+        "motion" => "person-simple-walk",
+        "occupied" => "user",
+        "unoccupied" => "user-minus",
+        "open" => "door-open",
+        "closed" => "door",
+        "play" => "play",
         "pause" => "pause",
         "stop" => "stop",
-        "media" => "speaker",
+        "media" => "speaker-hifi",
         "devices" => "devices",
-        "offline" => "wifi_off",
+        "offline" => "wifi-slash",
         "warning" => "warning",
-        "check" => "check_circle",
+        "check" => "check-circle",
         _ => return None,
     })
 }

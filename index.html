@@ -5,13 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HomeCore</title>
 
-  <!-- Material Icons (UI chrome: sidebar, buttons, navigation) -->
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
-  <!-- Material Design Icons (device-type icons on cards) -->
-  <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7/css/materialdesignicons.min.css" rel="stylesheet" />
+  <!-- Phosphor Icons (single family: UI chrome + device-type icons).
+       Replaced Material Icons + Material Design Icons. -->
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.x/src/regular/style.css" />
 
-  <!-- App styles -->
+  <!-- App styles: structural sheet first, identity layer after.
+       identity.css carries tokens (type, accent, canvas, atmosphere)
+       and motion polish; main.css carries layout + components. -->
   <link data-trunk rel="css" href="style/main.css" />
+  <link data-trunk rel="css" href="style/identity.css" />
 
   <!-- Trunk injects the WASM bundle here -->
   <link data-trunk rel="rust" data-wasm-opt="z" />

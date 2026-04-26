@@ -433,7 +433,15 @@ pub fn EventsPage() -> impl IntoView {
                     let devs = ws_devices.get();
                     if list.is_empty() {
                         view! {
-                            <p class="msg-muted" style="padding:1rem">"No activity entries."</p>
+                            <div class="hc-empty">
+                                <i class="ph ph-pulse hc-empty__icon"></i>
+                                <div class="hc-empty__title">"No activity"</div>
+                                <p class="hc-empty__body">
+                                    "Events and logs from devices, plugins, and the rule engine \
+                                     stream here as they happen. Adjust filters or wait for \
+                                     activity to flow in."
+                                </p>
+                            </div>
                         }.into_any()
                     } else {
                         list.into_iter().map(|entry| {

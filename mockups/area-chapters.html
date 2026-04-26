@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="">
+<head>
+<meta charset="UTF-8" />
+<title>Mockup — Area chapter headers</title>
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.x/src/regular/style.css" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ─── tokens ─────────────────────────────────────────────── */
+:root {
+  --hc-bg:           #f7f5f0;
+  --hc-surface:      #ffffff;
+  --hc-surface-soft: #efeae0;
+  --hc-border:       #e4e4e7;
+  --hc-border-strong:#d4d4d8;
+  --hc-text:         #09090b;
+  --hc-text-muted:   #71717a;
+  --hc-accent:       #0d6e6d;
+  --hc-success:      #15803d;
+  --hc-warn:         #a16207;
+  --hc-danger:       #b91c1c;
+  --hc-radius-md:    .5rem;
+  --hc-radius-lg:    .75rem;
+  --hc-radius-xl:    1rem;
+}
+:root[data-theme="dark"] {
+  --hc-bg:           #0b0d0f;
+  --hc-surface:      #14171a;
+  --hc-surface-soft: #1f2326;
+  --hc-border:       #3f3f46;
+  --hc-text:         #fafafa;
+  --hc-text-muted:   #a1a1aa;
+  --hc-accent:       #2dd4bf;
+  --hc-success:      #22c55e;
+  --hc-warn:         #eab308;
+  --hc-danger:       #ef4444;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -.005em;
+  background: var(--hc-bg);
+  color: var(--hc-text);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+body { position: relative; min-height: 100vh; padding: 2rem; }
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--hc-text) 6%, transparent) 1px,
+    transparent 0
+  );
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse at center, black 40%, transparent 90%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 40%, transparent 90%);
+}
+.wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; }
+
+/* ─── theme toggle ───────────────────────────────────────── */
+.theme-toggle {
+  position: fixed; top: 1rem; right: 1rem; z-index: 10;
+  background: var(--hc-surface); border: 1px solid var(--hc-border);
+  border-radius: 999px; padding: .5rem .9rem;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .14em;
+  cursor: pointer; color: var(--hc-text);
+  display: inline-flex; align-items: center; gap: .4rem;
+}
+
+/* ─── page heading ───────────────────────────────────────── */
+.page-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.6rem; }
+.page-head h1 { font-size: 2.05rem; font-weight: 500; letter-spacing: -.025em; line-height: 1.15; }
+.page-head .breadcrumb { color: var(--hc-text-muted); font-family: "Geist Mono", ui-monospace, monospace; font-size: .65rem; text-transform: uppercase; letter-spacing: .16em; margin-bottom: .25rem; }
+.page-head .actions { display: flex; gap: .5rem; }
+.page-head button {
+  padding: .55rem .85rem; font-size: .85rem; font-weight: 500;
+  border: 1px solid var(--hc-border); background: var(--hc-surface);
+  color: var(--hc-text); border-radius: var(--hc-radius-md); cursor: pointer;
+  font-family: inherit;
+  display: inline-flex; align-items: center; gap: .35rem;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 60%, transparent), 0 1px 1px rgba(0,0,0,.04);
+}
+:root[data-theme="dark"] .page-head button { box-shadow: inset 0 1px 0 color-mix(in srgb, white 6%, transparent), 0 1px 1px rgba(0,0,0,.4); }
+
+/* ─── area chapter ───────────────────────────────────────── */
+.chapter { margin-bottom: 2.2rem; }
+.chapter__head {
+  display: flex; align-items: center;
+  gap: .85rem;
+  margin-bottom: .9rem;
+  padding-bottom: .65rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--hc-border) 60%, transparent);
+}
+.chapter__name {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: .82rem;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  font-weight: 500;
+  color: var(--hc-text);
+}
+.chapter__count {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: .68rem;
+  letter-spacing: .12em;
+  color: var(--hc-text-muted);
+}
+.chapter__count::before { content: "·"; margin: 0 .4rem 0 0; color: var(--hc-text-muted); opacity: .5; }
+.chapter__sep { flex: 1; }
+.chapter__action {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: .65rem;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--hc-text-muted);
+  background: transparent;
+  border: 1px solid var(--hc-border);
+  padding: .3rem .6rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 160ms, border-color 160ms;
+}
+.chapter__action:hover { color: var(--hc-accent); border-color: var(--hc-accent); }
+.chapter__collapse {
+  background: none; border: none; color: var(--hc-text-muted); cursor: pointer; font-size: 16px;
+  padding: .2rem; border-radius: var(--hc-radius-md);
+}
+.chapter__collapse:hover { color: var(--hc-text); }
+
+/* Cards canvas inside a chapter */
+.chapter__grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+/* Empty chapter state */
+.chapter--empty .chapter__head { opacity: .55; }
+.chapter__empty {
+  padding: 1.5rem;
+  border: 1px dashed var(--hc-border);
+  border-radius: var(--hc-radius-lg);
+  color: var(--hc-text-muted);
+  font-size: .85rem;
+  text-align: center;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  letter-spacing: .03em;
+}
+
+/* ─── device cards (subset of real styles) ───────────────── */
+.device-card {
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-lg);
+  padding: .875rem 1rem 1rem;
+  display: flex; flex-direction: column;
+  gap: .5rem;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 70%, transparent), 0 1px 2px rgba(0,0,0,.05);
+  transition: transform 160ms, box-shadow 160ms, border-color 160ms;
+}
+.device-card:hover {
+  border-color: var(--hc-border-strong);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 70%, transparent), 0 8px 22px rgba(0,0,0,.06);
+  transform: translateY(-1px);
+}
+:root[data-theme="dark"] .device-card {
+  background-image: linear-gradient(180deg, color-mix(in srgb, white 1.5%, transparent), transparent 30%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 6%, transparent), 0 1px 1px rgba(0,0,0,.4);
+}
+
+/* type rims */
+.device-card[class*="device-card--type-"]::before {
+  content: ""; position: absolute; top:0; left:0; right:0; height:2px;
+  border-radius: var(--hc-radius-lg) var(--hc-radius-lg) 0 0;
+  background: var(--hc-card-rim);
+  pointer-events: none;
+}
+.device-card--type-light    { --hc-card-rim: color-mix(in srgb, #fbbf24 50%, transparent); }
+.device-card--type-switch   { --hc-card-rim: color-mix(in srgb, var(--hc-text-muted) 35%, transparent); }
+.device-card--type-lock     { --hc-card-rim: color-mix(in srgb, #94a3b8 55%, transparent); }
+.device-card--type-contact  { --hc-card-rim: color-mix(in srgb, #60a5fa 45%, transparent); }
+.device-card--type-motion   { --hc-card-rim: color-mix(in srgb, var(--hc-accent) 55%, transparent); }
+.device-card--type-temp     { --hc-card-rim: color-mix(in srgb, var(--hc-text-muted) 35%, transparent); }
+.device-card--type-media    { --hc-card-rim: color-mix(in srgb, #a855f7 50%, transparent); }
+.device-card--type-leak     { --hc-card-rim: color-mix(in srgb, var(--hc-danger) 55%, transparent); }
+
+/* on glow (with brightness halo) */
+.device-card--on {
+  --halo: var(--card-brightness, 1);
+  border-color: color-mix(in srgb, var(--hc-success) 35%, var(--hc-border));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--hc-success) calc(var(--halo)*12%), transparent), 0 1px 2px rgba(0,0,0,.05);
+}
+.device-card--on[style*="--card-color"] {
+  border-color: color-mix(in srgb, var(--card-color) 40%, var(--hc-border));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--card-color) calc(var(--halo)*30%), transparent), 0 1px 2px rgba(0,0,0,.05);
+}
+.device-card[style*="--card-color"] .card-body {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card-color) 9%, transparent), transparent 60%);
+  margin: -.5rem -1rem 0; padding: .5rem 1rem 0;
+}
+
+.card-header { display: flex; align-items: flex-start; gap: .625rem; }
+.status-icon {
+  width: 2rem; height: 2rem; border-radius: var(--hc-radius-md);
+  display: grid; place-items: center;
+  border: 1px solid color-mix(in srgb, var(--hc-border) 75%, transparent);
+  flex-shrink: 0;
+  background-image: linear-gradient(180deg, color-mix(in srgb, white 6%, transparent), transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 18%, transparent), inset 0 -1px 0 color-mix(in srgb, black 6%, transparent);
+}
+.status-icon i { font-size: 18px; }
+.status-icon--good { background-color: #f0fdf4; color: var(--hc-success); }
+.status-icon--idle { background-color: #f4f4f5; color: var(--hc-text-muted); }
+.status-icon--warn { background-color: #fefce8; color: var(--hc-warn); }
+.status-icon--danger { background-color: #fef2f2; color: var(--hc-danger); }
+:root[data-theme="dark"] .status-icon--good { background-color: #052e16; }
+:root[data-theme="dark"] .status-icon--idle { background-color: #27272a; }
+:root[data-theme="dark"] .status-icon--warn { background-color: #422006; }
+:root[data-theme="dark"] .status-icon--danger { background-color: #450a0a; }
+
+.card-name { font-size: .9375rem; font-weight: 600; line-height: 1.3; }
+.card-meta { font-size: .78rem; color: var(--hc-text-muted); margin-top: .15rem; font-family: "Geist Mono", ui-monospace, monospace; }
+.card-header-text { flex: 1; min-width: 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 6px; }
+.dot--on { background: var(--hc-success); animation: breathe 2.4s ease-in-out infinite; }
+.dot--off { background: var(--hc-danger); }
+@keyframes breathe {
+  0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--hc-success) 50%, transparent); }
+  50%     { box-shadow: 0 0 0 4px color-mix(in srgb, var(--hc-success) 0%, transparent); }
+}
+
+.card-body { display: flex; flex-direction: column; gap: .5rem; }
+.state-badge {
+  display: inline-block;
+  font-size: .78rem; font-weight: 500;
+  padding: .25rem .55rem;
+  border-radius: 999px;
+  width: fit-content;
+}
+.state-badge--good { background: #f0fdf4; color: var(--hc-success); border: 1px solid color-mix(in srgb, var(--hc-success) 22%, transparent); }
+.state-badge--idle { background: var(--hc-surface-soft); color: var(--hc-text-muted); border: 1px solid var(--hc-border); }
+.state-badge--warn { background: #fefce8; color: var(--hc-warn); border: 1px solid color-mix(in srgb, var(--hc-warn) 22%, transparent); }
+.state-badge--danger { background: #fef2f2; color: var(--hc-danger); border: 1px solid color-mix(in srgb, var(--hc-danger) 22%, transparent); }
+:root[data-theme="dark"] .state-badge--good { background: #052e16; }
+:root[data-theme="dark"] .state-badge--idle { background: var(--hc-surface-soft); }
+:root[data-theme="dark"] .state-badge--warn { background: #422006; }
+:root[data-theme="dark"] .state-badge--danger { background: #450a0a; }
+
+.toggle-btn {
+  display: flex; align-items: center; gap: .4rem;
+  padding: .5rem .7rem;
+  border: 1px solid var(--hc-border);
+  background: var(--hc-surface);
+  color: var(--hc-text);
+  border-radius: var(--hc-radius-md);
+  font-size: .82rem; font-family: inherit;
+  cursor: pointer;
+}
+.toggle-btn--on { background: color-mix(in srgb, var(--hc-success) 8%, var(--hc-surface)); color: var(--hc-success); border-color: color-mix(in srgb, var(--hc-success) 25%, var(--hc-border)); }
+.toggle-btn--off { color: var(--hc-text-muted); }
+
+.brightness-row { display: flex; align-items: center; gap: .4rem; padding: 0; font-size: .72rem; }
+.brightness-row i { color: var(--hc-warn); }
+.bar { flex: 1; height: 4px; background: var(--hc-surface-soft); border-radius: 999px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--hc-warn); border-radius: 999px; }
+.brightness-pct { color: var(--hc-text-muted); width: 2.6rem; text-align: right; font-family: "Geist Mono", ui-monospace, monospace; }
+
+.card-footer { display: flex; justify-content: space-between; align-items: center; font-size: .72rem; color: var(--hc-text-muted); padding-top: .25rem; font-family: "Geist Mono", ui-monospace, monospace; letter-spacing: .03em; }
+.card-footer a { color: inherit; }
+
+/* compact dashed-border placeholder for "real estate" comparison */
+.note {
+  margin: 0 auto 2rem;
+  max-width: 700px;
+  padding: .9rem 1.1rem;
+  border: 1px dashed var(--hc-border);
+  border-radius: var(--hc-radius-md);
+  font-size: .82rem;
+  color: var(--hc-text-muted);
+  font-family: "Geist Mono", ui-monospace, monospace;
+  letter-spacing: .02em;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+<button class="theme-toggle" onclick="
+  const r = document.documentElement;
+  r.dataset.theme = r.dataset.theme === 'dark' ? '' : 'dark';
+">
+  <i class="ph ph-moon"></i> toggle theme
+</button>
+
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <div class="breadcrumb">section · devices</div>
+      <h1>Devices</h1>
+    </div>
+    <div class="actions">
+      <button><i class="ph ph-funnel"></i> Filters</button>
+      <button><i class="ph ph-pencil-simple"></i> Edit</button>
+    </div>
+  </div>
+
+  <div class="note">— mock-up: device cards grouped by area with chapter headers —</div>
+
+  <!-- LIVING ROOM -->
+  <section class="chapter">
+    <header class="chapter__head">
+      <span class="chapter__name">living room</span>
+      <span class="chapter__count">5 devices</span>
+      <span class="chapter__sep"></span>
+      <button class="chapter__action">all off</button>
+      <button class="chapter__collapse" title="Collapse"><i class="ph ph-caret-down"></i></button>
+    </header>
+    <div class="chapter__grid">
+
+      <!-- Color light ON -->
+      <div class="device-card device-card--type-light device-card--on" style="--card-brightness:.9; --card-color:rgb(180,90,255)">
+        <div class="card-header">
+          <span class="status-icon status-icon--good"><i class="ph ph-lightbulb-filament"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Main Lamp</p>
+            <p class="card-meta">light · hue</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <button class="toggle-btn toggle-btn--on"><i class="ph ph-power"></i> Turn off</button>
+          <div class="brightness-row">
+            <i class="ph ph-sun"></i>
+            <div class="bar"><span style="width:90%"></span></div>
+            <span class="brightness-pct">90%</span>
+          </div>
+        </div>
+        <div class="card-footer">
+          <span>2m ago</span>
+          <a><i class="ph ph-arrow-square-out"></i></a>
+        </div>
+      </div>
+
+      <!-- Dimmer at 30% -->
+      <div class="device-card device-card--type-light device-card--on" style="--card-brightness:.3">
+        <div class="card-header">
+          <span class="status-icon status-icon--good"><i class="ph ph-lightbulb"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Wall Sconces</p>
+            <p class="card-meta">dimmer · lutron</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <button class="toggle-btn toggle-btn--on"><i class="ph ph-power"></i> Turn off</button>
+          <div class="brightness-row">
+            <i class="ph ph-sun"></i>
+            <div class="bar"><span style="width:30%"></span></div>
+            <span class="brightness-pct">30%</span>
+          </div>
+        </div>
+        <div class="card-footer"><span>14m ago</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+      <!-- Switch off -->
+      <div class="device-card device-card--type-switch">
+        <div class="card-header">
+          <span class="status-icon status-icon--idle"><i class="ph ph-lightbulb"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Reading Lamp</p>
+            <p class="card-meta">light · zwave</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <button class="toggle-btn toggle-btn--off"><i class="ph ph-power"></i> Turn on</button>
+        </div>
+        <div class="card-footer"><span>2h ago</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+      <!-- Motion sensor -->
+      <div class="device-card device-card--type-motion">
+        <div class="card-header">
+          <span class="status-icon status-icon--good"><i class="ph ph-person-simple-walk"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Couch Motion</p>
+            <p class="card-meta">motion · zwave</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <span class="state-badge state-badge--good">Active</span>
+        </div>
+        <div class="card-footer"><span>just now</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+      <!-- Media player playing -->
+      <div class="device-card device-card--type-media">
+        <div class="card-header">
+          <span class="status-icon status-icon--good"><i class="ph ph-speaker-hifi"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Sonos Era</p>
+            <p class="card-meta">media · sonos</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <span class="state-badge state-badge--good">Playing — Pink Floyd</span>
+        </div>
+        <div class="card-footer"><span>now</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- KITCHEN -->
+  <section class="chapter">
+    <header class="chapter__head">
+      <span class="chapter__name">kitchen</span>
+      <span class="chapter__count">3 devices</span>
+      <span class="chapter__sep"></span>
+      <button class="chapter__action">all off</button>
+      <button class="chapter__collapse" title="Collapse"><i class="ph ph-caret-down"></i></button>
+    </header>
+    <div class="chapter__grid">
+
+      <!-- Light off -->
+      <div class="device-card device-card--type-light">
+        <div class="card-header">
+          <span class="status-icon status-icon--idle"><i class="ph ph-lightbulb"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Pendants</p>
+            <p class="card-meta">dimmer · lutron</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <button class="toggle-btn toggle-btn--off"><i class="ph ph-power"></i> Turn on</button>
+          <div class="brightness-row">
+            <i class="ph ph-sun"></i>
+            <div class="bar"><span style="width:0%"></span></div>
+            <span class="brightness-pct">0%</span>
+          </div>
+        </div>
+        <div class="card-footer"><span>11h ago</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+      <!-- Leak sensor -->
+      <div class="device-card device-card--type-leak">
+        <div class="card-header">
+          <span class="status-icon status-icon--good"><i class="ph ph-drop"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Sink Leak</p>
+            <p class="card-meta">sensor · yolink</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <span class="state-badge state-badge--good">Dry</span>
+        </div>
+        <div class="card-footer"><span>3d ago</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+      <!-- Temperature -->
+      <div class="device-card device-card--type-temp">
+        <div class="card-header">
+          <span class="status-icon status-icon--idle"><i class="ph ph-thermometer"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Fridge Temp</p>
+            <p class="card-meta">sensor · ecowitt</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <span class="state-badge state-badge--idle">38°F</span>
+        </div>
+        <div class="card-footer"><span>1m ago</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- BEDROOM -->
+  <section class="chapter">
+    <header class="chapter__head">
+      <span class="chapter__name">bedroom</span>
+      <span class="chapter__count">4 devices</span>
+      <span class="chapter__sep"></span>
+      <button class="chapter__action">all off</button>
+      <button class="chapter__collapse" title="Collapse"><i class="ph ph-caret-down"></i></button>
+    </header>
+    <div class="chapter__grid">
+
+      <div class="device-card device-card--type-light device-card--on" style="--card-brightness:.6; --card-color:rgb(255,180,80)">
+        <div class="card-header">
+          <span class="status-icon status-icon--good"><i class="ph ph-lightbulb-filament"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Bedside</p>
+            <p class="card-meta">light · hue</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <button class="toggle-btn toggle-btn--on"><i class="ph ph-power"></i> Turn off</button>
+          <div class="brightness-row">
+            <i class="ph ph-sun"></i>
+            <div class="bar"><span style="width:60%"></span></div>
+            <span class="brightness-pct">60%</span>
+          </div>
+        </div>
+        <div class="card-footer"><span>5m ago</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+      <div class="device-card device-card--type-contact">
+        <div class="card-header">
+          <span class="status-icon status-icon--idle"><i class="ph ph-square"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Window</p>
+            <p class="card-meta">contact · zigbee</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <span class="state-badge state-badge--idle">Closed</span>
+        </div>
+        <div class="card-footer"><span>9h ago</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+      <div class="device-card device-card--type-lock">
+        <div class="card-header">
+          <span class="status-icon status-icon--good"><i class="ph ph-lock"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Bedroom Door</p>
+            <p class="card-meta">lock · zwave</p>
+          </div>
+          <span class="dot dot--on"></span>
+        </div>
+        <div class="card-body">
+          <button class="toggle-btn toggle-btn--on"><i class="ph ph-lock"></i> Unlock</button>
+        </div>
+        <div class="card-footer"><span>12h ago</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+      <!-- Offline device -->
+      <div class="device-card device-card--type-temp" style="opacity:.55">
+        <div class="card-header">
+          <span class="status-icon status-icon--danger"><i class="ph ph-wifi-slash"></i></span>
+          <div class="card-header-text">
+            <p class="card-name">Closet Sensor</p>
+            <p class="card-meta">temp · ecowitt</p>
+          </div>
+          <span class="dot dot--off"></span>
+        </div>
+        <div class="card-body">
+          <span class="state-badge state-badge--danger">Offline</span>
+        </div>
+        <div class="card-footer"><span>4d ago</span><a><i class="ph ph-arrow-square-out"></i></a></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- GARAGE — empty state -->
+  <section class="chapter chapter--empty">
+    <header class="chapter__head">
+      <span class="chapter__name">garage</span>
+      <span class="chapter__count">0 devices</span>
+      <span class="chapter__sep"></span>
+      <button class="chapter__collapse" title="Expand"><i class="ph ph-caret-right"></i></button>
+    </header>
+    <div class="chapter__empty">no devices configured in this area</div>
+  </section>
+
+</div>
+</body>
+</html>

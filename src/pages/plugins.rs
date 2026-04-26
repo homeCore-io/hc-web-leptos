@@ -175,7 +175,9 @@ pub fn PluginsPage() -> impl IntoView {
             </div>
 
             // ── Loading ─────────────────────────────────────────────────────
-            {move || loading.get().then(|| view! { <p class="msg-muted">"Loading…"</p> })}
+            {move || loading.get().then(|| view! {
+                <crate::pages::shared::SkeletonCards count=4 />
+            })}
 
             // ── Plugin rows ─────────────────────────────────────────────────
             <div class="plugin-list">
@@ -183,7 +185,17 @@ pub fn PluginsPage() -> impl IntoView {
                     let list = filtered.get();
                     let current_busy = busy_id.get();
                     if list.is_empty() && !loading.get() {
-                        view! { <p class="msg-muted">"No plugins found."</p> }.into_any()
+                        view! {
+                            <div class="hc-empty">
+                                <i class="ph ph-squares-four hc-empty__icon"></i>
+                                <div class="hc-empty__title">"No plugins running"</div>
+                                <p class="hc-empty__body">
+                                    "Plugins extend HomeCore with device integrations \
+                                     (Hue, Z-Wave, Sonos, etc.). Once one connects, it'll \
+                                     appear here with status, devices, and actions."
+                                </p>
+                            </div>
+                        }.into_any()
                     } else {
                         list.into_iter().map(|p| {
                             let id = p.plugin_id.clone();
@@ -220,10 +232,10 @@ pub fn PluginsPage() -> impl IntoView {
 
                                     // Center: meta
                                     <div class="plugin-row-meta">
-                                        <span title="Devices"><span class="material-icons" style="font-size:14px">"devices"</span>" "{device_count.to_string()}</span>
-                                        <span title="Uptime"><span class="material-icons" style="font-size:14px">"schedule"</span>" "{uptime}</span>
+                                        <span title="Devices"><i class="ph ph-devices" style="font-size:14px"></i>" "{device_count.to_string()}</span>
+                                        <span title="Uptime"><i class="ph ph-clock" style="font-size:14px"></i>" "{uptime}</span>
                                         {(restart_count > 0).then(|| view! {
-                                            <span title="Restarts"><span class="material-icons" style="font-size:14px">"refresh"</span>" "{restart_count.to_string()}</span>
+                                            <span title="Restarts"><i class="ph ph-arrows-clockwise" style="font-size:14px"></i>" "{restart_count.to_string()}</span>
                                         })}
                                     </div>
 
@@ -884,7 +896,16 @@ pub fn PluginDetailPage() -> impl IntoView {
                 {move || {
                     let devs = plugin_devices.get();
                     if devs.is_empty() {
-                        view! { <p class="msg-muted">"No devices registered by this plugin."</p> }.into_any()
+                        view! {
+                            <div class="hc-empty">
+                                <i class="ph ph-devices hc-empty__icon"></i>
+                                <div class="hc-empty__title">"No devices yet"</div>
+                                <p class="hc-empty__body">
+                                    "This plugin hasn't registered any devices. Check the plugin's \
+                                     status and config, or run a discovery action if it provides one."
+                                </p>
+                            </div>
+                        }.into_any()
                     } else {
                         let nav = use_navigate();
                         devs.into_iter().map(|d| {
@@ -1386,6 +1407,13 @@ fn ActionDrawer(
     let pending_prompt: RwSignal<Option<Value>> = RwSignal::new(None);
     let terminal: RwSignal<Option<Value>> = RwSignal::new(None);
     let started = RwSignal::new(false);
+    // Set when start_action gets a 409 busy response. Holds the
+    // active_request_id of the in-flight invocation so the in-drawer
+    // banner can offer a "Cancel active run" button against it.
+    // Drawer-local on purpose — the busy state is interaction
+    // context, not a page-level error.
+    let busy_active_id: RwSignal<Option<String>> = RwSignal::new(None);
+    let busy_canceling = RwSignal::new(false);
 
     // Param form state (same shape as ActionRow's non-streaming form).
     let params = parse_params(action.params.as_ref());
@@ -1485,17 +1513,16 @@ fn ActionDrawer(
                 Ok(resp) => {
                     // Concurrency:single busy response: server returned the
                     // active_request_id of the in-flight invocation.
-                    // Surface it as a soft error and reset to the pre-start
-                    // form so the user can wait or hit Cancel separately.
+                    // Surface it as a drawer-local banner with a
+                    // "Cancel active run" button, and reset to the
+                    // pre-start form. Manual recovery — no auto-retry.
                     if resp.get("status").and_then(Value::as_str) == Some("busy") {
                         let active = resp
                             .get("active_request_id")
                             .and_then(Value::as_str)
-                            .unwrap_or("");
-                        error.set(Some(format!(
-                            "another invocation is already running (request_id {active}); \
-                             wait for it to finish or cancel it first"
-                        )));
+                            .unwrap_or("")
+                            .to_string();
+                        busy_active_id.set(Some(active));
                         started.set(false);
                         starting.set(false);
                         return;
@@ -1569,6 +1596,24 @@ fn ActionDrawer(
         });
     });
 
+    // Cancel the in-flight invocation surfaced in the busy banner.
+    // On success we just clear the banner — the user re-clicks Run
+    // to retry (manual; no auto-retry per design decision 2026-04-26).
+    let cancel_busy_action: Rc<dyn Fn()> = Rc::new(move || {
+        let Some(token) = auth.token.get_untracked() else { return };
+        let Some(active) = busy_active_id.get_untracked() else { return };
+        let pid = plugin_id_sv.with_value(|v| v.clone());
+        busy_canceling.set(true);
+        spawn_local(async move {
+            let body = json!({ "target_request_id": active });
+            match send_plugin_command(&token, &pid, "cancel", body).await {
+                Ok(_) => busy_active_id.set(None),
+                Err(e) => error.set(Some(format!("cancel active run failed: {e}"))),
+            }
+            busy_canceling.set(false);
+        });
+    });
+
     let respond_action: Rc<dyn Fn()> = Rc::new(move || {
         let Some(token) = auth.token.get_untracked() else { return };
         let Some(rid) = request_id.get_untracked() else { return };
@@ -1607,6 +1652,8 @@ fn ActionDrawer(
         StoredValue::new_local(start_action);
     let cancel_sv: StoredValue<Rc<dyn Fn()>, leptos::reactive::owner::LocalStorage> =
         StoredValue::new_local(cancel_action);
+    let cancel_busy_sv: StoredValue<Rc<dyn Fn()>, leptos::reactive::owner::LocalStorage> =
+        StoredValue::new_local(cancel_busy_action);
     let respond_sv: StoredValue<Rc<dyn Fn()>, leptos::reactive::owner::LocalStorage> =
         StoredValue::new_local(respond_action);
     let close_sv: StoredValue<Rc<dyn Fn()>, leptos::reactive::owner::LocalStorage> =
@@ -1644,9 +1691,36 @@ fn ActionDrawer(
                         <p class="msg-muted action-drawer__desc">{d}</p>
                     })}
 
-                    // Pre-start: show params form.
+                    // Pre-start: show params form. If we just got a 409
+                    // busy response, surface a banner above the form
+                    // with a "Cancel active run" button targeting the
+                    // returned active_request_id. Manual recovery —
+                    // user re-clicks Run to retry after cancel succeeds.
                     <Show when=move || !started.get()>
                         <div class="action-drawer__body">
+                            {move || busy_active_id.get().map(|active| view! {
+                                <div class="action-drawer__warnings">
+                                    <div class="action-drawer__warning">
+                                        {format!(
+                                            "Another invocation is already running (request_id {active}). \
+                                             Cancel it or wait for it to finish, then click Run again."
+                                        )}
+                                        <div style="margin-top:0.5rem">
+                                            <button
+                                                class="hc-btn hc-btn--sm hc-btn--outline"
+                                                disabled=move || busy_canceling.get()
+                                                on:click=move |_| cancel_busy_sv.with_value(|f| f())
+                                            >
+                                                {move || if busy_canceling.get() {
+                                                    "Canceling…"
+                                                } else {
+                                                    "Cancel active run"
+                                                }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            })}
                             {move || has_params.then(|| {
                                 let params = params_sv.with_value(|v| v.clone());
                                 view! { <ParamsForm params=params state=form_state /> }

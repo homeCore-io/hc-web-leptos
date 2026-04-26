@@ -1,0 +1,1979 @@
+/*
+ * IDENTITY LAYER
+ * --------------
+ * Loaded after main.css. Carries the product's visual identity:
+ *   1. Typography:   Geist Sans + Geist Mono
+ *   2. Accent:       deep instrument-teal (light) / saturated teal-cyan (dark)
+ *   3. Canvas:       warm ivory (light) / cool near-black (dark)
+ *   4. Atmosphere:   dot-grid background, breathing live-state dots
+ *   5. Tier 2:       drawer entrance, status-badge depth, nav rails,
+ *                    button tactility
+ *   6. Tier 5:       dark-mode shadows, surface depth, accent glow
+ *   7. Tier 6:       events/audit log-density treatment
+ *
+ * Split from main.css so design tokens can be iterated without
+ * touching the structural stylesheet.
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap");
+
+/* ── 1. Token overrides — light ─────────────────────────────────────── */
+:root {
+  /* Canvas: warm ivory instead of Tailwind zinc-50. Surfaces stay
+     white so cards still pop off the page. */
+  --hc-bg:           #f7f5f0;
+  --hc-surface-soft: #efeae0;
+
+  /* Signature accent: deep instrument-teal. Replaces pure black so
+     the product has one anchor color that says "HomeCore" instead
+     of "shadcn demo". Used on primary buttons, focus rings, active
+     nav, brand mark. */
+  --hc-accent:       #0d6e6d;
+  --hc-accent-soft:  #d8efee;
+}
+
+/* ── 1b. Token overrides — dark ─────────────────────────────────────── */
+:root[data-theme="dark"] {
+  /* Slightly cool near-black instead of flat neutral zinc */
+  --hc-bg:           #0b0d0f;
+  --hc-surface:      #14171a;
+  --hc-surface-muted:#181b1e;
+  --hc-surface-soft: #1f2326;
+
+  /* Saturated teal glows on dark backgrounds. Light enough to read
+     as a button label, vivid enough to feel alive. */
+  --hc-accent:       #2dd4bf;
+  --hc-accent-soft:  #042f2c;
+}
+
+/* ── 2. Typography ──────────────────────────────────────────────────── */
+html, body {
+  font-family: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  letter-spacing: -0.005em;
+}
+
+/* Display rhythm — lighter weight, more size, more breathing.
+   The current H1 is 1.65rem/700 — same recipe as every dashboard.
+   Weight 500 + larger size reads as "authored", not "shouted". */
+.heading h1,
+.dashboard-header h1,
+.audit-title h1,
+.detail-name-block h1 {
+  font-size: 2.05rem;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+/* Sidebar wordmark — treated logotype, not a paragraph. */
+.sidebar h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.sidebar .subtitle {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 400;
+}
+
+/* ── 3. Mono treatment for data-shaped text ─────────────────────────── */
+
+/* Utility: opt anything into mono with class="hc-mono". Use for
+   timestamps, request_ids, MQTT topics, device IDs, JSON snippets. */
+.hc-mono,
+code, kbd, samp {
+  font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  font-feature-settings: "ss02", "cv11";
+}
+
+/* Common narrow targets that benefit from mono without component
+   edits. Conservative — only patterns clearly not UI prose. */
+.role,                              /* topbar role label */
+.pagination-info,                   /* "1–25 of 142" */
+.pag-pages,                         /* page x of y */
+.summary-chip,                      /* filter summary chips */
+.scene-card-kicker {                /* uppercase kickers */
+  font-family: "Geist Mono", ui-monospace, monospace;
+  letter-spacing: 0;
+}
+
+/* ── 4. Atmospheric background ──────────────────────────────────────── */
+
+/* Subtle dot grid — atmosphere without busy-ness. Replaces the
+   barely-visible radial gradient currently on body. Pseudo-element
+   keeps the existing body background untouched in case you want to
+   layer them. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--hc-text) 6%, transparent) 1px,
+    transparent 0
+  );
+  background-size: 28px 28px;
+  /* Mask edges so the grid fades at the corners — keeps it as
+     atmosphere, not as content. */
+  mask-image: radial-gradient(ellipse at center, black 40%, transparent 90%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 40%, transparent 90%);
+}
+
+/* App shell sits above the grid */
+.shell, .login-wrap { position: relative; z-index: 1; }
+
+/* ── 5. Accent application — primary button gets the new accent ─────── */
+
+/* The existing primary-button rule reads from --hc-accent, so the
+   token swap above already changes its background. Keep its label
+   readable on teal: */
+button.primary { color: #ffffff; }
+button.primary:hover { background: color-mix(in srgb, var(--hc-accent) 88%, black); }
+
+:root[data-theme="dark"] button.primary {
+  background: var(--hc-accent);
+  color: #042f2c;
+}
+:root[data-theme="dark"] button.primary:hover {
+  background: color-mix(in srgb, var(--hc-accent) 92%, white);
+}
+
+/* Active nav link — subtle left rail in the accent instead of the
+   current generic border+background. More precise, more "instrument
+   panel". */
+.sidebar nav a.active {
+  position: relative;
+  background: color-mix(in srgb, var(--hc-accent) 6%, var(--hc-surface));
+  border-color: color-mix(in srgb, var(--hc-accent) 18%, var(--hc-border));
+  color: var(--hc-text);
+}
+.sidebar nav a.active::before {
+  content: "";
+  position: absolute;
+  left: -0.4rem;
+  top: 0.55rem;
+  bottom: 0.55rem;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--hc-accent);
+}
+
+/* Focus ring picks up the new accent automatically (it reads from
+   --hc-accent), but bump the visibility slightly. */
+input:focus, select:focus, textarea:focus {
+  outline-color: color-mix(in srgb, var(--hc-accent) 35%, transparent);
+}
+
+/* ── 6. Status dot "live" affordance ────────────────────────────────── */
+
+/* Devices currently on get a slow breathing glow — signals realtime
+   without being noisy. Off / offline stay static. */
+@keyframes hc-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--hc-success) 50%, transparent); }
+  50%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--hc-success) 0%, transparent); }
+}
+.card-avail-dot--on {
+  animation: hc-breathe 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-avail-dot--on { animation: none; }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   TIER 2 — STRUCTURE & MOTION
+   Builds on the Tier 1 identity. Still overlay-only: no component
+   edits, no new class names. Targets existing selectors.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 7. ActionDrawer entrance + depth ───────────────────────────────── */
+
+/* Backdrop: deepen the blur so the drawer reads as a layer above
+   the page. Currently a flat 45% black overlay — feels like a
+   1990s alert. Blur + softer black makes it a cinematic surface. */
+.action-drawer-backdrop {
+  background: color-mix(in srgb, #000 32%, transparent);
+  backdrop-filter: blur(8px) saturate(1.1);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+  animation: hc-backdrop-fade 180ms ease-out;
+}
+@keyframes hc-backdrop-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Drawer: slide-down + scale-in entrance. Settles, doesn't pop.
+   Ease-out cubic keeps the leading edge fast and the landing soft. */
+.action-drawer {
+  animation: hc-drawer-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  border-radius: 0.875rem;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.28),
+    0 2px 8px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+}
+@keyframes hc-drawer-in {
+  from { transform: translateY(-8px) scale(0.985); opacity: 0; }
+  to   { transform: translateY(0)    scale(1);     opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .action-drawer-backdrop, .action-drawer { animation: none; }
+}
+
+/* Progress bar fill currently hardcodes --hc-blue with a #2563eb
+   fallback — predates the design tokens. Pull it onto the accent so
+   the brand color flows through long-running flows. */
+.action-drawer__progress-bar-fill {
+  background: linear-gradient(
+    90deg,
+    var(--hc-accent),
+    color-mix(in srgb, var(--hc-accent) 70%, white)
+  );
+  box-shadow: 0 0 12px color-mix(in srgb, var(--hc-accent) 35%, transparent);
+}
+
+/* ── 8. Status badge — instrument-panel treatment ───────────────────── */
+
+/* Currently a flat 2rem square with a soft tone. Add a subtle inner
+   gradient + 1px rim highlight so it reads like an inset indicator
+   rather than a coloured square. Cheap depth, big perceived quality. */
+.status-badge {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, white 6%, transparent),
+    transparent
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 18%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, black 6%, transparent);
+}
+
+:root[data-theme="dark"] .status-badge {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, white 4%, transparent),
+    transparent
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 6%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, black 30%, transparent);
+}
+
+/* ── 9. Sidebar nav hover — slide-in indicator ──────────────────────── */
+
+/* Inactive items currently change background + border on hover. Add
+   a 2px accent rail that slides in from the left, so movement
+   matches the active-state rail's affordance (continuity of
+   motion, not a different idiom for hover). */
+.sidebar nav a:not(.active) {
+  position: relative;
+  overflow: hidden;
+}
+.sidebar nav a:not(.active)::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.45rem;
+  bottom: 0.45rem;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--hc-accent);
+  transform: translateX(-6px);
+  opacity: 0;
+  transition: transform 160ms ease-out, opacity 160ms ease-out;
+}
+.sidebar nav a:not(.active):hover::before {
+  transform: translateX(0);
+  opacity: 0.75;
+}
+
+/* ── 10. Topbar — give the wasted real estate a job ─────────────────── */
+
+/* The topbar currently shows username/role then logout. Until a
+   breadcrumb component lands, at least give the user-info block
+   typographic structure: name in display weight, role as a quiet
+   mono kicker. Pure CSS — no component changes needed. */
+.topbar .user-info strong {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.topbar .user-info .role {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: var(--hc-surface-soft);
+  border: 1px solid var(--hc-border);
+}
+
+/* ── 11. Button shadow refinement ───────────────────────────────────── */
+
+/* Default button shadow is `0 1px 2px rgba(0,0,0,0.05)` — basically
+   invisible. Replace with a sharper hairline (1px inner highlight +
+   1px shadow) so buttons feel tactile without being heavy. */
+button {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 60%, transparent),
+    0 1px 1px rgba(0, 0, 0, 0.04),
+    0 1px 0 rgba(0, 0, 0, 0.02);
+}
+button:active {
+  transform: translateY(0.5px);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.08),
+    0 0 0 transparent;
+}
+button.primary {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 22%, transparent),
+    0 1px 2px color-mix(in srgb, var(--hc-accent) 30%, transparent),
+    0 4px 12px color-mix(in srgb, var(--hc-accent) 14%, transparent);
+}
+button.primary:active {
+  transform: translateY(0.5px);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+:root[data-theme="dark"] button {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 6%, transparent),
+    0 1px 1px rgba(0, 0, 0, 0.4);
+}
+
+/* ── 12. Card lift — vary by context ────────────────────────────────── */
+
+/* Device cards already lift on hover. Differentiate scene & mode
+   cards (which carry their own gradient) with a subtle accent
+   border-glow instead of an additional translation — they're
+   already visually heavier, lifting them feels overcompensated. */
+.device-card.device-card--scene-native:hover,
+.device-card.device-card--scene-plugin:hover {
+  transform: none;
+  border-color: color-mix(in srgb, var(--hc-accent) 40%, var(--hc-border));
+  box-shadow:
+    var(--hc-shadow-md),
+    0 0 0 1px color-mix(in srgb, var(--hc-accent) 18%, transparent),
+    0 0 24px color-mix(in srgb, var(--hc-accent) 10%, transparent);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   TIER 5 — DARK MODE AS A REAL AESTHETIC
+   The base dark theme is just a token swap — same shadows, same
+   flat surfaces. This pass treats dark as its own design with
+   directional lighting, deeper shadows, accent glow, and surface
+   warmth. Light mode untouched.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 13. Dark-mode shadow rework ────────────────────────────────────── */
+
+/* Light-mode shadows on dark backgrounds vanish. Replace with longer
+   blue-tinted shadows so depth reads. */
+:root[data-theme="dark"] {
+  --hc-shadow-sm:
+    0 1px 0 color-mix(in srgb, white 4%, transparent) inset,
+    0 1px 2px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(0, 0, 0, 0.2);
+  --hc-shadow-md:
+    0 1px 0 color-mix(in srgb, white 5%, transparent) inset,
+    0 24px 48px rgba(0, 0, 0, 0.55),
+    0 8px 16px rgba(0, 0, 0, 0.45);
+}
+
+/* ── 14. Surface depth — directional lighting ───────────────────────── */
+
+/* Pure flat surfaces feel like printed paper, not screens. Dark UIs
+   that read as "made" have subtle directional gradients suggesting
+   ambient light from above. Apply to panels, cards, sidebar. */
+:root[data-theme="dark"] .panel,
+:root[data-theme="dark"] .device-card,
+:root[data-theme="dark"] .filter-panel,
+:root[data-theme="dark"] .activity-timeline,
+:root[data-theme="dark"] .action-drawer {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, white 1.5%, transparent) 0%,
+    transparent 30%,
+    transparent 100%
+  );
+}
+
+/* Sidebar gets the same treatment, plus a faint inner-right rim so
+   the boundary with content reads as a lit edge, not just a line. */
+:root[data-theme="dark"] .sidebar {
+  background-image:
+    linear-gradient(90deg, transparent 0%, transparent 96%, color-mix(in srgb, white 2%, transparent) 100%),
+    linear-gradient(180deg, color-mix(in srgb, white 2%, transparent), transparent 30%);
+}
+
+/* ── 15. Accent glow on interactive elements ────────────────────────── */
+
+/* The teal accent in dark mode (#2dd4bf) wants to glow. Light it on
+   primary buttons + active nav so it feels like a control surface
+   indicator, not a paint swatch. */
+:root[data-theme="dark"] button.primary {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 22%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--hc-accent) 40%, transparent),
+    0 0 18px color-mix(in srgb, var(--hc-accent) 22%, transparent),
+    0 4px 12px rgba(0, 0, 0, 0.5);
+}
+:root[data-theme="dark"] button.primary:hover {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 28%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--hc-accent) 55%, transparent),
+    0 0 28px color-mix(in srgb, var(--hc-accent) 32%, transparent),
+    0 6px 16px rgba(0, 0, 0, 0.55);
+}
+
+/* Active nav rail: small teal glow against the dark sidebar. */
+:root[data-theme="dark"] .sidebar nav a.active::before {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--hc-accent) 60%, transparent);
+}
+
+/* Focus ring punches in dark mode — accessibility wants this, the
+   aesthetic also benefits from a clear illuminated edge. */
+:root[data-theme="dark"] input:focus,
+:root[data-theme="dark"] select:focus,
+:root[data-theme="dark"] textarea:focus {
+  outline-color: color-mix(in srgb, var(--hc-accent) 60%, transparent);
+  outline-width: 2px;
+  border-color: var(--hc-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--hc-accent) 14%, transparent);
+}
+
+/* ── 16. Topbar in dark mode ────────────────────────────────────────── */
+
+/* The topbar already has backdrop-filter blur. In dark mode, a slight
+   warm-glow gradient under the username gives the user-info block
+   the lit-from-below feel of a real instrument header. */
+:root[data-theme="dark"] .topbar {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--hc-surface) 90%, transparent) 0%,
+      color-mix(in srgb, var(--hc-surface) 70%, transparent) 100%);
+  border-bottom-color: color-mix(in srgb, white 4%, var(--hc-border));
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   TIER 6 — EVENTS / AUDIT log-density treatment
+   These are activity-log surfaces. Treat them like Datadog/Linear
+   activity views: tighter rows, mono columns, source-stripe colors
+   that work in both themes (the existing ones hardcode #dbeafe etc.
+   that look fine in light, washed out in dark).
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 17. Activity row — left source-stripe ──────────────────────────── */
+
+.activity-row {
+  position: relative;
+  border-left: 2px solid transparent;
+  padding-left: 0.7rem;
+  transition: border-left-color 120ms ease, background 120ms ease;
+}
+.activity-row.activity-src--event { border-left-color: color-mix(in srgb, var(--hc-accent) 55%, transparent); }
+.activity-row.activity-src--log   { border-left-color: color-mix(in srgb, #a855f7 55%, transparent); }
+/* Severity wins when present — error stripe overrides source stripe. */
+.activity-row.activity-sev--error { border-left-color: var(--hc-danger); }
+.activity-row.activity-sev--warn  { border-left-color: var(--hc-warn); }
+
+/* ── 18. Source badge — themed instead of hardcoded blue/purple ──── */
+
+.activity-src--event .activity-source-badge {
+  background: color-mix(in srgb, var(--hc-accent) 14%, transparent);
+  color: var(--hc-accent);
+  font-family: "Geist Mono", ui-monospace, monospace;
+  letter-spacing: 0.04em;
+}
+.activity-src--log .activity-source-badge {
+  background: color-mix(in srgb, #a855f7 14%, transparent);
+  color: #a855f7;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  letter-spacing: 0.04em;
+}
+:root[data-theme="dark"] .activity-src--log .activity-source-badge {
+  color: #c084fc;
+  background: color-mix(in srgb, #a855f7 18%, transparent);
+}
+
+/* Time + kind columns: bump the mono character — these are the
+   skim columns when scanning a long log. */
+.activity-time {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-feature-settings: "tnum", "ss02";
+  letter-spacing: 0;
+}
+.activity-kind {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.74rem;
+  color: var(--hc-text-muted);
+  letter-spacing: 0;
+}
+
+/* Selected row: don't just background-tint, draw an accent rail on
+   the right edge so selection reads independently of source/severity
+   stripe on the left. */
+.activity-row--selected {
+  background: color-mix(in srgb, var(--hc-accent) 8%, var(--hc-surface));
+  box-shadow: inset -3px 0 0 0 var(--hc-accent);
+}
+
+/* Detail expansion — keep mono, add a left rail in accent so the
+   expanded payload visually connects to its row above. */
+.activity-detail {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  border-left: 3px solid color-mix(in srgb, var(--hc-accent) 35%, transparent);
+}
+
+/* ── 19. Audit page — same treatment for `code` elements ────────────── */
+
+.audit-subtitle code {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  background: color-mix(in srgb, var(--hc-accent) 8%, var(--hc-surface-soft));
+  border: 1px solid color-mix(in srgb, var(--hc-accent) 20%, var(--hc-border));
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   WORDMARK + TOPBAR CONTEXT — committed component edits
+   These selectors back the markup added in app.rs's NavShell:
+   sidebar wordmark (split treatment) + topbar section title.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 20. Sidebar wordmark ───────────────────────────────────────────── */
+
+/* Replaces plain "HomeCore" with a treated logotype. The two halves
+   carry different weight + color so the brand mark has presence
+   without an SVG. "home" reads as quiet grounding; "Core" carries
+   the accent — matches the product positioning (a home, with a
+   strong technical core). */
+.sidebar h1 a.hc-wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  text-decoration: none;
+  font-feature-settings: "ss01";
+}
+.sidebar h1 a.hc-wordmark:hover {
+  opacity: 1;
+}
+.hc-wordmark__a {
+  font-weight: 400;
+  font-size: 1.4rem;
+  letter-spacing: -0.04em;
+  color: var(--hc-text-muted);
+  transition: color 200ms ease;
+}
+.hc-wordmark__b {
+  font-weight: 600;
+  font-size: 1.55rem;
+  letter-spacing: -0.045em;
+  color: var(--hc-accent);
+  transition: color 200ms ease;
+}
+.sidebar h1 a.hc-wordmark:hover .hc-wordmark__a {
+  color: var(--hc-text);
+}
+
+/* ── 21. Topbar section context ─────────────────────────────────────── */
+
+/* Replaces the topbar's wasted center real estate with a section
+   title derived from the current route. Two-line composition:
+   tiny mono kicker ("section") above the section name in display
+   weight, so the page identifies itself without breadcrumbs. */
+.topbar-context {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  line-height: 1.1;
+  margin-right: auto;
+}
+.topbar-context__kicker {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--hc-text-muted);
+  font-weight: 400;
+}
+.topbar-context__title {
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--hc-text);
+}
+
+/* The existing .topbar-actions { margin-left: auto } now nests
+   user-info inside it — keep that block compact + right-aligned. */
+.topbar-actions {
+  margin-left: 0;
+}
+.topbar-actions .user-info {
+  margin-right: 0.4rem;
+  padding-right: 0.6rem;
+  border-right: 1px solid var(--hc-border);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   QUALITY-OF-LIFE PASS — items 5–8 + supporting CSS for skeletons
+   and structured empty states (consumed by component edits).
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 22. Heading rhythm — H2/H3/H4 ──────────────────────────────────── */
+
+/* H1 already gets the display treatment via Tier 1. The lower headings
+   inherit defaults, which means dense pages (rule-detail,
+   device-detail, audit) read flat. Set up a quiet, consistent scale. */
+.content h2, .panel h2 {
+  font-size: 1.25rem;
+  font-weight: 500;
+  letter-spacing: -0.018em;
+  line-height: 1.2;
+}
+.content h3, .panel h3 {
+  font-size: 1rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--hc-text);
+}
+.content h4 {
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--hc-text-muted);
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+
+/* ── 23. Page transition fade ───────────────────────────────────────── */
+
+/* Leptos route changes are hard cuts. Animate the immediate child of
+   `.content` so each route's tree fades in. The router replaces this
+   subtree per route, so the animation triggers naturally on entry. */
+.content > * {
+  animation: hc-route-in 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@keyframes hc-route-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .content > * { animation: none; }
+}
+
+/* ── 24. Skeleton shimmer ───────────────────────────────────────────── */
+
+/* Use as `<div class="hc-skeleton hc-skeleton--row"></div>` etc.
+   Variants below drive the most common shapes. The shimmer is a moving
+   gradient masked over a quiet base — readable as "loading", not as
+   "broken". */
+@keyframes hc-skeleton-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.hc-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--hc-surface-soft) 0%,
+    color-mix(in srgb, var(--hc-surface-soft) 70%, var(--hc-surface)) 50%,
+    var(--hc-surface-soft) 100%
+  );
+  background-size: 200% 100%;
+  animation: hc-skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--hc-radius-sm);
+  display: block;
+}
+:root[data-theme="dark"] .hc-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--hc-surface-muted) 0%,
+    color-mix(in srgb, var(--hc-surface-muted) 70%, var(--hc-surface-soft)) 50%,
+    var(--hc-surface-muted) 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Card-shaped skeleton (matches `.device-card` proportions). */
+.hc-skeleton--card {
+  height: 130px;
+  border-radius: var(--hc-radius-lg);
+}
+
+/* Row-shaped (for `.device-list`, `.activity-row`, `.audit-entry`). */
+.hc-skeleton--row {
+  height: 3.2rem;
+  border-radius: var(--hc-radius-md);
+}
+
+/* Text-line skeletons for headings + body. */
+.hc-skeleton--line {
+  height: 0.85rem;
+  border-radius: 999px;
+}
+.hc-skeleton--line-lg {
+  height: 1.4rem;
+  border-radius: 999px;
+}
+
+/* Container that arranges card skeletons into the same grid the real
+   .cards-canvas uses — drop-in for the device-cards / dashboard pages
+   so the hand-off doesn't reflow. */
+.hc-skeleton-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+.hc-skeleton-grid--rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hc-skeleton { animation: none; }
+}
+
+/* ── 25. Empty states ───────────────────────────────────────────────── */
+
+/* Used by `<div class="hc-empty">…</div>` markup added in the empty-state
+   pass. Replaces bare "No X found." prose with an icon + headline +
+   body composition that gives the empty surface presence. */
+.hc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 3rem 1.5rem;
+  color: var(--hc-text-muted);
+  text-align: center;
+}
+.hc-empty__icon {
+  font-size: 2.4rem !important;
+  color: color-mix(in srgb, var(--hc-accent) 50%, var(--hc-text-muted));
+  margin-bottom: 0.3rem;
+  opacity: 0.75;
+}
+.hc-empty__title {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--hc-text);
+  letter-spacing: -0.01em;
+}
+.hc-empty__body {
+  font-size: 0.88rem;
+  max-width: 28rem;
+  line-height: 1.5;
+}
+.hc-empty__cta {
+  margin-top: 0.4rem;
+}
+
+/* ── 26. Thermostat pills onto the design system ────────────────────── */
+
+/* Existing pills hardcode reds/blues. Pull them onto semantic tokens
+   so they match the rest of the system in both themes. Heat = warm
+   (warning palette), Cool = signature accent, Idle = quiet, Stale =
+   danger-ish. */
+.pill-heat {
+  background: color-mix(in srgb, var(--hc-warn) 14%, transparent);
+  color: var(--hc-warn);
+  border: 1px solid color-mix(in srgb, var(--hc-warn) 28%, transparent);
+}
+.pill-cool {
+  background: color-mix(in srgb, var(--hc-accent) 12%, transparent);
+  color: var(--hc-accent);
+  border: 1px solid color-mix(in srgb, var(--hc-accent) 26%, transparent);
+}
+.pill-idle {
+  background: var(--hc-surface-soft);
+  color: var(--hc-text-muted);
+  border: 1px solid var(--hc-border);
+}
+.pill-stale {
+  background: color-mix(in srgb, var(--hc-danger) 12%, transparent);
+  color: var(--hc-danger);
+  border: 1px solid color-mix(in srgb, var(--hc-danger) 24%, transparent);
+}
+
+/* ── 27. Hover-only → touch-aware ──────────────────────────────────── */
+
+/* Several Tier 1/2 affordances assume a pointer device with hover.
+   On touch surfaces they either never trigger or trigger awkwardly
+   on tap-and-hold. Disable them where hover isn't real. */
+@media (hover: none) {
+  /* Sidebar nav rail: don't slide in on tap. */
+  .sidebar nav a:not(.active)::before {
+    display: none;
+  }
+
+  /* Device cards: drop the lift transform on touch — it activates on
+     tap and looks broken. Keep the shadow change for tap feedback. */
+  .device-card:hover {
+    transform: none;
+  }
+  .device-card.device-card--scene-native:hover,
+  .device-card.device-card--scene-plugin:hover {
+    box-shadow: var(--hc-shadow-md);
+  }
+
+  /* Wordmark: skip the color shift since it sticks after tap. */
+  .sidebar h1 a.hc-wordmark:hover .hc-wordmark__a {
+    color: var(--hc-text-muted);
+  }
+}
+
+/* ── 28. Login page identity ────────────────────────────────────────── */
+
+/* The login page is the first impression. Currently a centered card
+   on flat bg with no identity. Layer the dot grid + warm canvas, give
+   the form a wordmark + accent on the submit button. */
+.login-wrap {
+  background: var(--hc-bg);
+  position: relative;
+}
+.login-wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--hc-text) 6%, transparent) 1px,
+    transparent 0
+  );
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+}
+.login-wrap > * { position: relative; z-index: 1; }
+
+/* The login form itself — promote presence with the same shadow
+   palette as the action drawer + a subtle accent rim. */
+.login-card {
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-xl);
+  padding: 2.25rem 2rem;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.06),
+    0 2px 8px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 color-mix(in srgb, white 80%, transparent);
+  width: min(420px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+:root[data-theme="dark"] .login-card {
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 color-mix(in srgb, white 6%, transparent);
+}
+.login-card .hc-wordmark {
+  font-family: "Geist", sans-serif;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: baseline;
+  margin-bottom: 0.25rem;
+}
+.login-card .login-tagline {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--hc-text-muted);
+  margin-bottom: 0.6rem;
+}
+.login-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--hc-text-muted);
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+.login-card label > input {
+  font-family: "Geist", sans-serif;
+  font-size: 0.95rem;
+  padding: 0.65rem 0.75rem;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--hc-text);
+}
+.login-card button[type="submit"] {
+  margin-top: 0.4rem;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   HOUSE STATUS HERO — the front-door anchor for /dashboards
+   Full-width widget. Renders a row of system tiles, each clickable
+   into a filtered Devices/Events page. Designed to look like a
+   piece of audio gear: instrument readouts, mono numerics, accent
+   live-state indicator.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 29. Hero container ─────────────────────────────────────────────── */
+
+/* The dashboard-grid parent is `display: flex` (not grid), so width
+   is controlled via flex-basis. Two layout modes are supported:
+   - "wide"    → spans full canvas width, tiles in a horizontal row
+   - "compact" → narrow column (~33% of canvas), tiles stacked vertically
+   Selected via the widget's `config.layout` field. */
+.dashboard-widget--hero {
+  /* `grid-column` covers the case where someone wraps the canvas in a
+     real CSS grid. It's a no-op on the current flex canvas. */
+  grid-column: 1 / -1;
+}
+.dashboard-widget--hero-wide {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+}
+.dashboard-widget--hero-compact {
+  flex: 0 0 calc(33.33% - 6px);
+  width: auto;
+  min-width: 260px;
+}
+
+/* Inner tile layout adapts to the layout mode. */
+.dashboard-widget--hero-wide .hc-hero__tiles {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.dashboard-widget--hero-compact .hc-hero__tiles {
+  grid-template-columns: 1fr;
+}
+
+.hc-hero {
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-xl);
+  padding: 1rem 1.25rem 1.1rem;
+  position: relative;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 60%, transparent),
+    0 1px 1px rgba(0, 0, 0, 0.04),
+    0 12px 32px rgba(0, 0, 0, 0.05);
+}
+:root[data-theme="dark"] .hc-hero {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, white 2.5%, transparent),
+    transparent 40%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 6%, transparent),
+    0 1px 1px rgba(0, 0, 0, 0.4),
+    0 16px 36px rgba(0, 0, 0, 0.45);
+}
+
+/* Header bar — left = "HOUSE STATUS" kicker, right = live indicator */
+.hc-hero__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.7rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--hc-border) 60%, transparent);
+}
+.hc-hero__title {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--hc-text-muted);
+  font-weight: 500;
+}
+.hc-hero__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--hc-text-muted);
+}
+.hc-hero__live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hc-success);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--hc-success) 40%, transparent);
+  animation: hc-breathe 2.4s ease-in-out infinite;
+}
+
+/* ── 30. Hero tile row ──────────────────────────────────────────────── */
+
+/* Tile grid: auto-fits 4-6 tiles, each clickable. The minmax bound
+   keeps tiles legible down to small viewports while never letting
+   one stretch past being a clean readout. */
+.hc-hero__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.65rem;
+}
+
+.hc-hero__tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.85rem 0.95rem 0.9rem;
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-md);
+  background: color-mix(in srgb, var(--hc-surface-soft) 50%, var(--hc-surface));
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+  color: inherit;
+  font-family: inherit;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+.hc-hero__tile:hover {
+  border-color: color-mix(in srgb, var(--hc-accent) 30%, var(--hc-border-strong));
+  background: var(--hc-surface);
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--hc-accent) 12%, transparent),
+    0 6px 16px rgba(0, 0, 0, 0.05);
+}
+:root[data-theme="dark"] .hc-hero__tile {
+  background: color-mix(in srgb, var(--hc-surface) 70%, var(--hc-surface-soft));
+}
+:root[data-theme="dark"] .hc-hero__tile:hover {
+  background: var(--hc-surface-soft);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--hc-accent) 30%, transparent),
+    0 0 18px color-mix(in srgb, var(--hc-accent) 14%, transparent),
+    0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* ── 31. Hero tile content ──────────────────────────────────────────── */
+
+/* System name: tiny mono kicker. The name is the label, not a heading
+   — it identifies the system without competing with the value. */
+.hc-hero__system-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.hc-hero__system-icon {
+  font-size: 14px !important;
+  color: var(--hc-text-muted);
+}
+.hc-hero__system-name {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--hc-text-muted);
+}
+
+/* Value: the big readout — count of lights on, current temp, etc.
+   Uses tabular numerals so values don't shift width when changing. */
+.hc-hero__value {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 1.55rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--hc-text);
+  font-feature-settings: "tnum", "ss02";
+  line-height: 1;
+  margin-top: 0.05rem;
+}
+.hc-hero__value--muted {
+  color: var(--hc-text-muted);
+  font-weight: 400;
+}
+.hc-hero__unit {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--hc-text-muted);
+  margin-left: 0.15rem;
+}
+
+/* Pill: ok / warn / alert state indicator. Sits below the value. */
+.hc-hero__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  width: fit-content;
+}
+.hc-hero__pill::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.hc-hero__pill--ok {
+  background: color-mix(in srgb, var(--hc-success) 12%, transparent);
+  color: var(--hc-success);
+}
+.hc-hero__pill--warn {
+  background: color-mix(in srgb, var(--hc-warn) 14%, transparent);
+  color: var(--hc-warn);
+}
+.hc-hero__pill--alert {
+  background: color-mix(in srgb, var(--hc-danger) 12%, transparent);
+  color: var(--hc-danger);
+}
+.hc-hero__pill--idle {
+  background: var(--hc-surface-soft);
+  color: var(--hc-text-muted);
+  border: 1px solid var(--hc-border);
+}
+
+/* Touch: drop the lift on hover so it doesn't stick after tap. */
+@media (hover: none) {
+  .hc-hero__tile:hover {
+    transform: none;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   DEVICE CARD POLISH — type rims, brightness halo, color reflection,
+   command pulse, press depth. Each is small and additive; together
+   they give the card grid quick visual hierarchy + tactility.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 32. Type-specific accent rim ───────────────────────────────────── */
+
+/* 2px coloured top edge per device type. Quiet (~25% saturation) so a
+   wall of cards reads as categorized, not striped. The rim is rendered
+   via box-shadow inset so it doesn't fight the card's own border. */
+.device-card[class*="device-card--type-"] {
+  position: relative;
+}
+.device-card[class*="device-card--type-"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-top-left-radius: var(--hc-radius-lg);
+  border-top-right-radius: var(--hc-radius-lg);
+  background: var(--hc-card-rim, transparent);
+  pointer-events: none;
+}
+
+/* Tone palette — kept muted so it reads as type, not state. */
+.device-card--type-light    { --hc-card-rim: color-mix(in srgb, #fbbf24 50%, transparent); }
+.device-card--type-switch   { --hc-card-rim: color-mix(in srgb, var(--hc-text-muted) 35%, transparent); }
+.device-card--type-lock     { --hc-card-rim: color-mix(in srgb, #94a3b8 55%, transparent); }
+.device-card--type-shade    { --hc-card-rim: color-mix(in srgb, #60a5fa 45%, transparent); }
+.device-card--type-contact  { --hc-card-rim: color-mix(in srgb, #60a5fa 45%, transparent); }
+.device-card--type-motion   { --hc-card-rim: color-mix(in srgb, var(--hc-accent) 55%, transparent); }
+.device-card--type-occupancy{ --hc-card-rim: color-mix(in srgb, var(--hc-accent) 55%, transparent); }
+.device-card--type-leak     { --hc-card-rim: color-mix(in srgb, var(--hc-danger) 55%, transparent); }
+.device-card--type-vibration{ --hc-card-rim: color-mix(in srgb, var(--hc-warn) 55%, transparent); }
+.device-card--type-temp     { --hc-card-rim: color-mix(in srgb, var(--hc-text-muted) 35%, transparent); }
+.device-card--type-humidity { --hc-card-rim: color-mix(in srgb, #60a5fa 35%, transparent); }
+.device-card--type-media    { --hc-card-rim: color-mix(in srgb, #a855f7 50%, transparent); }
+.device-card--type-thermo   { --hc-card-rim: color-mix(in srgb, var(--hc-warn) 50%, transparent); }
+.device-card--type-keypad   { --hc-card-rim: color-mix(in srgb, var(--hc-text-muted) 35%, transparent); }
+.device-card--type-remote   { --hc-card-rim: color-mix(in srgb, var(--hc-text-muted) 35%, transparent); }
+.device-card--type-timer    { --hc-card-rim: color-mix(in srgb, var(--hc-accent) 45%, transparent); }
+.device-card--type-power    { --hc-card-rim: color-mix(in srgb, var(--hc-warn) 45%, transparent); }
+.device-card--type-sensor   { --hc-card-rim: color-mix(in srgb, var(--hc-text-muted) 30%, transparent); }
+
+/* When a color-capable light projects its own color, that overrides
+   the type rim so the card reflects the actual hue in use. */
+.device-card[style*="--card-color"]::before {
+  background: var(--card-color, var(--hc-card-rim, transparent));
+  height: 3px;
+}
+
+/* ── 33. Brightness as halo intensity ──────────────────────────────── */
+
+/* The existing `--on` glow is binary. For dimmers, scale opacity by
+   `--card-brightness` (0.0–1.0) set per card from the renderer. A
+   light at 20 % shows a faint halo; at 100 %, full halo. */
+.device-card--on {
+  --hc-card-glow-opacity: var(--card-brightness, 1);
+  border-color: color-mix(in srgb, var(--hc-success) 35%, var(--hc-border));
+  box-shadow:
+    var(--hc-shadow-sm),
+    0 0 8px color-mix(in srgb, var(--hc-success) calc(var(--hc-card-glow-opacity) * 12%), transparent);
+}
+.device-card--on:hover {
+  box-shadow:
+    var(--hc-shadow-md),
+    0 0 14px color-mix(in srgb, var(--hc-success) calc(var(--hc-card-glow-opacity) * 22%), transparent);
+}
+
+/* For color-capable lights, the halo borrows the device's actual color
+   instead of the generic green success tone. Gives a Hue-style colored
+   bulb a colored card glow. */
+.device-card--on[style*="--card-color"] {
+  border-color: color-mix(in srgb, var(--card-color) 40%, var(--hc-border));
+  box-shadow:
+    var(--hc-shadow-sm),
+    0 0 14px color-mix(in srgb, var(--card-color) calc(var(--hc-card-glow-opacity) * 30%), transparent);
+}
+.device-card--on[style*="--card-color"]:hover {
+  box-shadow:
+    var(--hc-shadow-md),
+    0 0 22px color-mix(in srgb, var(--card-color) calc(var(--hc-card-glow-opacity) * 42%), transparent);
+}
+
+/* ── 34. Color reflection — soft gradient on card body ──────────────── */
+
+/* For color-capable lights, project the actual current color as a
+   subtle vertical gradient on the card body. Keeps the card surface
+   readable while letting "the purple light" actually look purple at
+   a glance. */
+.device-card[style*="--card-color"] .card-body {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card-color) 9%, transparent) 0%,
+    transparent 60%
+  );
+}
+:root[data-theme="dark"] .device-card[style*="--card-color"] .card-body {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card-color) 14%, transparent) 0%,
+    transparent 60%
+  );
+}
+
+/* ── 35. Last-action pulse ──────────────────────────────────────────── */
+
+/* When the user clicks a control, pulse the card edge briefly.
+   Visual confirmation the command was sent, before the state echo
+   arrives back through MQTT. The renderer adds .device-card--pulse
+   for ~600ms. */
+@keyframes hc-card-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--hc-accent) 55%, transparent); }
+  60%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--hc-accent) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--hc-accent) 0%, transparent); }
+}
+.device-card--pulse {
+  animation: hc-card-pulse 600ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .device-card--pulse { animation: none; }
+}
+
+/* ── 36. Press depth ────────────────────────────────────────────────── */
+
+/* Whole card has a 0.5px press depth on :active so taps feel physical.
+   Mirrors the Tier 2 button tactility. */
+.device-card:active {
+  transform: translateY(0.5px);
+}
+.device-card.device-card--scene-native:active,
+.device-card.device-card--scene-plugin:active {
+  transform: translateY(0.5px);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   AREA CHAPTERS — group device cards by area into chapters with
+   headers, counts, and per-area collapse. Replaces the flat sorted
+   grid for homes with multiple rooms.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 37. Chapter container + header ─────────────────────────────────── */
+
+.hc-chapter {
+  margin-bottom: 2.2rem;
+}
+.hc-chapter:last-child {
+  margin-bottom: 0;
+}
+
+.hc-chapter__head {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--hc-border) 60%, transparent);
+}
+.hc-chapter__name {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 500;
+  color: var(--hc-text);
+}
+.hc-chapter__count {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  color: var(--hc-text-muted);
+}
+.hc-chapter__count::before {
+  content: "·";
+  margin: 0 0.4rem 0 0;
+  color: var(--hc-text-muted);
+  opacity: 0.5;
+}
+.hc-chapter__sep {
+  flex: 1;
+}
+
+/* Per-chapter action pill ("all off"). Mono uppercase to align with
+   the chapter name, quiet by default, picks up the accent on hover.
+   Hidden when there's nothing to act on. */
+.hc-chapter__action {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--hc-text-muted);
+  background: transparent;
+  border: 1px solid var(--hc-border);
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 400;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+.hc-chapter__action:hover:not(:disabled) {
+  color: var(--hc-accent);
+  border-color: var(--hc-accent);
+}
+.hc-chapter__action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hc-chapter__collapse {
+  background: none;
+  border: none;
+  color: var(--hc-text-muted);
+  cursor: pointer;
+  padding: 0.2rem;
+  border-radius: var(--hc-radius-md);
+  display: inline-flex;
+  align-items: center;
+  font-family: inherit;
+}
+.hc-chapter__collapse:hover {
+  color: var(--hc-text);
+  background: var(--hc-surface-soft);
+}
+.hc-chapter__collapse i {
+  font-size: 16px;
+}
+
+/* Empty chapter — area exists but has no devices in current filter. */
+.hc-chapter--empty .hc-chapter__head {
+  opacity: 0.55;
+}
+.hc-chapter__empty {
+  padding: 1.5rem;
+  border: 1px dashed var(--hc-border);
+  border-radius: var(--hc-radius-lg);
+  color: var(--hc-text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  letter-spacing: 0.03em;
+}
+
+/* When collapsed, hide the body — keep the head visible as anchor. */
+.hc-chapter--collapsed .hc-chapter__body {
+  display: none;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   RULES EDITOR — make a rule read as one document, not five forms.
+   Step kickers + numbered icons + left-rail connector turn the
+   trigger → conditions → actions sequence into a visible flow.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 41. Step container (Trigger / Conditions / Actions) ────────────── */
+
+/* Each step is a card with a step kicker + numbered icon on the left,
+   anchored by a vertical hairline that connects all three steps. */
+.hc-step {
+  position: relative;
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-lg);
+  box-shadow: var(--hc-shadow-sm);
+  padding: 1.1rem 1.25rem 1.15rem 3.25rem;
+  margin-bottom: 0;
+}
+.hc-step + .hc-step { margin-top: 1rem; }
+
+/* Numbered marker on the left of each step. Sits in the padding gutter. */
+.hc-step__marker {
+  position: absolute;
+  left: 0.85rem;
+  top: 1.05rem;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--hc-surface-soft);
+  border: 1px solid color-mix(in srgb, var(--hc-accent) 35%, var(--hc-border));
+  color: var(--hc-accent);
+  z-index: 1;
+}
+.hc-step__marker i { font-size: 16px; }
+
+/* Connector rail: 1px hairline running from the bottom of one step's
+   marker through the gap to the top of the next. Drawn on the parent
+   container `.hc-rule-flow`. */
+.hc-rule-flow {
+  position: relative;
+}
+.hc-rule-flow::before {
+  content: "";
+  position: absolute;
+  left: calc(0.85rem + 0.9rem - 0.5px);
+  top: 2.85rem;
+  bottom: 2.85rem;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    color-mix(in srgb, var(--hc-accent) 22%, transparent) 12%,
+    color-mix(in srgb, var(--hc-accent) 22%, transparent) 88%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Step head: kicker + title.  Two-line composition. */
+.hc-step__head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-bottom: 0.85rem;
+}
+.hc-step__kicker {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--hc-text-muted);
+  font-weight: 500;
+}
+.hc-step__title {
+  font-size: 1.25rem;
+  font-weight: 500;
+  letter-spacing: -0.018em;
+  color: var(--hc-text);
+}
+.hc-step__head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* ── 42. Header card: Identity / Behavior split ─────────────────────── */
+
+.rule-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--hc-border) 60%, transparent);
+  margin-bottom: 0.85rem;
+}
+.rule-identity .rule-name-input {
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0.25rem 0.45rem;
+  border-radius: var(--hc-radius-md);
+  box-shadow: none;
+  width: 100%;
+}
+.rule-identity .rule-name-input:hover {
+  border-color: var(--hc-border);
+  background: var(--hc-surface-soft);
+}
+.rule-identity .rule-name-input:focus {
+  border-color: var(--hc-accent);
+  background: var(--hc-surface);
+}
+.rule-behavior-kicker {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--hc-text-muted);
+  margin-bottom: 0.4rem;
+  display: block;
+}
+.rule-behavior {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem 1rem;
+  align-items: end;
+}
+.rule-behavior .field-label {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--hc-text-muted);
+  margin-bottom: 0.25rem;
+  display: block;
+}
+.rule-behavior input[type="number"],
+.rule-behavior select {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-feature-settings: "tnum";
+}
+.rule-behavior-helper {
+  grid-column: 1 / -1;
+  font-size: 0.78rem;
+  color: var(--hc-text-muted);
+  font-style: italic;
+  line-height: 1.45;
+  margin-top: -0.2rem;
+}
+
+/* ── 43. Sticky action bar at the bottom of the editor ──────────────── */
+
+.rule-action-bar--sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  margin-top: 1rem;
+  background: color-mix(in srgb, var(--hc-surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-md);
+  padding: 0.65rem 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow:
+    0 -2px 12px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
+}
+:root[data-theme="dark"] .rule-action-bar--sticky {
+  box-shadow:
+    0 -4px 16px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 color-mix(in srgb, white 6%, transparent);
+}
+.rule-action-bar--sticky .rule-save-status {
+  margin-left: auto;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.7rem;
+  color: var(--hc-text-muted);
+  letter-spacing: 0.05em;
+}
+.rule-action-bar--sticky .rule-save-status--saving {
+  color: var(--hc-warn);
+}
+.rule-action-bar--sticky .rule-save-status--saved {
+  color: var(--hc-success);
+}
+
+/* ── 44. Numbered condition / action rows + dividers ────────────────── */
+
+.json-row {
+  position: relative;
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-md);
+  padding: 0.7rem 0.8rem 0.7rem 2.6rem;
+  margin-bottom: 0.55rem;
+  box-shadow: var(--hc-shadow-sm);
+}
+.json-row__num {
+  position: absolute;
+  left: 0.6rem;
+  top: 0.7rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.7rem;
+  font-weight: 500;
+  background: var(--hc-surface-soft);
+  color: var(--hc-text-muted);
+  border: 1px solid var(--hc-border);
+}
+.json-row--disabled .json-row__num {
+  opacity: 0.45;
+}
+
+/* AND divider between conditions; THEN divider between actions. */
+.hc-rule-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.15rem 0 0.55rem 1.45rem;  /* aligned with row content */
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--hc-text-muted);
+}
+.hc-rule-divider::before {
+  content: "";
+  width: 1px;
+  height: 0.7rem;
+  background: color-mix(in srgb, var(--hc-text-muted) 30%, transparent);
+  display: inline-block;
+}
+.hc-rule-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--hc-text-muted) 25%, transparent),
+    transparent 80%
+  );
+}
+
+/* "Add" button slot at the bottom of each step's list — left-aligned
+   dashed-border so it feels like extending a list, not a corner control. */
+.hc-rule-add-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px dashed var(--hc-border-strong);
+  border-radius: var(--hc-radius-md);
+  background: transparent;
+  color: var(--hc-text-muted);
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-top: 0.4rem;
+  margin-left: 1.45rem;
+  transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+}
+.hc-rule-add-slot:hover {
+  border-color: var(--hc-accent);
+  color: var(--hc-accent);
+  background: color-mix(in srgb, var(--hc-accent) 6%, transparent);
+}
+
+/* ── 46. JSON-row design-system alignment ───────────────────────────── */
+
+/* Already covered by .json-row above (replaces the older spec). */
+
+/* ── 45. Unified chip primitive ─────────────────────────────────────── */
+
+/* Single chip aesthetic for tags, day selectors, action categories.
+   Old per-context classes (.tag-chip, .day-chip, .action-cat-btn)
+   inherit from this base + override for state. Quiet by default,
+   accent on hover/active. */
+.hc-chip,
+.tag-chip,
+.day-chip,
+.action-cat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.78rem;
+  font-family: inherit;
+  border: 1px solid var(--hc-border);
+  border-radius: 999px;
+  background: var(--hc-surface);
+  color: var(--hc-text-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: border-color 160ms, color 160ms, background 160ms;
+}
+.hc-chip:hover,
+.day-chip:hover,
+.action-cat-btn:hover {
+  border-color: color-mix(in srgb, var(--hc-accent) 40%, var(--hc-border));
+  color: var(--hc-text);
+  background: color-mix(in srgb, var(--hc-accent) 6%, var(--hc-surface));
+}
+
+/* Selected / active state — applies to day-chip:has(input:checked)
+   and to .action-cat-btn--active and .hc-chip--active */
+.hc-chip--active,
+.day-chip:has(input:checked),
+.action-cat-btn--active {
+  border-color: var(--hc-accent);
+  color: var(--hc-accent);
+  background: color-mix(in srgb, var(--hc-accent) 10%, var(--hc-surface));
+}
+.day-chip input { display: none; }
+
+/* Tag chip is informational — no hover lift, has a remove button. */
+.tag-chip {
+  cursor: default;
+  background: var(--hc-surface-soft);
+}
+.tag-chip:hover {
+  border-color: var(--hc-border);
+  color: var(--hc-text-muted);
+  background: var(--hc-surface-soft);
+}
+.tag-chip-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0;
+  color: inherit;
+  opacity: 0.7;
+}
+.tag-chip-remove:hover {
+  opacity: 1;
+  color: var(--hc-danger);
+}
+
+/* ── 47. Run-mode helper text ───────────────────────────────────────── */
+
+.rule-run-mode-helper {
+  font-size: 0.78rem;
+  color: var(--hc-text-muted);
+  font-family: "Geist Mono", ui-monospace, monospace;
+  letter-spacing: 0.02em;
+  margin-top: 0.3rem;
+  line-height: 1.45;
+}
+
+/* ── 48. Advanced section — scripting escape hatch ──────────────────── */
+
+.rule-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--hc-text-muted);
+  font-weight: 500;
+}
+.rule-advanced-toggle:hover {
+  color: var(--hc-text);
+}
+.rule-advanced-body {
+  border-left: 2px solid color-mix(in srgb, var(--hc-warn) 35%, transparent);
+  padding-left: 0.85rem;
+  margin-top: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.rule-advanced-body .field-label {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--hc-warn) 70%, var(--hc-text-muted));
+  margin-top: 0.3rem;
+}
+.hc-textarea--code {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.82rem;
+  background: var(--hc-surface-soft);
+}
+
+/* ── Filter bar layout fix ───────────────────────────────────────────
+   Global `select { width: 100% }` was being combined with the flex
+   layout in `.filter-bar`, causing the search input to shrink to
+   almost zero width. Sized the selects to content + give the search
+   input a real flex basis so it actually fills the row. */
+.filter-bar > select,
+.filter-bar > button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+}
+.filter-bar > .multisel,
+.filter-bar > .multisel-trigger {
+  flex: 0 0 auto;
+}
+.filter-bar > .search-input,
+.filter-bar > input[type="search"] {
+  flex: 1 1 18rem;
+  min-width: 8rem;
+}
+
+/* ── Focus banner (hero-tile drill-in) ─────────────────────────────── */
+
+/* Shown above the cards canvas when the page is filtered by a hero
+   tile click (e.g. ?focus=security). Quiet but visible — accent rim
+   so the user knows this isn't the full list. */
+.hc-focus-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--hc-accent) 30%, var(--hc-border));
+  border-radius: var(--hc-radius-md);
+  background: color-mix(in srgb, var(--hc-accent) 6%, var(--hc-surface));
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+:root[data-theme="dark"] .hc-focus-banner {
+  background: color-mix(in srgb, var(--hc-accent) 8%, var(--hc-surface));
+}
+.hc-focus-banner > i {
+  color: var(--hc-accent);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.hc-focus-banner__text {
+  flex: 1;
+  color: var(--hc-text);
+  line-height: 1.4;
+}
+.hc-focus-banner__clear {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--hc-accent);
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--hc-accent) 35%, transparent);
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  transition: background 160ms ease;
+}
+.hc-focus-banner__clear:hover {
+  background: color-mix(in srgb, var(--hc-accent) 12%, transparent);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   COLLAPSIBLE SIDEBAR
+   Toggle in the sidebar header collapses it to icon-only width.
+   State persists across reloads via localStorage.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 38. Shell width transition ─────────────────────────────────────── */
+
+.shell {
+  transition: grid-template-columns 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.shell--collapsed {
+  grid-template-columns: 4rem minmax(0, 1fr);
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell { transition: none; }
+}
+
+/* ── 39. Sidebar header (brand + toggle) ────────────────────────────── */
+
+.sidebar__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2.4rem;
+}
+.sidebar__brand { flex: 1; min-width: 0; }
+.sidebar__collapse-toggle {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--hc-text-muted);
+  cursor: pointer;
+  padding: 0.3rem;
+  border-radius: var(--hc-radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  flex-shrink: 0;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+.sidebar__collapse-toggle i { font-size: 18px; }
+.sidebar__collapse-toggle:hover {
+  color: var(--hc-text);
+  border-color: var(--hc-border);
+  background: var(--hc-surface-soft);
+}
+
+/* ── 40. Collapsed mode ─────────────────────────────────────────────── */
+
+/* Sidebar shrinks to icon column. Hide brand + labels; center icons. */
+.shell--collapsed .sidebar {
+  padding: 1rem 0.4rem;
+  gap: 0.6rem;
+}
+.shell--collapsed .sidebar__brand { display: none; }
+.shell--collapsed .sidebar__header {
+  justify-content: center;
+  min-height: 0;
+}
+.shell--collapsed .sidebar nav a {
+  padding: 0.5rem 0;
+  justify-content: center;
+  gap: 0;
+}
+.shell--collapsed .sidebar-nav__label {
+  display: none;
+}
+/* Icons keep their breathing room — push slightly forward to feel
+   centered against the narrower column. */
+.shell--collapsed .sidebar nav a > i {
+  font-size: 20px;
+}
+
+/* Active rail: in collapsed mode, the previous absolute-positioned
+   left rail (-0.4rem out) gets clipped. Re-anchor it to the visible
+   inside edge. */
+.shell--collapsed .sidebar nav a.active::before {
+  left: 2px;
+  width: 2px;
+}
+
+/* Reorder/edit toggle becomes icon-only when collapsed. */
+.shell--collapsed .sidebar-edit-toggle {
+  justify-content: center;
+  padding: 0.4rem 0;
+}
+
+/* Move-up arrows during reorder: hide while collapsed (no room) */
+.shell--collapsed .sidebar-nav-move {
+  display: none;
+}
+
+/* Don't apply any of this on small viewports — the existing
+   responsive breakpoint already collapses the shell to a single
+   column with horizontal nav, and our icon-rail mode would fight
+   that layout. */
+@media (max-width: 900px) {
+  .shell--collapsed {
+    grid-template-columns: 1fr;
+  }
+  .shell--collapsed .sidebar__brand { display: block; }
+  .shell--collapsed .sidebar-nav__label { display: inline; }
+  .shell--collapsed .sidebar__collapse-toggle { display: none; }
+}

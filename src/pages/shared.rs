@@ -229,9 +229,9 @@ pub fn SortDirToggle(sort_dir: RwSignal<SortDir>) -> impl IntoView {
             on:click=move |_| sort_dir.update(toggle_sort_dir)
         >
             {move || if sort_dir.get() == SortDir::Asc {
-                view! { <span class="material-icons" style="font-size:16px">"arrow_upward"</span> }
+                view! { <i class="ph ph-arrow-up" style="font-size:16px"></i> }
             } else {
-                view! { <span class="material-icons" style="font-size:16px">"arrow_downward"</span> }
+                view! { <i class="ph ph-arrow-down" style="font-size:16px"></i> }
             }}
         </button>
     }
@@ -301,9 +301,7 @@ pub fn MultiSelectDropdown(
                 }
             >
                 <span class="multisel-summary">{summary}</span>
-                <span class="material-icons" style="font-size:14px">
-                    {move || if open.get() { "expand_less" } else { "expand_more" }}
-                </span>
+                <i class=move || if open.get() { "ph ph-caret-up" } else { "ph ph-caret-down" } style="font-size:14px"></i>
             </button>
             {move || open.get().then(|| {
                 let opts = options.get();
@@ -362,22 +360,25 @@ pub fn ErrorBanner(#[prop(into)] error: Signal<Option<String>>) -> impl IntoView
 
 // ── Loading Skeletons ───────────────────────────────────────────────────────
 
-/// Renders `count` skeleton row placeholders using existing CSS classes.
+/// Renders `count` shimmer skeleton card placeholders matching the
+/// real `.cards-canvas` grid so the hand-off to real content
+/// doesn't reflow.
 #[component]
-pub fn SkeletonRows(#[prop(default = 6)] count: usize) -> impl IntoView {
+pub fn SkeletonCards(#[prop(default = 6)] count: usize) -> impl IntoView {
     view! {
-        <div class="skeleton-container">
-            {(0..count).map(|_| view! { <div class="skeleton skeleton-row"></div> }).collect_view()}
+        <div class="hc-skeleton-grid">
+            {(0..count).map(|_| view! { <div class="hc-skeleton hc-skeleton--card"></div> }).collect_view()}
         </div>
     }
 }
 
-/// Renders `count` skeleton card placeholders using existing CSS classes.
+/// Renders `count` shimmer row placeholders for list-shaped pages
+/// (devices list, audit, activity).
 #[component]
-pub fn SkeletonCards(#[prop(default = 6)] count: usize) -> impl IntoView {
+pub fn SkeletonRows(#[prop(default = 8)] count: usize) -> impl IntoView {
     view! {
-        <div class="skeleton-container" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.75rem;">
-            {(0..count).map(|_| view! { <div class="skeleton skeleton-card"></div> }).collect_view()}
+        <div class="hc-skeleton-grid--rows">
+            {(0..count).map(|_| view! { <div class="hc-skeleton hc-skeleton--row"></div> }).collect_view()}
         </div>
     }
 }
@@ -456,14 +457,14 @@ pub fn ToastContainer() -> impl IntoView {
                         ToastLevel::Warning => "toast toast--warning",
                     };
                     let icon = match msg.level {
-                        ToastLevel::Success => "check_circle",
-                        ToastLevel::Error   => "error",
-                        ToastLevel::Warning => "warning",
+                        ToastLevel::Success => "ph ph-check-circle",
+                        ToastLevel::Error   => "ph ph-warning-circle",
+                        ToastLevel::Warning => "ph ph-warning",
                     };
                     let id = msg.id;
                     view! {
                         <div class=class>
-                            <span class="material-icons toast-icon">{icon}</span>
+                            <i class=format!("{icon} toast-icon")></i>
                             <span class="toast-text">{msg.text}</span>
                             <button class="toast-close"
                                 on:click=move |_| ctx.messages.update(|list| list.retain(|m| m.id != id))

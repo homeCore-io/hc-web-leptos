@@ -110,7 +110,7 @@ pub fn AuditPage() -> impl IntoView {
         <section class="audit-view">
             <header class="audit-header">
                 <div class="audit-title">
-                    <span class="material-icons audit-title-icon">"fact_check"</span>
+                    <i class="ph ph-list-checks audit-title-icon"></i>
                     <div>
                         <h1>"Audit log"</h1>
                         <p class="audit-subtitle">
@@ -124,7 +124,7 @@ pub fn AuditPage() -> impl IntoView {
             <div class="audit-filter-card">
                 <div class="audit-filter-row">
                     <div class="audit-field">
-                        <span class="material-icons audit-field-icon">"person"</span>
+                        <i class="ph ph-user audit-field-icon"></i>
                         <select
                             class="audit-input"
                             prop:value=move || actor_type.get()
@@ -141,7 +141,7 @@ pub fn AuditPage() -> impl IntoView {
                     </div>
 
                     <div class="audit-field audit-field--wide">
-                        <span class="material-icons audit-field-icon">"bolt"</span>
+                        <i class="ph ph-lightning audit-field-icon"></i>
                         <input
                             type="text"
                             class="audit-input"
@@ -152,7 +152,7 @@ pub fn AuditPage() -> impl IntoView {
                     </div>
 
                     <div class="audit-field">
-                        <span class="material-icons audit-field-icon">"label"</span>
+                        <i class="ph ph-tag audit-field-icon"></i>
                         <input
                             type="text"
                             class="audit-input"
@@ -163,7 +163,7 @@ pub fn AuditPage() -> impl IntoView {
                     </div>
 
                     <div class="audit-field audit-field--wide">
-                        <span class="material-icons audit-field-icon">"fingerprint"</span>
+                        <i class="ph ph-fingerprint audit-field-icon"></i>
                         <input
                             type="text"
                             class="audit-input"
@@ -174,7 +174,7 @@ pub fn AuditPage() -> impl IntoView {
                     </div>
 
                     <div class="audit-field">
-                        <span class="material-icons audit-field-icon">"check_circle"</span>
+                        <i class="ph ph-check-circle audit-field-icon"></i>
                         <select
                             class="audit-input"
                             prop:value=move || result_filter.get()
@@ -214,7 +214,7 @@ pub fn AuditPage() -> impl IntoView {
                             on:click=do_search
                             disabled=move || loading.get()
                         >
-                            <span class="material-icons" style="font-size:16px">"search"</span>
+                            <i class="ph ph-magnifying-glass" style="font-size:16px"></i>
                             "Search"
                         </button>
                         <button
@@ -236,14 +236,14 @@ pub fn AuditPage() -> impl IntoView {
                     if loading.get() && rows.get().is_empty() {
                         view! {
                             <div class="audit-empty">
-                                <span class="material-icons audit-empty-icon">"hourglass_empty"</span>
+                                <i class="ph ph-hourglass audit-empty-icon"></i>
                                 <p>"Loading…"</p>
                             </div>
                         }.into_any()
                     } else if rows.get().is_empty() {
                         view! {
                             <div class="audit-empty">
-                                <span class="material-icons audit-empty-icon">"search_off"</span>
+                                <i class="ph ph-magnifying-glass-minus audit-empty-icon"></i>
                                 <p>"No matching events."</p>
                                 <p class="audit-empty-hint">
                                     "Try widening the date range or clearing a filter."
@@ -287,7 +287,7 @@ pub fn AuditPage() -> impl IntoView {
                         on:click=prev_page
                         disabled=move || offset.get() == 0 || loading.get()
                     >
-                        <span class="material-icons" style="font-size:16px">"chevron_left"</span>
+                        <i class="ph ph-caret-left" style="font-size:16px"></i>
                         "Prev"
                     </button>
                     <button
@@ -296,7 +296,7 @@ pub fn AuditPage() -> impl IntoView {
                         disabled=move || total_returned.get() < PAGE_SIZE || loading.get()
                     >
                         "Next"
-                        <span class="material-icons" style="font-size:16px">"chevron_right"</span>
+                        <i class="ph ph-caret-right" style="font-size:16px"></i>
                     </button>
                 </div>
             </footer>
@@ -350,7 +350,7 @@ fn render_entry(r: Value) -> impl IntoView {
                 <span class=pill_class title=result.clone()>{result.clone()}</span>
                 <span class="audit-entry-event">{event}</span>
                 <span class="audit-entry-actor">
-                    <span class="material-icons audit-entry-actor-icon">{actor_icon}</span>
+                    <i class={format!("ph ph-{} audit-entry-actor-icon", actor_icon)}></i>
                     {actor}
                 </span>
                 {has_target.then(|| view! {
@@ -364,7 +364,7 @@ fn render_entry(r: Value) -> impl IntoView {
                     </span>
                 })}
                 {detail_pretty.is_some().then(|| view! {
-                    <span class="material-icons audit-entry-chev">"expand_more"</span>
+                    <i class="ph ph-caret-down audit-entry-chev"></i>
                 })}
             </summary>
             {detail_pretty.map(|p| view! {
@@ -376,15 +376,16 @@ fn render_entry(r: Value) -> impl IntoView {
     }
 }
 
+/// Returns Phosphor icon names (slot into "ph ph-{name}" by the view).
 fn actor_icon_for(kind: &str) -> &'static str {
     match kind {
-        "user" => "person",
-        "api_key" => "vpn_key",
+        "user" => "user",
+        "api_key" => "key",
         "local_admin" => "shield",
-        "ip_whitelist" => "dns",
-        "anonymous" => "help_outline",
-        "system" => "settings",
-        _ => "help_outline",
+        "ip_whitelist" => "globe",
+        "anonymous" => "question",
+        "system" => "gear",
+        _ => "question",
     }
 }
 

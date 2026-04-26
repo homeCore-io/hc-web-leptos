@@ -72,30 +72,33 @@ fn value_options_for_attribute(attr: &str) -> Vec<(&'static str, &'static str)> 
     }
 }
 
+/// Icon options for dashboard widgets. Values are Phosphor identifiers
+/// (slot into "ph ph-{name}" by the view).
 fn icon_options() -> Vec<(&'static str, &'static str)> {
     vec![
         ("lightbulb", "Lightbulb"),
-        ("door_front", "Door"),
-        ("window", "Window"),
+        ("door", "Door"),
+        ("frame-corners", "Window"),
         ("lock", "Lock"),
-        ("lock_open", "Lock Open"),
-        ("water_damage", "Water / Leak"),
-        ("wifi_off", "Offline"),
-        ("motion_sensors", "Motion"),
-        ("thermostat", "Thermostat"),
+        ("lock-open", "Lock Open"),
+        ("drop", "Water / Leak"),
+        ("wifi-slash", "Offline"),
+        ("person-simple-walk", "Motion"),
+        ("thermometer-simple", "Thermostat"),
         ("shield", "Shield"),
-        ("sensors", "Sensors"),
-        ("visibility", "Eye"),
+        ("broadcast", "Sensors"),
+        ("eye", "Eye"),
         ("power", "Power"),
-        ("bolt", "Bolt"),
-        ("home", "Home"),
+        ("lightning", "Bolt"),
+        ("house", "Home"),
         ("info", "Info"),
         ("warning", "Warning"),
-        ("error", "Error"),
+        ("warning-circle", "Error"),
     ]
 }
 
 /// Pre-built overview counter configurations.
+/// Icon names are Phosphor identifiers (slot into "ph ph-{name}" by the view).
 fn overview_presets() -> Vec<(&'static str, &'static str, Value)> {
     vec![
         (
@@ -105,28 +108,28 @@ fn overview_presets() -> Vec<(&'static str, &'static str, Value)> {
         ),
         (
             "Open Doors",
-            "door_front",
-            json!({"counter_type":"device_filter","device_type":"contact_sensor","attribute":"contact","value":"open","icon":"door_front","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
+            "door",
+            json!({"counter_type":"device_filter","device_type":"contact_sensor","attribute":"contact","value":"open","icon":"door","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
         ),
         (
             "Leak Sensors",
-            "water_damage",
-            json!({"counter_type":"device_filter","device_type":"leak_sensor","attribute":"leak","value":true,"icon":"water_damage","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
+            "drop",
+            json!({"counter_type":"device_filter","device_type":"leak_sensor","attribute":"leak","value":true,"icon":"drop","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
         ),
         (
             "Offline Devices",
-            "wifi_off",
-            json!({"counter_type":"availability","icon":"wifi_off","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
+            "wifi-slash",
+            json!({"counter_type":"availability","icon":"wifi-slash","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
         ),
         (
             "Motion Active",
-            "motion_sensors",
-            json!({"counter_type":"device_filter","device_type":"motion_sensor","attribute":"motion","value":true,"icon":"motion_sensors","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
+            "person-simple-walk",
+            json!({"counter_type":"device_filter","device_type":"motion_sensor","attribute":"motion","value":true,"icon":"person-simple-walk","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
         ),
         (
             "Locks Unlocked",
-            "lock_open",
-            json!({"counter_type":"device_filter","device_type":"lock","attribute":"locked","value":false,"icon":"lock_open","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
+            "lock-open",
+            json!({"counter_type":"device_filter","device_type":"lock","attribute":"locked","value":false,"icon":"lock-open","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
         ),
     ]
 }
@@ -180,7 +183,16 @@ pub fn DashboardsPage() -> impl IntoView {
                 } else if let Some(db) = dashboard.get() {
                     view! { <DashboardView initial=db /> }.into_any()
                 } else {
-                    view! { <p class="msg-muted">"No dashboard available."</p> }.into_any()
+                    view! {
+                        <div class="hc-empty">
+                            <i class="ph ph-gauge hc-empty__icon"></i>
+                            <div class="hc-empty__title">"No dashboard"</div>
+                            <p class="hc-empty__body">
+                                "Dashboards collect cards, scenes, and stat chips into a customized \
+                                 home screen. Once one exists, it'll appear here."
+                            </p>
+                        </div>
+                    }.into_any()
                 }
             }}
         </div>
@@ -189,30 +201,21 @@ pub fn DashboardsPage() -> impl IntoView {
 
 fn default_overview_widgets() -> Vec<DashboardWidget> {
     vec![
+        // Anchor: full-width "House Status" hero. Tile set defaults to
+        // all 6 systems; the renderer auto-hides any with no relevant
+        // devices in the current device map.
         DashboardWidget {
-            id: "overview_lights".into(),
-            r#type: DashboardWidgetType::StatSummary,
-            title: "Lights On".into(),
+            id: "house_status".into(),
+            r#type: DashboardWidgetType::HouseStatusHero,
+            title: "House Status".into(),
             subtitle: None,
             refresh_policy: DashboardRefreshPolicy::Live,
-            config: json!({"counter_type":"device_filter","device_type":"light,dimmer","attribute":"on","value":true,"icon":"lightbulb","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
+            config: json!({
+                "systems": ["lighting", "climate", "security", "media", "energy", "activity"],
+                "layout": "wide",
+            }),
         },
-        DashboardWidget {
-            id: "overview_doors".into(),
-            r#type: DashboardWidgetType::StatSummary,
-            title: "Open Doors".into(),
-            subtitle: None,
-            refresh_policy: DashboardRefreshPolicy::Live,
-            config: json!({"counter_type":"device_filter","device_type":"contact_sensor","attribute":"contact","value":"open","icon":"door_front","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
-        },
-        DashboardWidget {
-            id: "overview_offline".into(),
-            r#type: DashboardWidgetType::StatSummary,
-            title: "Offline".into(),
-            subtitle: None,
-            refresh_policy: DashboardRefreshPolicy::Live,
-            config: json!({"counter_type":"availability","icon":"wifi_off","link_url":"/devices","metrics":["custom"],"card_size":"small"}),
-        },
+        // Quick Actions starter pack: modes + scenes for one-tap control.
         DashboardWidget {
             id: "modes".into(),
             r#type: DashboardWidgetType::ModeChips,
@@ -335,10 +338,26 @@ fn DashboardView(initial: DashboardResponse) -> impl IntoView {
         notice.set(Some("Reset to last saved state.".into()));
     });
 
+    // Reset to the factory default dashboard (hero + Quick Actions).
+    // User must Save to persist; gives them a chance to back out.
+    let on_factory_reset = Callback::new(move |_: ()| {
+        widgets.set(default_overview_widgets());
+        editing_widget.set(None);
+        notice.set(Some(
+            "Loaded default layout (hero + Quick Actions). Click Save to keep it.".into(),
+        ));
+    });
+
     view! {
         <div class="dashboard-header">
             <h1>"Overview"</h1>
-            <DashboardToolbar edit_mode=edit_mode saving=saving on_save=on_save on_reset=on_reset />
+            <DashboardToolbar
+                edit_mode=edit_mode
+                saving=saving
+                on_save=on_save
+                on_reset=on_reset
+                on_factory_reset=on_factory_reset
+            />
         </div>
         <ErrorBanner error=error />
         {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
@@ -353,18 +372,24 @@ fn DashboardToolbar(
     saving: RwSignal<bool>,
     on_save: Callback<()>,
     on_reset: Callback<()>,
+    on_factory_reset: Callback<()>,
 ) -> impl IntoView {
     view! {
         <div class="dashboard-toolbar">
             <button class="btn btn-outline" on:click=move |_| edit_mode.update(|v| *v = !*v)>
-                <span class="material-icons" style="font-size:16px">{move || if edit_mode.get() { "close" } else { "edit" }}</span>
+                <i class=move || if edit_mode.get() { "ph ph-x" } else { "ph ph-pencil-simple" } style="font-size:16px"></i>
                 {move || if edit_mode.get() { " Done" } else { " Edit" }}
             </button>
             {move || edit_mode.get().then(|| view! {
                 <button class="btn btn-primary" disabled=move || saving.get() on:click=move |_| on_save.run(())>
                     {move || if saving.get() { "Saving..." } else { "Save" }}
                 </button>
-                <button class="btn btn-outline" on:click=move |_| on_reset.run(())>"Reset"</button>
+                <button class="btn btn-outline" on:click=move |_| on_reset.run(())>"Revert"</button>
+                <button
+                    class="btn btn-outline"
+                    title="Replace widgets with the default Overview layout (hero + Quick Actions). Save to persist."
+                    on:click=move |_| on_factory_reset.run(())
+                >"Load default"</button>
             })}
         </div>
     }
@@ -394,17 +419,31 @@ fn WidgetGrid(
                         config.get("counter_type").and_then(|v| v.as_str()).is_some()
                         || config.get("chip_mode").and_then(|v| v.as_bool()).unwrap_or(false)
                     ));
-                    let size_class = if is_pill {
+                    // Hero widget: layout is config-driven.
+                    //   "wide"    → full canvas width, tiles in a horizontal row (default)
+                    //   "compact" → narrow column alongside other widgets, tiles stacked vertically
+                    let is_hero = wtype == DashboardWidgetType::HouseStatusHero;
+                    let hero_layout = config
+                        .get("layout")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("wide");
+                    let hero_layout_class = match hero_layout {
+                        "compact" => "dashboard-widget--hero-compact",
+                        _ => "dashboard-widget--hero-wide",
+                    };
+                    let size_class: String = if is_hero {
+                        format!("dashboard-widget dashboard-widget--hero {hero_layout_class}")
+                    } else if is_pill {
                         match size {
-                            "small" => "dashboard-widget dashboard-widget--pill dashboard-widget--sm",
-                            "large" => "dashboard-widget dashboard-widget--pill dashboard-widget--lg",
-                            _ => "dashboard-widget dashboard-widget--pill dashboard-widget--md",
+                            "small" => "dashboard-widget dashboard-widget--pill dashboard-widget--sm".into(),
+                            "large" => "dashboard-widget dashboard-widget--pill dashboard-widget--lg".into(),
+                            _ => "dashboard-widget dashboard-widget--pill dashboard-widget--md".into(),
                         }
                     } else {
                         match size {
-                            "small" => "dashboard-widget dashboard-widget--sm",
-                            "large" => "dashboard-widget dashboard-widget--lg",
-                            _ => "dashboard-widget dashboard-widget--md",
+                            "small" => "dashboard-widget dashboard-widget--sm".into(),
+                            "large" => "dashboard-widget dashboard-widget--lg".into(),
+                            _ => "dashboard-widget dashboard-widget--md".into(),
                         }
                     };
 
@@ -429,6 +468,7 @@ fn WidgetGrid(
                         },
                         DashboardWidgetType::ModeChips => view! { <ModeChipsCard /> }.into_any(),
                         DashboardWidgetType::SceneRow => view! { <SceneButtonsCard /> }.into_any(),
+                        DashboardWidgetType::HouseStatusHero => view! { <HouseStatusHero config=config.clone() /> }.into_any(),
                         _ => view! { <div class="dashboard-widget-fallback"><span class="cell-subtle">{format!("{:?}", wtype)}</span></div> }.into_any(),
                     };
 
@@ -439,10 +479,10 @@ fn WidgetGrid(
                                     <div class="widget-edit-bar">
                                         <button class="widget-edit-btn" title="Move up"
                                             on:click=move |_| widgets.update(|w| { if idx > 0 { w.swap(idx, idx - 1); } })
-                                        ><span class="material-icons" style="font-size:16px">"arrow_upward"</span></button>
+                                        ><i class="ph ph-arrow-up" style="font-size:16px"></i></button>
                                         <button class="widget-edit-btn" title="Move down"
                                             on:click=move |_| widgets.update(|w| { if idx + 1 < w.len() { w.swap(idx, idx + 1); } })
-                                        ><span class="material-icons" style="font-size:16px">"arrow_downward"</span></button>
+                                        ><i class="ph ph-arrow-down" style="font-size:16px"></i></button>
                                         <SizeToggle widget_id=wid_sz.clone() widgets=widgets />
                                         <button class="widget-edit-btn" title="Configure"
                                             on:click=move |_| {
@@ -450,10 +490,10 @@ fn WidgetGrid(
                                                 if cur.as_deref() == Some(wid_cfg.as_str()) { editing_widget.set(None); }
                                                 else { editing_widget.set(Some(wid_cfg.clone())); }
                                             }
-                                        ><span class="material-icons" style="font-size:16px">"settings"</span></button>
+                                        ><i class="ph ph-gear" style="font-size:16px"></i></button>
                                         <button class="widget-edit-btn widget-edit-btn--danger" title="Remove"
                                             on:click=move |_| { let id = wid_rm.clone(); widgets.update(|w| w.retain(|x| x.id != id)); }
-                                        ><span class="material-icons" style="font-size:16px">"close"</span></button>
+                                        ><i class="ph ph-x" style="font-size:16px"></i></button>
                                     </div>
                                 }
                             })}
@@ -485,7 +525,7 @@ fn SizeToggle(widget_id: String, widgets: RwSignal<Vec<DashboardWidget>>) -> imp
                 }
             });
         }>
-            <span class="material-icons" style="font-size:16px">"aspect_ratio"</span>
+            <i class="ph ph-frame-corners" style="font-size:16px"></i>
         </button>
     }
 }
@@ -701,6 +741,107 @@ fn WidgetConfigEditor(
                 }.into_any()
             }
         }
+        DashboardWidgetType::HouseStatusHero => {
+            // Layout: "wide" (full canvas, horizontal tiles) or "compact"
+            // (narrow column, vertical tiles).
+            let cur_layout = config
+                .get("layout")
+                .and_then(|v| v.as_str())
+                .unwrap_or("wide")
+                .to_string();
+            let layout_sig = RwSignal::new(cur_layout);
+
+            // Per-system checkboxes. Render in a fixed canonical order;
+            // the user's existing ordering (if customized) is preserved
+            // for systems they've enabled and present in their config.
+            const ALL_SYSTEMS: &[(&str, &str)] = &[
+                ("lighting",  "Lighting"),
+                ("climate",   "Climate"),
+                ("security",  "Security"),
+                ("media",     "Media"),
+                ("energy",    "Energy"),
+                ("activity",  "Activity"),
+            ];
+            let cur_systems: std::collections::HashSet<String> = config
+                .get("systems")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_else(|| {
+                    ALL_SYSTEMS.iter().map(|(k, _)| k.to_string()).collect()
+                });
+            let systems_sig: RwSignal<std::collections::HashSet<String>> = RwSignal::new(cur_systems);
+
+            let wid = widget_id.clone();
+            view! {
+                <div class="widget-config-editor">
+                    <label>"Layout"</label>
+                    <select
+                        class="input"
+                        prop:value=move || layout_sig.get()
+                        on:change=move |ev| layout_sig.set(event_target_value(&ev))
+                    >
+                        <option value="wide">"Wide — full row across the canvas"</option>
+                        <option value="compact">"Compact — narrow column, vertical tiles"</option>
+                    </select>
+
+                    <label>"Systems shown"</label>
+                    <div class="device-checkbox-list">
+                        {ALL_SYSTEMS.iter().map(|(key, label)| {
+                            let key_str = key.to_string();
+                            let key_for_check = key_str.clone();
+                            let key_for_toggle = key_str.clone();
+                            let is_checked = move || systems_sig.get().contains(&key_for_check);
+                            view! {
+                                <label class="device-checkbox-row">
+                                    <input
+                                        type="checkbox"
+                                        prop:checked=is_checked
+                                        on:change=move |ev| {
+                                            let checked = event_target_checked(&ev);
+                                            let k = key_for_toggle.clone();
+                                            systems_sig.update(|s| {
+                                                if checked { s.insert(k); } else { s.remove(&k); }
+                                            });
+                                        }
+                                    />
+                                    <span>{*label}</span>
+                                </label>
+                            }
+                        }).collect_view()}
+                    </div>
+                    <p class="cell-subtle" style="font-size:0.78rem; margin-top:0.4rem;">
+                        "Systems with no relevant devices in your live device map are auto-hidden anyway."
+                    </p>
+
+                    <div class="widget-config-actions">
+                        <button class="btn btn-primary btn-sm" on:click=move |_| {
+                            let wid = wid.clone();
+                            let layout = layout_sig.get_untracked();
+                            let chosen = systems_sig.get_untracked();
+                            // Preserve canonical order across enabled systems
+                            let systems: Vec<String> = ALL_SYSTEMS.iter()
+                                .map(|(k, _)| k.to_string())
+                                .filter(|k| chosen.contains(k))
+                                .collect();
+                            widgets.update(|w| {
+                                if let Some(widget) = w.iter_mut().find(|x| x.id == wid) {
+                                    widget.config = json!({
+                                        "layout": layout,
+                                        "systems": systems,
+                                    });
+                                }
+                            });
+                            on_close.run(());
+                        }>"Apply"</button>
+                        <button class="btn btn-outline btn-sm" on:click=move |_| on_close.run(())>"Cancel"</button>
+                    </div>
+                </div>
+            }.into_any()
+        }
         _ => {
             // ModeChips, SceneRow, etc. — no config to edit
             view! {
@@ -827,7 +968,7 @@ fn EntityRow(device: Memo<Option<DeviceState>>, device_id: String) -> impl IntoV
             view! {
                 <div class="entities-row" class:entities-row--offline=!avail>
                     <div class="entities-row-info">
-                        <span class="material-icons entities-row-icon">{icon}</span>
+                        <i class={format!("ph ph-{} entities-row-icon", icon)}></i>
                         <span class="entities-row-name">{name}</span>
                     </div>
                     <div class="entities-row-controls">
@@ -846,7 +987,7 @@ fn EntityRow(device: Memo<Option<DeviceState>>, device_id: String) -> impl IntoV
                                         spawn_local(async move { let _ = set_device_state(&token, &id, &json!({"on": v})).await; busy.set(false); });
                                     }
                                 >
-                                    <span class="material-icons" style="font-size:22px">{if is_on { "toggle_on" } else { "toggle_off" }}</span>
+                                    <i class=if is_on { "ph ph-toggle-right" } else { "ph ph-toggle-left" } style="font-size:22px"></i>
                                 </button>
                             }
                         })}
@@ -865,7 +1006,7 @@ fn EntityRow(device: Memo<Option<DeviceState>>, device_id: String) -> impl IntoV
                                         spawn_local(async move { let _ = set_device_state(&token, &id, &json!({"locked": v})).await; busy.set(false); });
                                     }
                                 >
-                                    <span class="material-icons" style="font-size:22px">{if is_locked { "lock" } else { "lock_open" }}</span>
+                                    <i class=if is_locked { "ph ph-lock" } else { "ph ph-lock-open" } style="font-size:22px"></i>
                                 </button>
                             }
                         })}
@@ -1013,7 +1154,7 @@ fn OverviewCard(title: String, config: Value) -> impl IntoView {
                 else if c > 0 && is_alert { "overview-chip overview-chip--alert" }
                 else { "overview-chip" }
             } on:click=move |_| nav1()>
-                <span class="material-icons">{icon}</span>
+                <i class={format!("ph ph-{}", icon)}></i>
                 <span class="overview-chip-count">{move || count.get().to_string()}</span>
                 <span class="overview-chip-label">{title}</span>
             </div>
@@ -1026,7 +1167,7 @@ fn OverviewCard(title: String, config: Value) -> impl IntoView {
                 else if c > 0 && is_alert { "overview-card overview-card--alert" }
                 else { "overview-card" }
             } on:click=move |_| nav2()>
-                <span class="material-icons overview-card-icon">{icon2}</span>
+                <i class={format!("ph ph-{} overview-card-icon", icon2)}></i>
                 <div class="overview-card-body">
                     <span class="overview-card-label">{title2}</span>
                     <span class="overview-card-count">{move || count.get().to_string()}</span>
@@ -1126,6 +1267,359 @@ fn resolve_sensor_value(d: &DeviceState, attr: &str) -> Option<(String, String)>
     None
 }
 
+/// Full-width "House Status" hero: a row of system tiles computed from the
+/// live device map. Each tile shows a system name + headline value + pill,
+/// and is clickable to navigate into the relevant filtered surface.
+///
+/// Plugin-aware: a tile is hidden if no devices in the current map are
+/// relevant to its system (e.g. no thermostats → no Climate tile).
+///
+/// `config.systems` is an array of identifiers (`["lighting", "climate",
+/// "security", "media", "energy", "activity"]`). A user can disable a
+/// system by removing it from the array; only listed systems render.
+#[component]
+fn HouseStatusHero(config: Value) -> impl IntoView {
+    let ws = use_ws();
+    let nav = leptos_router::hooks::use_navigate();
+
+    // Default to all 6 if config doesn't specify; preserve order so users
+    // can rearrange tiles by reordering the array.
+    let systems_enabled: Vec<String> = config
+        .get("systems")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            ["lighting", "climate", "security", "media", "energy", "activity"]
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect()
+        });
+
+    view! {
+        <div class="hc-hero">
+            <header class="hc-hero__head">
+                <span class="hc-hero__title">"house status"</span>
+                <span class="hc-hero__live">
+                    <span class="hc-hero__live-dot"></span>
+                    "live"
+                </span>
+            </header>
+            <div class="hc-hero__tiles">
+                {move || {
+                    let devices = ws.devices.get();
+                    let status = ws.status.get();
+                    systems_enabled
+                        .iter()
+                        .filter_map(|sys| {
+                            let tile = compute_hero_tile(sys, &devices, status);
+                            tile.map(|t| {
+                                let nav = nav.clone();
+                                let target = t.target.clone();
+                                view! {
+                                    <button
+                                        class="hc-hero__tile"
+                                        on:click=move |_| nav(&target, Default::default())
+                                    >
+                                        <div class="hc-hero__system-row">
+                                            <i class={format!("ph ph-{} hc-hero__system-icon", t.icon)}></i>
+                                            <span class="hc-hero__system-name">{t.name}</span>
+                                        </div>
+                                        <div class="hc-hero__value">
+                                            {t.value}
+                                            {t.unit.map(|u| view! {
+                                                <span class="hc-hero__unit">{u}</span>
+                                            })}
+                                        </div>
+                                        {t.pill.map(|(label, kind)| view! {
+                                            <span class={format!("hc-hero__pill hc-hero__pill--{}", kind)}>
+                                                {label}
+                                            </span>
+                                        })}
+                                    </button>
+                                }
+                            })
+                        })
+                        .collect_view()
+                }}
+            </div>
+        </div>
+    }
+}
+
+/// Computed hero tile data. `None` means "no relevant devices in the
+/// map → hide this tile". `pill` is `(label, kind)` where kind is one
+/// of `ok | warn | alert | idle`.
+struct HeroTile {
+    name: &'static str,
+    icon: &'static str,
+    value: String,
+    unit: Option<&'static str>,
+    pill: Option<(&'static str, &'static str)>,
+    target: String,
+}
+
+fn compute_hero_tile(
+    system: &str,
+    devices: &std::collections::HashMap<String, DeviceState>,
+    status: crate::ws::WsStatus,
+) -> Option<HeroTile> {
+    use crate::ws::WsStatus;
+    match system {
+        "lighting" => {
+            let lights: Vec<&DeviceState> = devices
+                .values()
+                .filter(|d| {
+                    matches!(
+                        d.device_type.as_deref(),
+                        Some("light") | Some("dimmer")
+                    )
+                })
+                .collect();
+            if lights.is_empty() {
+                return None;
+            }
+            let on = lights
+                .iter()
+                .filter(|d| d.attributes.get("on").and_then(Value::as_bool).unwrap_or(false))
+                .count();
+            let unavail = lights.iter().filter(|d| !d.available).count();
+            let pill = if unavail > 0 {
+                Some(("unreachable", "warn"))
+            } else if on > 0 {
+                Some(("active", "ok"))
+            } else {
+                Some(("all off", "idle"))
+            };
+            Some(HeroTile {
+                name: "lighting",
+                icon: "lightbulb",
+                value: on.to_string(),
+                unit: Some(if on == 1 { "on" } else { "on" }),
+                pill,
+                target: "/devices?focus=lighting".into(),
+            })
+        }
+
+        "climate" => {
+            let thermos: Vec<&DeviceState> = devices
+                .values()
+                .filter(|d| d.device_type.as_deref() == Some("thermostat"))
+                .collect();
+            if thermos.is_empty() {
+                return None;
+            }
+            let temps: Vec<f64> = thermos
+                .iter()
+                .filter_map(|d| {
+                    d.attributes
+                        .get("current_temperature")
+                        .and_then(|v| v.as_f64())
+                })
+                .collect();
+            let avg = if temps.is_empty() {
+                None
+            } else {
+                Some(temps.iter().sum::<f64>() / temps.len() as f64)
+            };
+            let any_calling = thermos.iter().any(|d| {
+                matches!(
+                    d.attributes
+                        .get("call_for")
+                        .and_then(Value::as_str),
+                    Some("heat") | Some("cool")
+                )
+            });
+            let calling_kind = thermos.iter().find_map(|d| {
+                d.attributes
+                    .get("call_for")
+                    .and_then(Value::as_str)
+                    .and_then(|s| match s {
+                        "heat" => Some(("heating", "warn")),
+                        "cool" => Some(("cooling", "ok")),
+                        _ => None,
+                    })
+            });
+            let pill = if any_calling {
+                calling_kind
+            } else {
+                Some(("idle", "idle"))
+            };
+            Some(HeroTile {
+                name: "climate",
+                icon: "thermometer-simple",
+                value: avg
+                    .map(|t| format!("{t:.0}"))
+                    .unwrap_or_else(|| "—".into()),
+                unit: avg.map(|_| "°"),
+                pill,
+                target: "/devices?focus=climate".into(),
+            })
+        }
+
+        "security" => {
+            let tags = load_security_tags();
+            // If the user has explicitly tagged any devices as security-
+            // relevant, honor that set. Otherwise fall back to "all locks
+            // + all contact sensors" so the tile is useful out of the box.
+            let in_security_set = |d: &&DeviceState| -> bool {
+                if !tags.is_empty() {
+                    tags.contains(&d.device_id)
+                } else {
+                    matches!(
+                        d.device_type.as_deref(),
+                        Some("lock") | Some("contact_sensor")
+                    )
+                }
+            };
+            let locks: Vec<&DeviceState> = devices
+                .values()
+                .filter(|d| d.device_type.as_deref() == Some("lock"))
+                .filter(in_security_set)
+                .collect();
+            let contacts: Vec<&DeviceState> = devices
+                .values()
+                .filter(|d| d.device_type.as_deref() == Some("contact_sensor"))
+                .filter(in_security_set)
+                .collect();
+            if locks.is_empty() && contacts.is_empty() {
+                return None;
+            }
+            let unlocked = locks
+                .iter()
+                .filter(|d| {
+                    !d.attributes
+                        .get("locked")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true)
+                })
+                .count();
+            let open = contacts
+                .iter()
+                .filter(|d| {
+                    d.attributes
+                        .get("open")
+                        .and_then(Value::as_bool)
+                        .or_else(|| d.attributes.get("contact").and_then(Value::as_bool))
+                        .unwrap_or(false)
+                })
+                .count();
+            let pill = if unlocked > 0 || open > 0 {
+                Some(("attention", "warn"))
+            } else {
+                Some(("secure", "ok"))
+            };
+            let value = if unlocked == 0 && open == 0 {
+                "all closed".to_string()
+            } else if unlocked > 0 && open > 0 {
+                format!("{unlocked} + {open}")
+            } else if unlocked > 0 {
+                format!("{unlocked} unlocked")
+            } else {
+                format!("{open} open")
+            };
+            Some(HeroTile {
+                name: "security",
+                icon: "shield-check",
+                value,
+                unit: None,
+                pill,
+                target: "/devices?focus=security".into(),
+            })
+        }
+
+        "media" => {
+            let speakers: Vec<&DeviceState> = devices
+                .values()
+                .filter(|d| d.device_type.as_deref() == Some("media_player"))
+                .collect();
+            if speakers.is_empty() {
+                return None;
+            }
+            let playing = speakers.iter().find(|d| {
+                matches!(
+                    d.attributes.get("playback").and_then(Value::as_str),
+                    Some("playing")
+                )
+            });
+            match playing {
+                Some(d) => Some(HeroTile {
+                    name: "media",
+                    icon: "speaker-hifi",
+                    value: d.name.clone(),
+                    unit: None,
+                    pill: Some(("playing", "ok")),
+                    // Drop into the playing device's detail page directly
+                    // so the user can control it. Other media players
+                    // are one click away via the focus filter.
+                    target: format!("/devices/{}", d.device_id),
+                }),
+                None => Some(HeroTile {
+                    name: "media",
+                    icon: "speaker-hifi",
+                    value: "idle".into(),
+                    unit: None,
+                    pill: Some(("paused", "idle")),
+                    target: "/devices?focus=media".into(),
+                }),
+            }
+        }
+
+        "energy" => {
+            let monitors: Vec<&DeviceState> = devices
+                .values()
+                .filter(|d| d.device_type.as_deref() == Some("power_monitor"))
+                .collect();
+            if monitors.is_empty() {
+                return None;
+            }
+            let total_w: f64 = monitors
+                .iter()
+                .filter_map(|d| {
+                    d.attributes
+                        .get("power_w")
+                        .or_else(|| d.attributes.get("watts"))
+                        .and_then(|v| v.as_f64())
+                })
+                .sum();
+            let (value, unit) = if total_w >= 1000.0 {
+                (format!("{:.1}", total_w / 1000.0), Some("kW"))
+            } else {
+                (format!("{:.0}", total_w), Some("W"))
+            };
+            Some(HeroTile {
+                name: "energy",
+                icon: "lightning",
+                value,
+                unit,
+                pill: Some(("ok", "ok")),
+                target: "/devices?focus=energy".into(),
+            })
+        }
+
+        "activity" => {
+            let (label, kind, value) = match status {
+                WsStatus::Live => ("streaming", "ok", "live".to_string()),
+                WsStatus::Connecting => ("connecting", "warn", "—".into()),
+                WsStatus::Disconnected => ("offline", "alert", "—".into()),
+            };
+            Some(HeroTile {
+                name: "activity",
+                icon: "pulse",
+                value,
+                unit: None,
+                pill: Some((label, kind)),
+                target: "/events".into(),
+            })
+        }
+
+        _ => None,
+    }
+}
+
 #[component]
 fn StatChipsCard(config: Value) -> impl IntoView {
     let ws = use_ws();
@@ -1172,7 +1666,7 @@ fn StatChipsCard(config: Value) -> impl IntoView {
                             };
                             view! {
                                 <span class=tone_class>
-                                    <span class="material-icons stat-chip-icon">{icon}</span>
+                                    <i class={format!("ph ph-{} stat-chip-icon", icon)}></i>
                                     <span class="stat-chip-label">{label}</span>
                                     <span class="stat-chip-value">{value}</span>
                                 </span>
@@ -1227,7 +1721,7 @@ fn ModeChipsCard() -> impl IntoView {
                                         let id = mid_c.clone(); let v = !is_on; busy.set(true);
                                         spawn_local(async move { let _ = set_device_state(&token, &id, &json!({"on": v})).await; busy.set(false); });
                                     }>
-                                    <span class="material-icons" style="font-size:16px">{if is_on { "toggle_on" } else { "toggle_off" }}</span>
+                                    <i class=if is_on { "ph ph-toggle-right" } else { "ph ph-toggle-left" } style="font-size:16px"></i>
                                     {name}
                                 </button>
                             }
@@ -1270,7 +1764,7 @@ fn SceneButtonsCard() -> impl IntoView {
                                 let id = sid_click.clone(); busy.set(Some(id.clone()));
                                 spawn_local(async move { let _ = activate_scene(&token, &id).await; busy.set(None); });
                             }>
-                            <span class="material-icons" style="font-size:16px">"play_arrow"</span>
+                            <i class="ph ph-play" style="font-size:16px"></i>
                             {name}
                         </button>
                     }
@@ -1324,22 +1818,22 @@ fn AddCardPanel(widgets: RwSignal<Vec<DashboardWidget>>) -> impl IntoView {
                     view! {
                         <div class="add-card-type-grid">
                             <button class="add-card-type-btn" on:click=move |_| adding.set(Some("device".into()))>
-                                <span class="material-icons">"devices"</span> "Single Device"
+                                <i class="ph ph-devices"></i> "Single Device"
                             </button>
                             <button class="add-card-type-btn" on:click=move |_| adding.set(Some("entities".into()))>
-                                <span class="material-icons">"list"</span> "Entities"
+                                <i class="ph ph-list"></i> "Entities"
                             </button>
                             <button class="add-card-type-btn" on:click=move |_| adding.set(Some("overview".into()))>
-                                <span class="material-icons">"analytics"</span> "Overview Counter"
+                                <i class="ph ph-chart-line"></i> "Overview Counter"
                             </button>
                             <button class="add-card-type-btn" on:click=move |_| adding.set(Some("chips".into()))>
-                                <span class="material-icons">"sensors"</span> "Stat Chips"
+                                <i class="ph ph-broadcast"></i> "Stat Chips"
                             </button>
                             <button class="add-card-type-btn" on:click=move |_| { add_widget(DashboardWidgetType::ModeChips, "Modes".into(), json!({"card_size":"medium"})); }>
-                                <span class="material-icons">"tune"</span> "Mode Chips"
+                                <i class="ph ph-sliders-horizontal"></i> "Mode Chips"
                             </button>
                             <button class="add-card-type-btn" on:click=move |_| { add_widget(DashboardWidgetType::SceneRow, "Scenes".into(), json!({"card_size":"medium"})); }>
-                                <span class="material-icons">"play_circle"</span> "Scene Buttons"
+                                <i class="ph ph-play-circle"></i> "Scene Buttons"
                             </button>
                         </div>
                     }.into_any()

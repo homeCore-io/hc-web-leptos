@@ -164,26 +164,56 @@ fn NavShell(children: Children) -> impl IntoView {
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
     let role = move || auth.user.get().map(|u| u.role).unwrap_or_default();
 
+    let location = use_location();
+
+    // Sidebar collapsed state — persisted to localStorage so reload
+    // preserves whatever the user chose.
+    let collapsed = RwSignal::new(load_sidebar_collapsed());
+    Effect::new(move |_| {
+        save_sidebar_collapsed(collapsed.get());
+    });
+
     view! {
-        <div class="shell">
+        <div class="shell" class:shell--collapsed=move || collapsed.get()>
             <aside class="sidebar">
-                <div>
-                    <h1><a href="/dashboards">"HomeCore"</a></h1>
-                    <p class="subtitle">"Leptos web client"</p>
+                <div class="sidebar__header">
+                    <div class="sidebar__brand">
+                        <h1>
+                            <a href="/dashboards" class="hc-wordmark">
+                                <span class="hc-wordmark__a">"home"</span><span class="hc-wordmark__b">"Core"</span>
+                            </a>
+                        </h1>
+                        <p class="subtitle">"control surface"</p>
+                    </div>
+                    <button
+                        class="sidebar__collapse-toggle"
+                        title=move || if collapsed.get() { "Expand sidebar" } else { "Collapse sidebar" }
+                        on:click=move |_| collapsed.update(|v| *v = !*v)
+                    >
+                        <i class=move || if collapsed.get() {
+                            "ph ph-caret-double-right"
+                        } else {
+                            "ph ph-caret-double-left"
+                        }></i>
+                    </button>
                 </div>
                 <SidebarNav />
             </aside>
 
             <div class="main-col">
                 <header class="topbar">
-                    <div class="user-info">
-                        <strong>{username}</strong>
-                        {move || {
-                            let r = role();
-                            (!r.is_empty()).then(|| view! { <span class="role">{r}</span> })
-                        }}
+                    <div class="topbar-context">
+                        <span class="topbar-context__kicker">"section"</span>
+                        <span class="topbar-context__title">{move || section_title(&location.pathname.get())}</span>
                     </div>
                     <div class="topbar-actions">
+                        <div class="user-info">
+                            <strong>{username}</strong>
+                            {move || {
+                                let r = role();
+                                (!r.is_empty()).then(|| view! { <span class="role">{r}</span> })
+                            }}
+                        </div>
                         <button
                             class="btn btn-icon"
                             title="Toggle theme"
@@ -198,7 +228,7 @@ fn NavShell(children: Children) -> impl IntoView {
                                 }
                             }
                         >
-                            <span class="material-icons" style="font-size:18px">"dark_mode"</span>
+                            <i class="ph ph-moon" style="font-size:18px"></i>
                         </button>
                         <button
                             class="btn btn-outline"
@@ -216,6 +246,27 @@ fn NavShell(children: Children) -> impl IntoView {
     }
 }
 
+/// Map the current path to a human-readable section title for the
+/// topbar. First-segment lookup; deeper paths show the section
+/// they belong to.
+fn section_title(pathname: &str) -> &'static str {
+    let first = pathname.trim_start_matches('/').split('/').next().unwrap_or("");
+    match first {
+        "dashboards" => "Overview",
+        "devices"    => "Devices",
+        "areas"      => "Areas",
+        "scenes"     => "Scenes",
+        "modes"      => "Modes",
+        "events"     => "Activity",
+        "rules"      => "Rules",
+        "glue"       => "Glue",
+        "plugins"    => "Plugins",
+        "admin"      => "Admin",
+        "audit"      => "Audit",
+        _            => "HomeCore",
+    }
+}
+
 // ── Sidebar Navigation ──────────────────────────────────────────────────────
 
 const NAV_ORDER_KEY: &str = "hc-leptos:nav-order";
@@ -227,19 +278,36 @@ struct NavItem {
     label: &'static str,
 }
 
+// Icon names are Phosphor identifiers (without the `ph-` prefix);
+// the SidebarNav view composes the full class as `ph ph-{icon}`.
 const NAV_ITEMS: &[NavItem] = &[
-    NavItem { id: "dashboards", href: "/dashboards", icon: "dashboard", label: "Overview" },
-    NavItem { id: "devices", href: "/devices", icon: "devices_other", label: "Devices" },
-    NavItem { id: "areas", href: "/areas", icon: "home_work", label: "Areas" },
-    NavItem { id: "scenes", href: "/scenes", icon: "lightbulb", label: "Scenes" },
-    NavItem { id: "modes", href: "/modes", icon: "tune", label: "Modes" },
-    NavItem { id: "events", href: "/events", icon: "bolt", label: "Events" },
-    NavItem { id: "rules", href: "/rules", icon: "smart_toy", label: "Rules" },
-    NavItem { id: "glue", href: "/glue", icon: "extension", label: "Glue" },
-    NavItem { id: "plugins", href: "/plugins", icon: "widgets", label: "Plugins" },
-    NavItem { id: "admin", href: "/admin", icon: "admin_panel_settings", label: "Admin" },
-    NavItem { id: "audit", href: "/audit", icon: "fact_check", label: "Audit" },
+    NavItem { id: "dashboards", href: "/dashboards", icon: "gauge",          label: "Overview" },
+    NavItem { id: "devices",    href: "/devices",    icon: "devices",        label: "Devices"  },
+    NavItem { id: "areas",      href: "/areas",      icon: "house-line",     label: "Areas"    },
+    NavItem { id: "scenes",     href: "/scenes",     icon: "lightbulb",      label: "Scenes"   },
+    NavItem { id: "modes",      href: "/modes",      icon: "sliders-horizontal", label: "Modes" },
+    NavItem { id: "events",     href: "/events",     icon: "lightning",      label: "Events"   },
+    NavItem { id: "rules",      href: "/rules",      icon: "robot",          label: "Rules"    },
+    NavItem { id: "glue",       href: "/glue",       icon: "puzzle-piece",   label: "Glue"     },
+    NavItem { id: "plugins",    href: "/plugins",    icon: "squares-four",   label: "Plugins"  },
+    NavItem { id: "admin",      href: "/admin",      icon: "shield-check",   label: "Admin"    },
+    NavItem { id: "audit",      href: "/audit",      icon: "list-checks",    label: "Audit"    },
 ];
+
+const SIDEBAR_COLLAPSED_KEY: &str = "hc-leptos:sidebar:collapsed";
+
+fn load_sidebar_collapsed() -> bool {
+    crate::pages::shared::ls_get(SIDEBAR_COLLAPSED_KEY)
+        .map(|s| s == "1" || s == "true")
+        .unwrap_or(false)
+}
+
+fn save_sidebar_collapsed(collapsed: bool) {
+    crate::pages::shared::ls_set(
+        SIDEBAR_COLLAPSED_KEY,
+        if collapsed { "1" } else { "0" },
+    );
+}
 
 fn load_nav_order() -> Vec<&'static str> {
     if let Some(json_str) = crate::pages::shared::ls_get(NAV_ORDER_KEY) {
@@ -296,12 +364,12 @@ fn SidebarNav() -> impl IntoView {
                                                 if pos > 0 { o.swap(pos, pos - 1); save_nav_order(o); }
                                             }
                                         });
-                                    }><span class="material-icons" style="font-size:14px">"arrow_upward"</span></button>
+                                    }><i class="ph ph-arrow-up" style="font-size:14px"></i></button>
                                 }
                             })}
-                            <a href=href class=active_class>
-                                <span class="material-icons" style="font-size:18px">{icon}</span>
-                                {label}
+                            <a href=href class=active_class title=label>
+                                <i class={format!("ph ph-{icon}")} style="font-size:18px"></i>
+                                <span class="sidebar-nav__label">{label}</span>
                             </a>
                         </div>
                     }
@@ -311,8 +379,8 @@ fn SidebarNav() -> impl IntoView {
                 class="sidebar-edit-toggle"
                 on:click=move |_| editing.update(|v| *v = !*v)
             >
-                <span class="material-icons" style="font-size:14px">{move || if editing.get() { "check" } else { "swap_vert" }}</span>
-                {move || if editing.get() { "Done" } else { "Reorder" }}
+                <i class=move || if editing.get() { "ph ph-check" } else { "ph ph-arrows-down-up" } style="font-size:14px"></i>
+                <span class="sidebar-nav__label">{move || if editing.get() { "Done" } else { "Reorder" }}</span>
             </button>
         </nav>
     }

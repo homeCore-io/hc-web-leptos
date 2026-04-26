@@ -54,14 +54,18 @@ pub fn LoginPage() -> impl IntoView {
         <div class="login-wrap">
             <div class="login-card">
                 <div>
-                    <h1>"HomeCore"</h1>
-                    <p class="subtitle">"Sign in to your instance"</p>
+                    <h1>
+                        <span class="hc-wordmark">
+                            <span class="hc-wordmark__a">"home"</span><span class="hc-wordmark__b">"Core"</span>
+                        </span>
+                    </h1>
+                    <p class="login-tagline">"control surface"</p>
                 </div>
 
                 <form on:submit=submit>
                     <div style="display:grid;gap:0.85rem;">
-                        <div class="login-field">
-                            <label for="username">"Username"</label>
+                        <label for="username">
+                            "Username"
                             <input
                                 id="username"
                                 class="input"
@@ -71,9 +75,9 @@ pub fn LoginPage() -> impl IntoView {
                                 placeholder="admin"
                                 disabled=is_loading
                             />
-                        </div>
-                        <div class="login-field">
-                            <label for="password">"Password"</label>
+                        </label>
+                        <label for="password">
+                            "Password"
                             <input
                                 id="password"
                                 class="input"
@@ -82,22 +86,20 @@ pub fn LoginPage() -> impl IntoView {
                                 on:input=move |ev| password.set(event_target_value(&ev))
                                 disabled=is_loading
                             />
-                        </div>
+                        </label>
                     </div>
 
                     {move || error.get().map(|e| view! {
                         <p class="msg-error">{e}</p>
                     })}
 
-                    <div style="margin-top:0.5rem;">
-                        <button
-                            type="submit"
-                            class="primary hc-btn-block"
-                            disabled=is_loading
-                        >
-                            {move || if loading.get() { "Signing in…" } else { "Sign in" }}
-                        </button>
-                    </div>
+                    <button
+                        type="submit"
+                        class="primary hc-btn-block"
+                        disabled=is_loading
+                    >
+                        {move || if loading.get() { "Signing in…" } else { "Sign in" }}
+                    </button>
                 </form>
             </div>
         </div>

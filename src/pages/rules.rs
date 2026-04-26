@@ -449,7 +449,7 @@ pub fn RulesPage() -> impl IntoView {
                 let refs = stale_refs.get();
                 (!refs.is_empty()).then(|| view! {
                     <div class="stale-refs-banner">
-                        <span class="material-icons" style="font-size:16px; vertical-align:middle">"warning"</span>
+                        <i class="ph ph-warning" style="font-size:16px; vertical-align:middle"></i>
                         {format!(" {} rule(s) reference deleted devices:", refs.len())}
                         <ul class="stale-refs-list">
                             {refs.into_iter().map(|entry| {
@@ -474,9 +474,16 @@ pub fn RulesPage() -> impl IntoView {
             // ── Empty ─────────────────────────────────────────────────────────
             {move || {
                 let list = filtered.get();
-                (!loading.get() && list.is_empty()).then(||
-                    view! { <p class="msg-muted">"No rules match the current filters."</p> }
-                )
+                (!loading.get() && list.is_empty()).then(|| view! {
+                    <div class="hc-empty">
+                        <i class="ph ph-robot hc-empty__icon"></i>
+                        <div class="hc-empty__title">"No rules"</div>
+                        <p class="hc-empty__body">
+                            "Rules react to device state, time, and events. Try clearing filters, \
+                             or create a new rule to automate your home."
+                        </p>
+                    </div>
+                })
             }}
 
             // ── Rule list ─────────────────────────────────────────────────────
@@ -580,7 +587,7 @@ pub fn RulesPage() -> impl IntoView {
                                 >
                                     {err.clone().map(|msg| view! {
                                         <div class="rule-row-error">
-                                            <span class="material-icons" style="font-size:14px;vertical-align:middle">"error"</span>
+                                            <i class="ph ph-warning-circle" style="font-size:14px;vertical-align:middle"></i>
                                             " "{msg}
                                         </div>
                                     })}
@@ -655,7 +662,7 @@ pub fn RulesPage() -> impl IntoView {
                                                 title="Clone rule"
                                                 on:click=do_clone
                                             >
-                                                <span class="material-icons" style="font-size:15px">"content_copy"</span>
+                                                <i class="ph ph-copy" style="font-size:15px"></i>
                                             </button>
 
                                             {move || {
@@ -682,7 +689,7 @@ pub fn RulesPage() -> impl IntoView {
                                                             title="Delete rule"
                                                             on:click=move |_| confirm_delete.set(Some(id_set.clone()))
                                                         >
-                                                            <span class="material-icons" style="font-size:15px">"delete"</span>
+                                                            <i class="ph ph-trash" style="font-size:15px"></i>
                                                         </button>
                                                     }.into_any()
                                                 }
@@ -729,9 +736,7 @@ fn RuleGroupsPanel(
                     class="hc-btn hc-btn--sm hc-btn--outline"
                     on:click=move |_| expanded.update(|v| *v = !*v)
                 >
-                    <span class="material-icons" style="font-size:16px">
-                        {move || if expanded.get() { "expand_less" } else { "expand_more" }}
-                    </span>
+                    <i class=move || if expanded.get() { "ph ph-caret-up" } else { "ph ph-caret-down" } style="font-size:16px"></i>
                     " Groups "
                     <span class="cell-subtle">
                         {move || {
@@ -803,7 +808,7 @@ fn RuleGroupsPanel(
                                                 });
                                             }
                                         >
-                                            <span class="material-icons" style="font-size:14px">"play_arrow"</span>
+                                            <i class="ph ph-play" style="font-size:14px"></i>
                                         </button>
                                         <button
                                             class="hc-btn hc-btn--sm hc-btn--outline"
@@ -822,7 +827,7 @@ fn RuleGroupsPanel(
                                                 });
                                             }
                                         >
-                                            <span class="material-icons" style="font-size:14px">"pause"</span>
+                                            <i class="ph ph-pause" style="font-size:14px"></i>
                                         </button>
                                         <button
                                             class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline"
@@ -844,7 +849,7 @@ fn RuleGroupsPanel(
                                                 });
                                             }
                                         >
-                                            <span class="material-icons" style="font-size:14px">"delete"</span>
+                                            <i class="ph ph-trash" style="font-size:14px"></i>
                                         </button>
                                     </div>
                                 </div>

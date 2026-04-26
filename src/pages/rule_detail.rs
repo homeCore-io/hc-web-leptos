@@ -64,6 +64,25 @@ fn default_rule() -> Rule {
 // ── Bridge: merge typed metadata with sub-editor Value data for save ────────
 
 /// Build a Rule for saving.
+/// Render a Utc timestamp as a short relative age suitable for the
+/// sticky save-status indicator. Granularity: seconds for the first
+/// minute, minutes for the first hour, otherwise hours.
+fn format_relative_age(ts: chrono::DateTime<chrono::Utc>) -> String {
+    let now = chrono::Utc::now();
+    let secs = (now - ts).num_seconds();
+    if secs < 5 {
+        "saved just now".into()
+    } else if secs < 60 {
+        format!("saved {secs}s ago")
+    } else if secs < 3600 {
+        format!("saved {}m ago", secs / 60)
+    } else if secs < 86_400 {
+        format!("saved {}h ago", secs / 3600)
+    } else {
+        format!("saved {}d ago", secs / 86_400)
+    }
+}
+
 fn build_save_rule(rule: RwSignal<Rule>) -> Rule {
     rule.get_untracked()
 }
@@ -97,6 +116,9 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
     let loading = RwSignal::new(!is_new);
     let saving  = RwSignal::new(false);
     let save_err: RwSignal<Option<String>> = RwSignal::new(None);
+    // Timestamp of the last successful save — drives the "saved Xs ago"
+    // text in the sticky action bar.
+    let last_saved_at: RwSignal<Option<chrono::DateTime<chrono::Utc>>> = RwSignal::new(None);
     let toast = use_toast();
     let advanced_open  = RwSignal::new(false);
     let confirm_delete = RwSignal::new(false);
@@ -222,9 +244,16 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
             // ── Editor (hidden while loading) ────────────────────────────────
             <Show when=move || !loading.get()>
 
-                // ── Rule header: name + top action bar ───────────────────────
+                // ── Rule header card: Identity (top) + Behavior (bottom) ─────
+                // Identity is just name + enabled + tags — feels like the
+                // document's title block. Behavior groups priority / run-mode /
+                // cooldown into a denser, mono-numerals block below a hairline.
+                // Action buttons (Save/Cancel/Clone/Delete) live in a sticky
+                // bottom bar — see further down — so they're always reachable
+                // without duplicating them up here.
                 <section class="detail-card">
-                    <div class="rule-header-row">
+                    // ── Identity ─────────────────────────────────────────────
+                    <div class="rule-identity">
                         <input type="text" class="hc-input rule-name-input" placeholder="Rule name"
                             prop:value=move || rule.get().name.clone()
                             on:input=move |ev| {
@@ -232,97 +261,6 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                 rule.update(|r| r.name = v);
                             }
                         />
-                        <div class="rule-header-actions">
-                            {
-                                let nav_save_top = navigate.clone();
-                                let nav_cancel_top = navigate.clone();
-                                let nav_clone_top = navigate.clone();
-                                let nav_delete_top = navigate.clone();
-                                view! {
-                                    <button class="hc-btn hc-btn--primary hc-btn--sm"
-                                        disabled=move || saving.get()
-                                        on:click=move |_| {
-                                            let token = match auth.token.get_untracked() { Some(t) => t, None => return };
-                                            let typed = build_save_rule(rule);
-                                            if typed.name.trim().is_empty() { save_err.set(Some("Rule name is required.".into())); return; }
-                                            save_err.set(None); saving.set(true);
-                                            let nav = nav_save_top.clone();
-                                            let rule_id_str = id.map(|s| s.get_untracked()).unwrap_or_default();
-                                            spawn_local(async move {
-                                                let result = if rule_id_str.is_empty() { create_rule(&token, &typed).await }
-                                                             else { update_rule(&token, &rule_id_str, &typed).await };
-                                                match result {
-                                                    Ok(saved) => {
-                                                        if rule_id_str.is_empty() {
-                                                            let new_id = saved.id.to_string();
-                                                            if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
-                                                        } else {
-                                                            saved_rule.set(Some(saved.clone()));
-                                                            rule.set(saved);
-                                                            toast.success("Saved successfully");
-                                                        }
-                                                    }
-                                                    Err(e) => save_err.set(Some(e)),
-                                                }
-                                                saving.set(false);
-                                            });
-                                        }
-                                    >{move || if saving.get() { "Saving…" } else { "Save" }}</button>
-                                    <button class="hc-btn hc-btn--outline hc-btn--sm"
-                                        disabled=move || saving.get()
-                                        on:click=move |_| nav_cancel_top("/rules", Default::default())
-                                    >"Cancel"</button>
-                                    {(!is_new).then(|| {
-                                        let nc = nav_clone_top.clone();
-                                        let nd = nav_delete_top.clone();
-                                        view! {
-                                            <button class="hc-btn hc-btn--outline hc-btn--sm" title="Clone"
-                                                disabled=move || saving.get()
-                                                on:click=move |_| {
-                                                    let token = match auth.token.get_untracked() { Some(t) => t, None => return };
-                                                    let rule_id = id.map(|s| s.get_untracked()).unwrap_or_default();
-                                                    if rule_id.is_empty() { return; }
-                                                    let nav = nc.clone();
-                                                    saving.set(true);
-                                                    spawn_local(async move {
-                                                        match clone_rule(&token, &rule_id).await {
-                                                            Ok(new_rule) => {
-                                                                let new_id = new_rule.id.to_string();
-                                                                if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
-                                                            }
-                                                            Err(e) => save_err.set(Some(e)),
-                                                        }
-                                                        saving.set(false);
-                                                    });
-                                                }
-                                            >
-                                                <span class="material-icons" style="font-size:14px;vertical-align:middle">"content_copy"</span>
-                                            </button>
-                                            <button class="hc-btn hc-btn--outline hc-btn--sm hc-btn--danger-outline" title="Delete"
-                                                disabled=move || saving.get()
-                                                on:click=move |_| {
-                                                    let token = match auth.token.get_untracked() { Some(t) => t, None => return };
-                                                    let rule_id = id.map(|s| s.get_untracked()).unwrap_or_default();
-                                                    let nav = nd.clone();
-                                                    saving.set(true);
-                                                    spawn_local(async move {
-                                                        match delete_rule(&token, &rule_id).await {
-                                                            Ok(()) => nav("/rules", Default::default()),
-                                                            Err(e) => { save_err.set(Some(e)); saving.set(false); }
-                                                        }
-                                                    });
-                                                }
-                                            >
-                                                <span class="material-icons" style="font-size:14px;vertical-align:middle">"delete"</span>
-                                            </button>
-                                        }
-                                    })}
-                                }
-                            }
-                        </div>
-                    </div>
-
-                    <div class="rule-meta-row">
                         <label class="rule-meta-inline">
                             <input type="checkbox"
                                 prop:checked=move || rule.get().enabled
@@ -335,143 +273,184 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                             " Enabled"
                         </label>
 
-                        <label class="field-label" style="margin:0">"Priority"</label>
-                        <input type="number" class="hc-input hc-input--sm" style="width:5rem"
-                            prop:value=move || rule.get().priority.to_string()
-                            on:input=move |ev| {
-                                if let Ok(n) = event_target_value(&ev).parse::<i32>() {
-                                    rule.update(|r| r.priority = n);
-                                }
-                            }
-                        />
-                    </div>
-
-                    // ── Tags ─────────────────────────────────────────────────
-                    <label class="field-label">"Tags"</label>
-                    <div class="tag-input-row">
-                        {move || {
-                            let tags = rule.get().tags.clone();
-                            tags.into_iter().enumerate().map(|(i, tag)| {
-                                view! {
-                                    <span class="tag-chip">
-                                        {tag}
-                                        <button class="tag-chip-remove"
-                                            on:click=move |_| rule.update(|r| {
-                                                if i < r.tags.len() { r.tags.remove(i); }
-                                            })
-                                        >"×"</button>
-                                    </span>
-                                }
-                            }).collect_view()
-                        }}
-                        <input type="text" class="hc-input hc-input--sm tag-chip-input"
-                            placeholder="Add tag, press Enter"
-                            prop:value=move || tag_input.get()
-                            on:input=move |ev| tag_input.set(event_target_value(&ev))
-                            on:keydown=move |ev| {
-                                if ev.key() == "Enter" || ev.key() == "," {
-                                    ev.prevent_default();
-                                    commit_tag();
-                                }
-                            }
-                            on:blur=move |_| commit_tag()
-                        />
-                    </div>
-
-                    // ── Run mode ─────────────────────────────────────────────
-                    <label class="field-label">"Run mode"</label>
-                    <select class="hc-select"
-                        on:change=move |ev| {
-                            let t = event_target_value(&ev);
-                            let rm = match t.as_str() {
-                                "single"  => RunMode::Single,
-                                "restart" => RunMode::Restart,
-                                "queued"  => RunMode::Queued { max_queue: 10 },
-                                _         => RunMode::Parallel,
-                            };
-                            rule.update(|r| r.run_mode = rm);
-                        }
-                    >
-                        {[("parallel","Parallel (default)"),("single","Single — skip if running"),("restart","Restart — cancel and restart"),("queued","Queued")]
-                            .map(|(v, label)| view! {
-                                <option value=v selected=move || {
-                                    let current = match &rule.get().run_mode {
-                                        RunMode::Parallel => "parallel",
-                                        RunMode::Single => "single",
-                                        RunMode::Restart => "restart",
-                                        RunMode::Queued { .. } => "queued",
-                                    };
-                                    current == v
-                                }>{label}</option>
-                            }).collect_view()}
-                    </select>
-                    {move || matches!(rule.get().run_mode, RunMode::Queued { .. }).then(|| {
-                        let mq = match rule.get().run_mode { RunMode::Queued { max_queue } => max_queue, _ => 10 };
-                        view! {
-                            <label class="field-label">"Max queue size"</label>
-                            <input type="number" class="hc-input hc-input--sm" style="width:8rem" min="1" prop:value=mq.to_string()
-                                on:input=move |ev| {
-                                    if let Ok(n) = event_target_value(&ev).parse::<usize>() {
-                                        rule.update(|r| { if let RunMode::Queued { ref mut max_queue } = r.run_mode { *max_queue = n.max(1); } });
+                        <div class="tag-input-row">
+                            {move || {
+                                let tags = rule.get().tags.clone();
+                                tags.into_iter().enumerate().map(|(i, tag)| {
+                                    view! {
+                                        <span class="tag-chip">
+                                            {tag}
+                                            <button class="tag-chip-remove"
+                                                on:click=move |_| rule.update(|r| {
+                                                    if i < r.tags.len() { r.tags.remove(i); }
+                                                })
+                                            >"×"</button>
+                                        </span>
                                     }
-                                } />
-                        }
-                    })}
+                                }).collect_view()
+                            }}
+                            <input type="text" class="hc-input hc-input--sm tag-chip-input"
+                                placeholder="Add tag, press Enter"
+                                prop:value=move || tag_input.get()
+                                on:input=move |ev| tag_input.set(event_target_value(&ev))
+                                on:keydown=move |ev| {
+                                    if ev.key() == "Enter" || ev.key() == "," {
+                                        ev.prevent_default();
+                                        commit_tag();
+                                    }
+                                }
+                                on:blur=move |_| commit_tag()
+                            />
+                        </div>
+                    </div>
 
-                    // ── Cooldown ─────────────────────────────────────────────
-                    <label class="field-label">"Cooldown (seconds)"</label>
-                    <input type="number" class="hc-input hc-input--sm" style="width:8rem" placeholder="None"
-                        prop:value=move || rule.get().cooldown_secs.map(|n| n.to_string()).unwrap_or_default()
-                        on:input=move |ev| {
-                            let raw = event_target_value(&ev);
-                            rule.update(|r| {
-                                r.cooldown_secs = raw.trim().parse::<u64>().ok();
-                            });
-                        }
-                    />
+                    // ── Behavior ─────────────────────────────────────────────
+                    <span class="rule-behavior-kicker">"behavior"</span>
+                    <div class="rule-behavior">
+                        <div>
+                            <label class="field-label">"Priority"</label>
+                            <input type="number" class="hc-input hc-input--sm" style="width:100%"
+                                prop:value=move || rule.get().priority.to_string()
+                                on:input=move |ev| {
+                                    if let Ok(n) = event_target_value(&ev).parse::<i32>() {
+                                        rule.update(|r| r.priority = n);
+                                    }
+                                }
+                            />
+                        </div>
+                        <div>
+                            <label class="field-label">"Run mode"</label>
+                            <select class="hc-select" style="width:100%"
+                                on:change=move |ev| {
+                                    let t = event_target_value(&ev);
+                                    let rm = match t.as_str() {
+                                        "single"  => RunMode::Single,
+                                        "restart" => RunMode::Restart,
+                                        "queued"  => RunMode::Queued { max_queue: 10 },
+                                        _         => RunMode::Parallel,
+                                    };
+                                    rule.update(|r| r.run_mode = rm);
+                                }
+                            >
+                                {[("parallel","Parallel"),("single","Single"),("restart","Restart"),("queued","Queued")]
+                                    .map(|(v, label)| view! {
+                                        <option value=v selected=move || {
+                                            let current = match &rule.get().run_mode {
+                                                RunMode::Parallel => "parallel",
+                                                RunMode::Single => "single",
+                                                RunMode::Restart => "restart",
+                                                RunMode::Queued { .. } => "queued",
+                                            };
+                                            current == v
+                                        }>{label}</option>
+                                    }).collect_view()}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="field-label">"Cooldown (sec)"</label>
+                            <input type="number" class="hc-input hc-input--sm" style="width:100%" placeholder="None"
+                                prop:value=move || rule.get().cooldown_secs.map(|n| n.to_string()).unwrap_or_default()
+                                on:input=move |ev| {
+                                    let raw = event_target_value(&ev);
+                                    rule.update(|r| {
+                                        r.cooldown_secs = raw.trim().parse::<u64>().ok();
+                                    });
+                                }
+                            />
+                        </div>
+                        {move || matches!(rule.get().run_mode, RunMode::Queued { .. }).then(|| {
+                            let mq = match rule.get().run_mode { RunMode::Queued { max_queue } => max_queue, _ => 10 };
+                            view! {
+                                <div>
+                                    <label class="field-label">"Max queue"</label>
+                                    <input type="number" class="hc-input hc-input--sm" style="width:100%" min="1" prop:value=mq.to_string()
+                                        on:input=move |ev| {
+                                            if let Ok(n) = event_target_value(&ev).parse::<usize>() {
+                                                rule.update(|r| { if let RunMode::Queued { ref mut max_queue } = r.run_mode { *max_queue = n.max(1); } });
+                                            }
+                                        } />
+                                </div>
+                            }
+                        })}
+                        // Reactive helper text describing the chosen run mode.
+                        <div class="rule-behavior-helper">
+                            {move || match rule.get().run_mode {
+                                RunMode::Parallel => "Each fire spawns its own task; previous runs continue uninterrupted.",
+                                RunMode::Single   => "If a previous run is still in progress, this fire is skipped.",
+                                RunMode::Restart  => "If a previous run is still in progress, it's cancelled and a new run starts.",
+                                RunMode::Queued { .. } => "Fires queue up; one runs at a time. Drops if the queue is full.",
+                            }}
+                        </div>
+                    </div>
                 </section>
 
-                // ── Trigger ──────────────────────────────────────────────────
-                <section class="detail-card">
-                    <h3 class="detail-card-title">"Trigger"</h3>
-                    <TriggerEditor rule=rule />
-                </section>
+                // ── Rule flow: Trigger → Conditions → Actions ───────────────
+                // Wrapped in .hc-rule-flow so the connector hairline draws
+                // through all three steps. Each step gets a kicker + numbered
+                // marker on the left margin.
+                <div class="hc-rule-flow">
 
-                // ── Conditions ───────────────────────────────────────────────
-                <section class="detail-card">
-                    <div class="rule-section-header">
-                        <h3 class="detail-card-title">"Conditions"</h3>
-                        <button class="hc-btn hc-btn--sm hc-btn--outline"
+                    // ── Step 1 · Trigger ─────────────────────────────────────
+                    <section class="hc-step">
+                        <div class="hc-step__marker"><i class="ph ph-clock"></i></div>
+                        <div class="hc-step__head">
+                            <span class="hc-step__kicker">"step 1 · when"</span>
+                            <span class="hc-step__title">"Trigger"</span>
+                        </div>
+                        <TriggerEditor rule=rule />
+                    </section>
+
+                    // ── Step 2 · Conditions ──────────────────────────────────
+                    <section class="hc-step">
+                        <div class="hc-step__marker"><i class="ph ph-funnel"></i></div>
+                        <div class="hc-step__head">
+                            <span class="hc-step__kicker">"step 2 · if"</span>
+                            <span class="hc-step__title">"Conditions"</span>
+                        </div>
+                        <ConditionList rule=rule />
+                        <button class="hc-rule-add-slot"
                             on:click=move |_| rule.update(|r| {
                                 r.conditions.push(default_condition_typed("device_state"));
                             })
-                        >"+ Add"</button>
-                    </div>
-                    <ConditionList rule=rule />
-                </section>
+                        >
+                            <i class="ph ph-plus"></i>
+                            "add condition"
+                        </button>
+                    </section>
 
-                // ── Actions ──────────────────────────────────────────────────
-                <section class="detail-card">
-                    <div class="rule-section-header">
-                        <h3 class="detail-card-title">"Actions"</h3>
-                        <button class="hc-btn hc-btn--sm hc-btn--outline"
+                    // ── Step 3 · Actions ─────────────────────────────────────
+                    <section class="hc-step">
+                        <div class="hc-step__marker"><i class="ph ph-arrow-right"></i></div>
+                        <div class="hc-step__head">
+                            <span class="hc-step__kicker">"step 3 · then"</span>
+                            <span class="hc-step__title">"Actions"</span>
+                        </div>
+                        <ActionList rule=rule />
+                        <button class="hc-rule-add-slot"
                             on:click=move |_| rule.update(|r| {
                                 r.actions.push(RuleAction {
                                     enabled: true,
                                     action: default_action_typed("log_message"),
                                 });
                             })
-                        >"+ Add"</button>
-                    </div>
-                    <ActionList rule=rule />
-                </section>
+                        >
+                            <i class="ph ph-plus"></i>
+                            "add action"
+                        </button>
+                    </section>
+                </div>
 
                 // ── Advanced (collapsible) ───────────────────────────────────
                 <section class="detail-card">
                     <button class="rule-advanced-toggle"
                         on:click=move |_| advanced_open.update(|v| *v = !*v)
                     >
-                        {move || if advanced_open.get() { "▾ Advanced" } else { "▸ Advanced" }}
+                        <i class=move || if advanced_open.get() {
+                            "ph ph-caret-down"
+                        } else {
+                            "ph ph-caret-right"
+                        } style="font-size:14px"></i>
+                        " advanced"
                     </button>
 
                     <Show when=move || advanced_open.get()>
@@ -551,8 +530,12 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                     </Show>
                 </section>
 
-                // ── Action bar ───────────────────────────────────────────────
-                <div class="rule-action-bar">
+                // ── Sticky action bar ────────────────────────────────────────
+                // Always reachable while editing long rules. Save status
+                // ("just now", "2 min ago") sits in the right-aligned slot
+                // so users get persistent confirmation that their last save
+                // landed without a dismissable banner.
+                <div class="rule-action-bar rule-action-bar--sticky">
                     {
                         let nav_save   = navigate.clone();
                         let nav_cancel = navigate.clone();
@@ -579,7 +562,9 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                                     let new_id = saved.id.to_string();
                                                     if !new_id.is_empty() { nav(&format!("/rules/{new_id}"), Default::default()); }
                                                 } else {
+                                                    saved_rule.set(Some(saved.clone()));
                                                     rule.set(saved);
+                                                    last_saved_at.set(Some(chrono::Utc::now()));
                                                     toast.success("Saved successfully");
                                                 }
                                             }
@@ -623,7 +608,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                         });
                                     }
                                 >
-                                    <span class="material-icons" style="font-size:15px;vertical-align:middle">"content_copy"</span>
+                                    <i class="ph ph-copy" style="font-size:15px;vertical-align:middle"></i>
                                     " Clone"
                                 </button>
 
@@ -662,6 +647,35 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                     }
                                 }
                             </Show>
+
+                            // Save status — right-aligned, persistent. States:
+                            //   saving  → "saving…"
+                            //   dirty   → "unsaved changes"
+                            //   saved   → "saved Xs ago" (relative)
+                            //   none    → "" (nothing yet)
+                            <span class=move || {
+                                if saving.get() {
+                                    "rule-save-status rule-save-status--saving"
+                                } else if is_dirty.get() {
+                                    "rule-save-status"
+                                } else if last_saved_at.get().is_some() {
+                                    "rule-save-status rule-save-status--saved"
+                                } else {
+                                    "rule-save-status"
+                                }
+                            }>
+                                {move || {
+                                    if saving.get() {
+                                        "saving…".to_string()
+                                    } else if is_dirty.get() {
+                                        "unsaved changes".to_string()
+                                    } else if let Some(ts) = last_saved_at.get() {
+                                        format_relative_age(ts)
+                                    } else {
+                                        String::new()
+                                    }
+                                }}
+                            </span>
                         }
                     }
                 </div>
@@ -698,13 +712,13 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                             let action_count = r["actions"].as_array().map(|a| a.len()).unwrap_or(0);
                             let overall_class = if would_fire { "test-overall--pass" } else { "test-overall--fail" };
                             let overall_text = if would_fire { "Rule WOULD fire" } else { "Rule would NOT fire" };
-                            let overall_icon = if would_fire { "check_circle" } else { "cancel" };
+                            let overall_icon = if would_fire { "check-circle" } else { "x-circle" };
                             let pretty = serde_json::to_string_pretty(&r).unwrap_or_default();
                             let show_raw = RwSignal::new(false);
 
                             view! {
                                 <div class=format!("test-overall {overall_class}")>
-                                    <span class="material-icons" style="font-size:18px; vertical-align:middle">{overall_icon}</span>
+                                    <i class={move || format!("ph ph-{}", overall_icon)} style="font-size:18px; vertical-align:middle"></i>
                                     " " {overall_text}
                                     {if would_fire { format!(" — {action_count} action(s)") } else { String::new() }}
                                 </div>
@@ -712,7 +726,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                                     {conditions.into_iter().enumerate().map(|(i, cond)| {
                                         let passed = cond["passed"].as_bool().unwrap_or(false);
                                         let badge_class = if passed { "test-badge test-badge--pass" } else { "test-badge test-badge--fail" };
-                                        let icon = if passed { "check" } else { "close" };
+                                        let icon = if passed { "check" } else { "x" };
                                         let cond_type = cond["condition"].as_object()
                                             .and_then(|o| o.keys().next().cloned())
                                             .unwrap_or_else(|| "unknown".to_string());
@@ -722,7 +736,7 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
 
                                         view! {
                                             <div class=badge_class>
-                                                <span class="material-icons" style="font-size:14px">{icon}</span>
+                                                <i class={format!("ph ph-{}", icon)} style="font-size:14px"></i>
                                                 <span class="test-badge-label">{format!("{}. {}", i + 1, cond_type)}</span>
                                                 {(!reason.is_empty()).then(|| view! { <span class="test-badge-reason">{format!(" — {reason}")}</span> })}
                                                 {(!actual.is_empty() && !expected.is_empty()).then(|| view! {
@@ -1499,19 +1513,24 @@ fn ConditionList(rule: RwSignal<Rule>) -> impl IntoView {
                 conditions.into_iter().enumerate().map(|(i, _cond)| {
                     let is_first = i == 0;
                     let is_last = i + 1 >= total;
+                    let n = i + 1;
                     view! {
+                        // AND divider between rows (skipped before the first).
+                        {(!is_first).then(|| view! {
+                            <div class="hc-rule-divider">"and"</div>
+                        })}
                         <div class="json-row">
+                            <span class="json-row__num">{n.to_string()}</span>
                             <div class="json-row-controls">
-                                <span class="json-row-index">{i + 1}</span>
                                 <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move up" disabled=is_first
                                     on:click=move |_| rule.update(|r| { if i > 0 { r.conditions.swap(i - 1, i); } })
-                                ><span class="material-icons" style="font-size:14px">"arrow_upward"</span></button>
+                                ><i class="ph ph-arrow-up" style="font-size:14px"></i></button>
                                 <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move down" disabled=is_last
                                     on:click=move |_| rule.update(|r| { if i + 1 < r.conditions.len() { r.conditions.swap(i, i + 1); } })
-                                ><span class="material-icons" style="font-size:14px">"arrow_downward"</span></button>
+                                ><i class="ph ph-arrow-down" style="font-size:14px"></i></button>
                                 <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
                                     on:click=move |_| rule.update(|r| { r.conditions.remove(i); })
-                                ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                ><i class="ph ph-x" style="font-size:14px"></i></button>
                             </div>
                             <TypedConditionEditor
                                 get=Signal::derive(move || rule.get().conditions.get(i).cloned().unwrap_or_else(|| default_condition_typed("device_state")))
@@ -1873,7 +1892,7 @@ fn TypedConditionEditor(
                                                         }
                                                         set.run(c);
                                                     }
-                                                ><span class="material-icons" style="font-size:14px">"arrow_upward"</span></button>
+                                                ><i class="ph ph-arrow-up" style="font-size:14px"></i></button>
                                                 <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move down" disabled=is_last
                                                     on:click=move |_| {
                                                         let mut c = get.get_untracked();
@@ -1885,7 +1904,7 @@ fn TypedConditionEditor(
                                                         }
                                                         set.run(c);
                                                     }
-                                                ><span class="material-icons" style="font-size:14px">"arrow_downward"</span></button>
+                                                ><i class="ph ph-arrow-down" style="font-size:14px"></i></button>
                                                 <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
                                                     on:click=move |_| {
                                                         let mut c = get.get_untracked();
@@ -1897,7 +1916,7 @@ fn TypedConditionEditor(
                                                         }
                                                         set.run(c);
                                                     }
-                                                ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                                ><i class="ph ph-x" style="font-size:14px"></i></button>
                                             </div>
                                             <TypedConditionEditor
                                                 get=Signal::derive(move || {
@@ -1952,7 +1971,7 @@ fn TypedConditionEditor(
                                             on:click=move |_| {
                                                 set.run(Condition::Not { condition: Box::new(default_condition_typed("device_state")) });
                                             }
-                                        ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                        ><i class="ph ph-x" style="font-size:14px"></i></button>
                                     </div>
                                     <TypedConditionEditor
                                         get=Signal::derive(move || {
@@ -2080,19 +2099,24 @@ fn ActionList(rule: RwSignal<Rule>) -> impl IntoView {
                     let is_first = i == 0;
                     let is_last = i + 1 >= total;
                     let disabled_class = if !ra.enabled { " json-row--disabled" } else { "" };
+                    let n = i + 1;
                     view! {
+                        // THEN divider between actions (skipped before the first).
+                        {(!is_first).then(|| view! {
+                            <div class="hc-rule-divider">"then"</div>
+                        })}
                         <div class=format!("json-row{disabled_class}")>
+                            <span class="json-row__num">{n.to_string()}</span>
                             <div class="json-row-controls">
-                                <span class="json-row-index">{i + 1}</span>
                                 <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move up" disabled=is_first
                                     on:click=move |_| rule.update(|r| { if i > 0 { r.actions.swap(i - 1, i); } })
-                                ><span class="material-icons" style="font-size:14px">"arrow_upward"</span></button>
+                                ><i class="ph ph-arrow-up" style="font-size:14px"></i></button>
                                 <button class="hc-btn hc-btn--sm hc-btn--outline" title="Move down" disabled=is_last
                                     on:click=move |_| rule.update(|r| { if i + 1 < r.actions.len() { r.actions.swap(i, i + 1); } })
-                                ><span class="material-icons" style="font-size:14px">"arrow_downward"</span></button>
+                                ><i class="ph ph-arrow-down" style="font-size:14px"></i></button>
                                 <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Remove"
                                     on:click=move |_| rule.update(|r| { r.actions.remove(i); })
-                                ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                ><i class="ph ph-x" style="font-size:14px"></i></button>
                             </div>
                             <TypedRuleActionEditor
                                 get=Signal::derive(move || rule.get().actions.get(i).cloned().unwrap_or(RuleAction { enabled: true, action: default_action_typed("log_message") }))
@@ -2157,7 +2181,7 @@ fn TypedActionEditor(
                             set.run(default_action_typed(def));
                         }
                     >
-                        <span class="material-icons" style="font-size:16px">{*icon}</span>
+                        <i class={format!("ph ph-{}", icon)} style="font-size:16px"></i>
                         <span class="action-cat-label">{*label}</span>
                     </button>
                 }
@@ -2294,7 +2318,7 @@ fn TypedActionEditor(
                                                     if let Action::Conditional { ref mut else_if, .. } = a { if bi < else_if.len() { else_if.remove(bi); } }
                                                     set.run(a);
                                                 }
-                                            ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                            ><i class="ph ph-x" style="font-size:14px"></i></button>
                                         </div>
                                         <label class="field-label">"Condition"</label>
                                         <textarea class="hc-textarea hc-textarea--code" rows="2" prop:value=branch_cond
@@ -2911,7 +2935,7 @@ fn TypedActionEditor(
                                                             on:click=move |_| { let mut a = get.get_untracked();
                                                                 if let Action::SetDeviceStatePerMode { ref mut modes, .. } = a { if mi < modes.len() { modes.remove(mi); } } set.run(a);
                                                             }
-                                                        ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                                        ><i class="ph ph-x" style="font-size:14px"></i></button>
                                                     </div>
                                                     <ModeSelect value=mode_id on_select=Callback::new(move |id: String| {
                                                         let mut a = get.get_untracked();
@@ -2956,7 +2980,7 @@ fn TypedActionEditor(
                                                             on:click=move |_| { let mut a = get.get_untracked();
                                                                 if let Action::DelayPerMode { ref mut modes, .. } = a { if mi < modes.len() { modes.remove(mi); } } set.run(a);
                                                             }
-                                                        ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                                        ><i class="ph ph-x" style="font-size:14px"></i></button>
                                                     </div>
                                                     <div class="trigger-row-2">
                                                         <ModeSelect value=mode_id on_select=Callback::new(move |id: String| {
@@ -3004,7 +3028,7 @@ fn TypedActionEditor(
                                                             on:click=move |_| { let mut a = get.get_untracked();
                                                                 if let Action::ActivateScenePerMode { ref mut modes, .. } = a { if mi < modes.len() { modes.remove(mi); } } set.run(a);
                                                             }
-                                                        ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                                        ><i class="ph ph-x" style="font-size:14px"></i></button>
                                                     </div>
                                                     <div class="trigger-row-2">
                                                         <ModeSelect value=mode_id on_select=Callback::new(move |id: String| {
@@ -3101,7 +3125,7 @@ fn TypedNestedActionList(
                                             acts.remove(i);
                                             set_actions.run(acts);
                                         }
-                                    ><span class="material-icons" style="font-size:14px">"close"</span></button>
+                                    ><i class="ph ph-x" style="font-size:14px"></i></button>
                                 </div>
                                 <TypedActionEditor
                                     get=Signal::derive(move || get_actions.get().get(i).cloned().unwrap_or_else(|| default_action_typed("log_message")))
@@ -3141,15 +3165,16 @@ fn category_default(cat: &str) -> &'static str {
     }
 }
 
+// Icon names are Phosphor identifiers (slot into "ph ph-{name}" by the view).
 const ACTION_CATEGORIES: &[(&str, &str, &str)] = &[
     ("device",      "Control device",  "devices"),
-    ("conditional", "IF / ELSE",       "call_split"),
-    ("notify",      "Notify",          "notifications"),
-    ("mode",        "Set mode",        "tune"),
-    ("timing",      "Delay / Wait",    "schedule"),
+    ("conditional", "IF / ELSE",       "git-branch"),
+    ("notify",      "Notify",          "bell"),
+    ("mode",        "Set mode",        "sliders-horizontal"),
+    ("timing",      "Delay / Wait",    "clock"),
     ("script",      "Script",          "code"),
-    ("rule_ctrl",   "Rule control",    "smart_toy"),
-    ("more",        "More…",           "more_horiz"),
+    ("rule_ctrl",   "Rule control",    "robot"),
+    ("more",        "More…",           "dots-three"),
 ];
 
 // ── TypedDeviceStateBuilder ──────────────────────────────────────────────────

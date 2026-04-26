@@ -313,7 +313,7 @@ fn MediaActionRow(
                 </select>
                 <button class="media-action-remove"
                     on:click=move |_| media_actions_remove(rows, row_idx, aidx)>
-                    <span class="material-icons" style="font-size:16px">"close"</span>
+                    <i class="ph ph-x" style="font-size:16px"></i>
                 </button>
             </div>
 
@@ -366,7 +366,7 @@ fn MediaActionRow(
                     <div class="control-row">
                         <span class="control-label">"Volume"</span>
                         <div class="slider-row">
-                            <span class="material-icons" style="font-size:18px;color:var(--hc-text-muted)">"volume_down"</span>
+                            <i class="ph ph-speaker-low" style="font-size:18px;color:var(--hc-text-muted)"></i>
                             <input type="range" min="0" max="100" step="1"
                                 prop:value=move || cur_vol.get() as i64
                                 on:change=move |ev| {
@@ -375,7 +375,7 @@ fn MediaActionRow(
                                     }
                                 }
                             />
-                            <span class="material-icons" style="font-size:18px;color:var(--hc-text-muted)">"volume_up"</span>
+                            <i class="ph ph-speaker-high" style="font-size:18px;color:var(--hc-text-muted)"></i>
                             <span class="slider-value">{move || format!("{:.0}%", cur_vol.get())}</span>
                         </div>
                     </div>
@@ -386,12 +386,12 @@ fn MediaActionRow(
                         <div class="toggle-group">
                             <button class:active=move || cur_muted.get()
                                 on:click=move |_| media_action_set_key(rows, row_idx, aidx, "muted", Value::Bool(true))>
-                                <span class="material-icons" style="font-size:16px;vertical-align:middle">"volume_off"</span>
+                                <i class="ph ph-speaker-x" style="font-size:16px;vertical-align:middle"></i>
                                 " Mute"
                             </button>
                             <button class:active=move || !cur_muted.get()
                                 on:click=move |_| media_action_set_key(rows, row_idx, aidx, "muted", Value::Bool(false))>
-                                <span class="material-icons" style="font-size:16px;vertical-align:middle">"volume_up"</span>
+                                <i class="ph ph-speaker-high" style="font-size:16px;vertical-align:middle"></i>
                                 " Unmute"
                             </button>
                         </div>
@@ -403,7 +403,7 @@ fn MediaActionRow(
                         <div class="toggle-group">
                             <button class:active=move || cur_shuf.get()
                                 on:click=move |_| media_action_set_key(rows, row_idx, aidx, "shuffle", Value::Bool(true))>
-                                <span class="material-icons" style="font-size:16px;vertical-align:middle">"shuffle"</span>
+                                <i class="ph ph-shuffle" style="font-size:16px;vertical-align:middle"></i>
                                 " On"
                             </button>
                             <button class:active=move || !cur_shuf.get()
@@ -689,12 +689,12 @@ fn SceneDeviceEditor(
                     <div class="toggle-group">
                         <button class:active=move || cur_lock.get()
                             on:click=move |_| payload_set_key(rows, idx, "locked", Value::Bool(true))>
-                            <span class="material-icons" style="font-size:16px;vertical-align:middle">"lock"</span>
+                            <i class="ph ph-lock" style="font-size:16px;vertical-align:middle"></i>
                             " Lock"
                         </button>
                         <button class:active=move || !cur_lock.get()
                             on:click=move |_| payload_set_key(rows, idx, "locked", Value::Bool(false))>
-                            <span class="material-icons" style="font-size:16px;vertical-align:middle">"lock_open"</span>
+                            <i class="ph ph-lock-open" style="font-size:16px;vertical-align:middle"></i>
                             " Unlock"
                         </button>
                     </div>
@@ -723,7 +723,7 @@ fn SceneDeviceEditor(
                     </div>
                     <button class="btn-outline scene-add-action"
                         on:click=move |_| media_actions_push(rows, idx)>
-                        <span class="material-icons" style="font-size:16px;vertical-align:middle">"add"</span>
+                        <i class="ph ph-plus" style="font-size:16px;vertical-align:middle"></i>
                         " Add Action"
                     </button>
                 }
@@ -984,7 +984,7 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
         <div class="page device-detail-page scene-detail-page">
             <div class="detail-back-row">
                 <a href="/scenes" class="back-link">
-                    <span class="material-icons" style="font-size:18px;vertical-align:middle">"arrow_back"</span>
+                    <i class="ph ph-arrow-left" style="font-size:18px;vertical-align:middle"></i>
                     " Scenes"
                 </a>
             </div>
@@ -992,7 +992,7 @@ fn NativeSceneEditorPage(scene_id: Option<String>) -> impl IntoView {
             <div class="detail-heading">
                 <div class="detail-title-row">
                     <span class="status-badge-lg tone-media scene-detail-badge">
-                        <span class="material-icons" style="font-size:26px">"auto_awesome_motion"</span>
+                        <i class="ph ph-stack" style="font-size:26px"></i>
                     </span>
                     <div class="detail-name-block">
                         <h1>
@@ -1288,7 +1288,7 @@ pub fn PluginSceneDetailPage() -> impl IntoView {
         <div class="page device-detail-page scene-detail-page">
             <div class="detail-back-row">
                 <a href="/scenes" class="back-link">
-                    <span class="material-icons" style="font-size:18px;vertical-align:middle">"arrow_back"</span>
+                    <i class="ph ph-arrow-left" style="font-size:18px;vertical-align:middle"></i>
                     " Scenes"
                 </a>
             </div>
@@ -1313,9 +1313,7 @@ pub fn PluginSceneDetailPage() -> impl IntoView {
                                 "status-badge-lg scene-detail-badge {}",
                                 if is_plugin_scene_active(&device) { "tone-good" } else { "tone-idle" }
                             )>
-                                <span class="material-icons" style="font-size:26px">
-                                    {if is_plugin_scene_active(&device) { "check_circle" } else { "radio_button_unchecked" }}
-                                </span>
+                                <i class=if is_plugin_scene_active(&device) { "ph ph-check-circle" } else { "ph ph-circle" } style="font-size:26px"></i>
                             </span>
                             <div class="detail-name-block">
                                 <h1>{device.name.clone()}</h1>

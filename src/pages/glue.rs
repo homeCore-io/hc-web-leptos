@@ -30,20 +30,21 @@ fn type_label(t: &str) -> String {
     GLUE_TYPES.iter().find(|(k, _, _)| *k == t).map(|(_, l, _)| l.to_string()).unwrap_or_else(|| t.to_string())
 }
 
+/// Returns Phosphor icon names (slot into "ph ph-{name}" by the view).
 fn type_icon(t: &str) -> &'static str {
     match t {
-        "counter"   => "tag",
-        "number"    => "123",
+        "counter"   => "hash",
+        "number"    => "number-square-one",
         "select"    => "list",
-        "text"      => "text_fields",
-        "button"    => "touch_app",
-        "datetime"  => "schedule",
-        "group"     => "workspaces",
-        "threshold" => "thermostat",
-        "schedule"  => "calendar_month",
+        "text"      => "text-aa",
+        "button"    => "cursor-click",
+        "datetime"  => "clock",
+        "group"     => "squares-four",
+        "threshold" => "thermometer-simple",
+        "schedule"  => "calendar",
         "timer"     => "timer",
-        "switch" | "virtual_switch" => "toggle_on",
-        _ => "extension",
+        "switch" | "virtual_switch" => "toggle-right",
+        _ => "puzzle-piece",
     }
 }
 
@@ -306,7 +307,17 @@ pub fn GluePage() -> impl IntoView {
                 {move || {
                     let list = filtered.get();
                     if list.is_empty() && !loading.get() {
-                        view! { <p class="msg-muted">"No glue devices."</p> }.into_any()
+                        view! {
+                            <div class="hc-empty">
+                                <i class="ph ph-puzzle-piece hc-empty__icon"></i>
+                                <div class="hc-empty__title">"No glue devices yet"</div>
+                                <p class="hc-empty__body">
+                                    "Glue devices are HomeCore's built-in primitives — counters, \
+                                     timers, threshold sensors, schedules, and switches. Create one \
+                                     to wire automations together."
+                                </p>
+                            </div>
+                        }.into_any()
                     } else {
                         list.into_iter().map(|d| {
                             let id = d["device_id"].as_str().unwrap_or("").to_string();
@@ -327,7 +338,7 @@ pub fn GluePage() -> impl IntoView {
                                         nav(&path, Default::default());
                                     }
                                 >
-                                    <span class="material-icons glue-icon" style="font-size:20px">{icon}</span>
+                                    <i class={format!("ph ph-{} glue-icon", icon)} style="font-size:20px"></i>
                                     <div class="glue-info">
                                         <span class="glue-name">{name}</span>
                                         <span class="glue-meta">{label}" · "{summary}</span>
@@ -366,7 +377,7 @@ pub fn GluePage() -> impl IntoView {
                                                 <button class="hc-btn hc-btn--sm hc-btn--outline hc-btn--danger-outline" title="Delete"
                                                     on:click=move |ev: web_sys::MouseEvent| { ev.stop_propagation(); confirm_delete.set(Some(id_set.clone())); }
                                                 >
-                                                    <span class="material-icons" style="font-size:15px">"delete"</span>
+                                                    <i class="ph ph-trash" style="font-size:15px"></i>
                                                 </button>
                                             }.into_any()
                                         }
@@ -461,7 +472,7 @@ pub fn GlueDetailPage() -> impl IntoView {
                 view! {
                     <section class="detail-card">
                         <div class="glue-detail-header">
-                            <span class="material-icons" style="font-size:28px; color:var(--hc-text-muted)">{icon}</span>
+                            <i class={format!("ph ph-{}", icon)} style="font-size:28px; color:var(--hc-text-muted)"></i>
                             <div style="flex:1">
                                 <div class="rule-header-row">
                                     <input type="text" class="hc-input rule-name-input"

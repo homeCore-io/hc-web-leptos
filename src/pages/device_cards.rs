@@ -865,6 +865,20 @@ pub fn DeviceCardsPage() -> impl IntoView {
             })
     });
 
+    // Battery threshold from `?below=N`; defaults to 20 when not specified.
+    // Used by the `focus=battery` filter so its set matches the hero tile's
+    // count exactly.
+    let battery_below: Memo<f64> = Memo::new(move |_| {
+        let raw = location.search.get();
+        raw.trim_start_matches('?')
+            .split('&')
+            .find_map(|kv| {
+                let (k, v) = kv.split_once('=')?;
+                (k == "below").then(|| v.parse::<f64>().ok()).flatten()
+            })
+            .unwrap_or(20.0)
+    });
+
     // ── Sorted + filtered device ID list ─────────────────────────────────────
     //
     // Produces Vec<String> (ordered IDs) — not Vec<DeviceState>.
@@ -879,6 +893,7 @@ pub fn DeviceCardsPage() -> impl IntoView {
         let sb = sort_by.get();
         let sd = sort_dir.get();
         let focus_value = focus.get();
+        let battery_threshold = battery_below.get();
 
         // Pre-compute once: which devices are in the security set?
         let security_tags = load_security_tags();
@@ -943,6 +958,9 @@ pub fn DeviceCardsPage() -> impl IntoView {
                     Some("climate") => d.device_type.as_deref() == Some("thermostat"),
                     Some("media") => d.device_type.as_deref() == Some("media_player"),
                     Some("energy") => d.device_type.as_deref() == Some("power_monitor"),
+                    Some("battery") => battery_pct(d)
+                        .map(|p| p <= battery_threshold)
+                        .unwrap_or(false),
                     _ => true,
                 }
             })
@@ -1072,10 +1090,11 @@ pub fn DeviceCardsPage() -> impl IntoView {
             <Show when=move || focus.get().is_some()>
                 {move || {
                     let f = focus.get().unwrap_or_default();
-                    let (icon, headline, hint) = match f.as_str() {
+                    let bat_below = battery_below.get();
+                    let (icon, headline, hint): (&'static str, String, &'static str) = match f.as_str() {
                         "security" => (
                             "ph ph-shield-check",
-                            "Security-relevant devices currently needing attention.",
+                            "Security-relevant devices currently needing attention.".into(),
                             if load_security_tags().is_empty() {
                                 "No devices are tagged yet — falling back to all locks and contact sensors. \
                                  Mark specific devices on their detail page."
@@ -1085,27 +1104,32 @@ pub fn DeviceCardsPage() -> impl IntoView {
                         ),
                         "lighting" => (
                             "ph ph-lightbulb",
-                            "Lights and switches currently on.",
+                            "Lights and switches currently on.".into(),
                             "",
                         ),
                         "climate" => (
                             "ph ph-thermometer-simple",
-                            "Climate devices in your home.",
+                            "Climate devices in your home.".into(),
                             "",
                         ),
                         "media" => (
                             "ph ph-speaker-hifi",
-                            "Media players in your home.",
+                            "Media players in your home.".into(),
                             "",
                         ),
                         "energy" => (
                             "ph ph-lightning",
-                            "Power monitors in your home.",
+                            "Power monitors in your home.".into(),
+                            "",
+                        ),
+                        "battery" => (
+                            "ph ph-battery-low",
+                            format!("Battery-powered devices at or below {:.0}%.", bat_below),
                             "",
                         ),
                         _ => (
                             "ph ph-funnel",
-                            "Filtered view.",
+                            "Filtered view.".into(),
                             "",
                         ),
                     };

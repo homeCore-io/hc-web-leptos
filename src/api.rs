@@ -299,6 +299,10 @@ pub async fn fetch_devices(token: &str) -> Result<Vec<DeviceState>, String> {
     get_json("/devices", token).await
 }
 
+pub async fn fetch_battery_settings(token: &str) -> Result<Value, String> {
+    get_json("/system/battery_settings", token).await
+}
+
 pub async fn fetch_areas(token: &str) -> Result<Vec<Area>, String> {
     get_json("/areas", token).await
 }

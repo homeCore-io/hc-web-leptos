@@ -835,6 +835,8 @@ fn trigger_variant_key(t: &Trigger) -> &'static str {
         Trigger::WebhookReceived { .. } => "webhook_received",
         Trigger::ManualTrigger => "manual_trigger",
         Trigger::MqttMessage { .. } => "mqtt_message",
+        Trigger::DeviceBatteryLow { .. } => "device_battery_low",
+        Trigger::DeviceBatteryRecovered { .. } => "device_battery_recovered",
     }
 }
 
@@ -878,6 +880,8 @@ fn default_trigger_typed(key: &str) -> Trigger {
             topic_pattern: "homecore/devices/+/state".into(),
             payload: None, value_path: None, value_op: None, value_cmp: None,
         },
+        "device_battery_low" => Trigger::DeviceBatteryLow { device_id: None },
+        "device_battery_recovered" => Trigger::DeviceBatteryRecovered { device_id: None },
         _ => Trigger::ManualTrigger,
     }
 }
@@ -896,7 +900,7 @@ fn TriggerEditor(rule: RwSignal<Rule>) -> impl IntoView {
                 }
             >
                 <optgroup label="Device">
-                    {[("device_state_changed","Device state changed"),("device_availability_changed","Device availability changed"),("button_event","Button event"),("numeric_threshold","Numeric threshold")]
+                    {[("device_state_changed","Device state changed"),("device_availability_changed","Device availability changed"),("button_event","Button event"),("numeric_threshold","Numeric threshold"),("device_battery_low","Battery low"),("device_battery_recovered","Battery recovered")]
                         .map(|(v, label)| view! { <option value=v selected=move || trigger_variant_key(&tg()) == v>{label}</option> }).collect_view()}
                 </optgroup>
                 <optgroup label="Time">
@@ -1444,6 +1448,40 @@ fn TriggerEditor(rule: RwSignal<Rule>) -> impl IntoView {
                             <p class="msg-muted" style="font-size:0.85rem">"Fires once when the rule engine starts."</p>
                         </div>
                     }.into_any(),
+
+                    Trigger::DeviceBatteryLow { ref device_id } => {
+                        let did = device_id.clone().unwrap_or_default();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Device (blank = any battery-powered device)"</label>
+                                <DeviceSelect value=did on_select=Callback::new(move |id: String| rule.update(|r| {
+                                    if let Trigger::DeviceBatteryLow { ref mut device_id } = r.trigger {
+                                        *device_id = if id.is_empty() { None } else { Some(id) };
+                                    }
+                                })) />
+                                <p class="msg-muted" style="font-size:0.85rem">
+                                    "Fires once when the device's battery crosses the low threshold (configured in homecore.toml). Hysteresis prevents flapping; the trigger fires again only after the battery recovers and drops back below threshold."
+                                </p>
+                            </div>
+                        }.into_any()
+                    },
+
+                    Trigger::DeviceBatteryRecovered { ref device_id } => {
+                        let did = device_id.clone().unwrap_or_default();
+                        view! {
+                            <div class="trigger-fields">
+                                <label class="field-label">"Device (blank = any battery-powered device)"</label>
+                                <DeviceSelect value=did on_select=Callback::new(move |id: String| rule.update(|r| {
+                                    if let Trigger::DeviceBatteryRecovered { ref mut device_id } = r.trigger {
+                                        *device_id = if id.is_empty() { None } else { Some(id) };
+                                    }
+                                })) />
+                                <p class="msg-muted" style="font-size:0.85rem">
+                                    "Fires once when a previously-low device's battery climbs back above the recover band."
+                                </p>
+                            </div>
+                        }.into_any()
+                    },
 
                     Trigger::ManualTrigger => view! {
                         <div class="trigger-fields">

@@ -50,6 +50,8 @@ fn trigger_type(rule: &Rule) -> &'static str {
         Trigger::WebhookReceived { .. } => "webhook_received",
         Trigger::ManualTrigger => "manual_trigger",
         Trigger::MqttMessage { .. } => "mqtt_message",
+        Trigger::DeviceBatteryLow { .. } => "device_battery_low",
+        Trigger::DeviceBatteryRecovered { .. } => "device_battery_recovered",
     }
 }
 
@@ -70,6 +72,8 @@ fn trigger_label(t: &str) -> &'static str {
         "mode_changed" => "Mode Changed",
         "webhook_received" => "Webhook",
         "manual_trigger" => "Manual",
+        "device_battery_low" => "Battery Low",
+        "device_battery_recovered" => "Battery Recovered",
         _ => "Unknown",
     }
 }
@@ -86,6 +90,7 @@ fn trigger_tone(t: &str) -> &'static str {
         | "hub_variable_changed"
         | "mode_changed"
         | "webhook_received" => "tone-media",
+        "device_battery_low" | "device_battery_recovered" => "tone-alert",
         "manual_trigger" | _ => "tone-idle",
     }
 }
@@ -102,6 +107,7 @@ fn trigger_category(t: &str) -> &'static str {
         | "hub_variable_changed"
         | "mode_changed"
         | "webhook_received" => "event",
+        "device_battery_low" | "device_battery_recovered" => "device",
         "manual_trigger" => "manual",
         _ => "other",
     }

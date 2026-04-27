@@ -5,8 +5,8 @@
 //! and scene buttons.  All cards are live via WebSocket.
 
 use crate::api::{
-    activate_scene, create_dashboard, fetch_dashboards, fetch_devices, fetch_scenes,
-    set_default_dashboard, set_device_state, update_dashboard,
+    activate_scene, create_dashboard, fetch_battery_settings, fetch_dashboards, fetch_devices,
+    fetch_scenes, set_default_dashboard, set_device_state, update_dashboard,
 };
 use crate::auth::use_auth;
 use crate::models::*;
@@ -211,7 +211,7 @@ fn default_overview_widgets() -> Vec<DashboardWidget> {
             subtitle: None,
             refresh_policy: DashboardRefreshPolicy::Live,
             config: json!({
-                "systems": ["lighting", "climate", "security", "media", "energy", "activity"],
+                "systems": ["lighting", "climate", "security", "battery", "media", "energy", "activity"],
                 "layout": "wide",
             }),
         },
@@ -758,6 +758,7 @@ fn WidgetConfigEditor(
                 ("lighting",  "Lighting"),
                 ("climate",   "Climate"),
                 ("security",  "Security"),
+                ("battery",   "Battery"),
                 ("media",     "Media"),
                 ("energy",    "Energy"),
                 ("activity",  "Activity"),
@@ -814,7 +815,8 @@ fn WidgetConfigEditor(
                         }).collect_view()}
                     </div>
                     <p class="cell-subtle" style="font-size:0.78rem; margin-top:0.4rem;">
-                        "Systems with no relevant devices in your live device map are auto-hidden anyway."
+                        "Systems with no relevant devices in your live device map are auto-hidden anyway. \
+                         The battery alert threshold is configured server-side in homecore.toml ([battery] threshold_pct)."
                     </p>
 
                     <div class="widget-config-actions">
@@ -829,6 +831,8 @@ fn WidgetConfigEditor(
                                 .collect();
                             widgets.update(|w| {
                                 if let Some(widget) = w.iter_mut().find(|x| x.id == wid) {
+                                    // Note: any pre-existing battery_threshold_pct in old
+                                    // configs is dropped here on save — clean migration.
                                     widget.config = json!({
                                         "layout": layout,
                                         "systems": systems,
@@ -1282,7 +1286,7 @@ fn HouseStatusHero(config: Value) -> impl IntoView {
     let ws = use_ws();
     let nav = leptos_router::hooks::use_navigate();
 
-    // Default to all 6 if config doesn't specify; preserve order so users
+    // Default to all 7 if config doesn't specify; preserve order so users
     // can rearrange tiles by reordering the array.
     let systems_enabled: Vec<String> = config
         .get("systems")
@@ -1293,11 +1297,27 @@ fn HouseStatusHero(config: Value) -> impl IntoView {
                 .collect()
         })
         .unwrap_or_else(|| {
-            ["lighting", "climate", "security", "media", "energy", "activity"]
+            ["lighting", "climate", "security", "battery", "media", "energy", "activity"]
                 .iter()
                 .map(|s| (*s).to_string())
                 .collect()
         });
+
+    // Battery threshold is now server-authoritative (drives event emission +
+    // notify shortcut, not just visual count). Fetch once on mount; the
+    // hero re-renders reactively when the value lands.
+    let auth = use_auth();
+    let battery_threshold: RwSignal<f64> = RwSignal::new(20.0);
+    spawn_local(async move {
+        let Some(t) = auth.token_str() else {
+            return;
+        };
+        if let Ok(v) = fetch_battery_settings(&t).await {
+            if let Some(n) = v.get("threshold_pct").and_then(|x| x.as_f64()) {
+                battery_threshold.set(n);
+            }
+        }
+    });
 
     view! {
         <div class="hc-hero">
@@ -1312,10 +1332,11 @@ fn HouseStatusHero(config: Value) -> impl IntoView {
                 {move || {
                     let devices = ws.devices.get();
                     let status = ws.status.get();
+                    let threshold = battery_threshold.get();
                     systems_enabled
                         .iter()
                         .filter_map(|sys| {
-                            let tile = compute_hero_tile(sys, &devices, status);
+                            let tile = compute_hero_tile(sys, &devices, status, threshold);
                             tile.map(|t| {
                                 let nav = nav.clone();
                                 let target = t.target.clone();
@@ -1366,6 +1387,7 @@ fn compute_hero_tile(
     system: &str,
     devices: &std::collections::HashMap<String, DeviceState>,
     status: crate::ws::WsStatus,
+    battery_threshold: f64,
 ) -> Option<HeroTile> {
     use crate::ws::WsStatus;
     match system {
@@ -1528,6 +1550,52 @@ fn compute_hero_tile(
                 unit: None,
                 pill,
                 target: "/devices?focus=security".into(),
+            })
+        }
+
+        "battery" => {
+            // Devices with a battery attribute. Auto-hide the tile when no
+            // battery-powered devices exist in the live device map.
+            let battery_devices: Vec<(&DeviceState, f64)> = devices
+                .values()
+                .filter_map(|d| battery_pct(d).map(|p| (d, p)))
+                .collect();
+            if battery_devices.is_empty() {
+                return None;
+            }
+            let low_count = battery_devices
+                .iter()
+                .filter(|(_, p)| *p <= battery_threshold)
+                .count();
+            let lowest_pct = battery_devices
+                .iter()
+                .map(|(_, p)| *p)
+                .fold(f64::INFINITY, f64::min);
+            let pill = if low_count > 0 {
+                Some(("low", "alert"))
+            } else {
+                Some(("ok", "ok"))
+            };
+            let value = if low_count == 0 {
+                format!("{:.0}%", lowest_pct)
+            } else if low_count == 1 {
+                "1 low".to_string()
+            } else {
+                format!("{low_count} low")
+            };
+            // Embed the threshold so the devices page filter matches the
+            // tile's count exactly when the user clicks through.
+            let target = format!(
+                "/devices?focus=battery&below={}",
+                battery_threshold as i64
+            );
+            Some(HeroTile {
+                name: "battery",
+                icon: "battery-low",
+                value,
+                unit: None,
+                pill,
+                target,
             })
         }
 

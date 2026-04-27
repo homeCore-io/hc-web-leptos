@@ -4377,6 +4377,61 @@ select.audit-input {
     display: none;
   }
 
+  /* Sidebar nav links inside the drawer: touch-friendly padding,
+   * larger text + icons, and force labels visible regardless of
+   * the desktop ".shell--collapsed" preference (which would
+   * otherwise hide them and produce an icon-only drawer). */
+  .sidebar nav a {
+    padding: 0.85rem 1rem;
+    gap: 0.85rem;
+    font-size: 1rem;
+    min-height: 44px;
+    width: 100%;
+  }
+  .sidebar nav a > i {
+    font-size: 20px !important;
+    flex-shrink: 0;
+  }
+  .shell--collapsed .sidebar-nav__label,
+  .sidebar-nav__label {
+    display: inline !important;
+    font-size: 1rem;
+  }
+  .shell--collapsed .sidebar nav a {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .shell--collapsed .sidebar nav a > i {
+    font-size: 20px !important;
+  }
+
+  /* Filter panel: stop sticking to the top — at mobile width the
+   * panel scrolling away with the rest of the content reads
+   * correctly. The previous z-index 50 + sticky combo was the
+   * source of the "filter is overlaying my list" report. */
+  .filter-panel {
+    position: static;
+    z-index: auto;
+    box-shadow: none;
+  }
+
+  /* Filter bar: single row with the search field flexing to fill
+   * + the new "Filters" toggle on the right. Sort + card-size +
+   * sort-dir are hidden — they're desktop-tier polish, not
+   * critical for mobile use. Reachable via the expand if/when we
+   * relocate them into .filter-body in a follow-up. */
+  .filter-bar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.75rem;
+  }
+  .filter-bar > select,
+  .filter-bar > .filter-toggle {
+    display: none;
+  }
+
   /* Filter panel: keep .filter-bar (search + sort) always visible.
    * Collapse the .filter-body (multi-select dropdowns) behind a
    * toggle so it doesn't shove the device list below the fold. */
@@ -4405,5 +4460,25 @@ select.audit-input {
   .dashboard-widget--hero-wide .hc-hero__tiles,
   .dashboard-widget--hero-compact .hc-hero__tiles {
     grid-template-columns: 1fr 1fr;
+  }
+
+  /* Compact cards / list-style on mobile.
+   *
+   * The desktop card grid uses minmax(200-340px, 1fr) per the
+   * --sm/--md/--lg classes. At 375px wide, each card is the full
+   * viewport regardless. Force a single-column grid with tighter
+   * gap, and shave per-card padding so the body reads list-y
+   * rather than tile-y. The user picked compact-on-mobile as the
+   * preferred default; this preserves their card_size preference
+   * for desktop while making mobile feel right out of the box. */
+  .cards-canvas,
+  .cards-canvas--sm,
+  .cards-canvas--md,
+  .cards-canvas--lg {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  .device-card {
+    padding: 0.65rem 0.75rem;
   }
 }

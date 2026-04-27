@@ -4652,4 +4652,47 @@ select.audit-input {
   .heading {
     flex-wrap: wrap;
   }
+
+  /* Plugin list rows on mobile.
+   *
+   * The desktop layout packs status dot + name + 3 badges +
+   * meta + Start/Stop/Restart buttons into one flex row. On
+   * iPhone the action buttons get pushed off the right edge.
+   * Per the user's preference, hide row-level controls on
+   * mobile and route through the plugin detail page (drill in
+   * by tapping anywhere on the row, the detail page already
+   * has Start/Stop/Restart). */
+  .plugin-row {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+    padding: 0.65rem 0.75rem;
+  }
+  .plugin-row-name {
+    font-size: 0.95rem;
+    white-space: normal;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .plugin-row-meta {
+    flex: 1 1 100%;
+    margin-left: 0;
+    margin-top: 0.15rem;
+    gap: 0.6rem;
+  }
+  .plugin-row-actions {
+    display: none;
+  }
+  /* Subtle right-edge chevron so the "tap to open" affordance
+   * doesn't disappear with the action buttons. */
+  .plugin-row::after {
+    content: "›";
+    font-size: 1.4rem;
+    color: var(--hc-text-muted);
+    margin-left: auto;
+    line-height: 1;
+    align-self: center;
+    flex-shrink: 0;
+  }
 }

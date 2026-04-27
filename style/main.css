@@ -4275,3 +4275,135 @@ select.audit-input {
   .audit-chip        { grid-area: chip; max-width: 100%; }
   .audit-entry-chev  { display: none; }
 }
+
+/* ── Mobile / phone-specific (≤ 768px) ────────────────────────────────
+ *
+ * The 900px breakpoint above covers tablet-portrait. Below 768px we
+ * switch to a hamburger drawer for the sidebar (the wrapped row of 17
+ * nav items was eating most of the viewport) and collapse multi-row
+ * filter controls behind a "Filters" toggle so the device list shows
+ * above the fold.
+ */
+
+/* Hidden on desktop / tablet — only revealed by the mobile breakpoint. */
+.topbar__hamburger {
+  display: none;
+}
+
+.filter-bar__toggle {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* Sidebar becomes a fixed drawer that slides in from the left.
+   * Hidden by default; .shell--mobile-menu-open on the shell brings
+   * it onscreen with a CSS transform. The backdrop overlay (rendered
+   * by the App component) handles tap-to-dismiss. */
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    height: 100dvh;
+    width: min(280px, 82vw);
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.18s ease-out;
+    overflow-y: auto;
+    /* Solid background so content underneath doesn't bleed through.
+     * Defaults preserve the canvas color from identity tokens. */
+    background: var(--hc-canvas, #f8f6f1);
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.12);
+    padding: 1rem 1rem 1.5rem;
+    gap: 1rem;
+  }
+  :root[data-theme="dark"] .sidebar {
+    background: var(--hc-canvas-dark, #14181a);
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.6);
+  }
+  .shell--mobile-menu-open .sidebar {
+    transform: translateX(0);
+  }
+  /* Override the 900px rule that flexes nav into a wrapping row —
+   * inside the drawer we want a vertical list. */
+  .sidebar nav {
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+  .sidebar__collapse-toggle {
+    display: none;
+  }
+
+  .mobile-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(2px);
+    animation: hc-mobile-menu-fade 0.18s ease-out;
+  }
+  @keyframes hc-mobile-menu-fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* Hamburger reveals at this width. Touch-target sized. */
+  .topbar__hamburger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-right: 0.4rem;
+  }
+
+  /* Topbar tightens. Hide the kicker line — section title is enough
+   * context on a small screen. */
+  .topbar {
+    padding: 0.5rem 0.75rem;
+    gap: 0.5rem;
+  }
+  .topbar-context__kicker {
+    display: none;
+  }
+  .topbar-context__title {
+    font-size: 1rem;
+  }
+  /* User-info chip is the first thing to drop on a tight bar. */
+  .topbar-actions .user-info {
+    display: none;
+  }
+
+  /* Filter panel: keep .filter-bar (search + sort) always visible.
+   * Collapse the .filter-body (multi-select dropdowns) behind a
+   * toggle so it doesn't shove the device list below the fold. */
+  .filter-panel:not(.filter-panel--expanded) .filter-body {
+    display: none;
+  }
+  .filter-bar__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.85rem;
+    min-height: 44px;
+    border-radius: 8px;
+  }
+  .filter-bar__toggle .filter-bar__count {
+    background: var(--hc-accent, #0ea5b7);
+    color: #fff;
+    font-size: 0.72rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    line-height: 1.2;
+  }
+
+  /* Hero on phones: stack tiles vertically instead of squeezing 7
+   * tiles into a wrap that takes 4 screen-heights. */
+  .dashboard-widget--hero-wide .hc-hero__tiles,
+  .dashboard-widget--hero-compact .hc-hero__tiles {
+    grid-template-columns: 1fr 1fr;
+  }
+}

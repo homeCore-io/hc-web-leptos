@@ -756,6 +756,10 @@ pub fn DeviceCardsPage() -> impl IntoView {
 
     let prefs = load_prefs();
     let card_size = RwSignal::new(prefs.card_size);
+    // Whether the .filter-body (multi-select dropdowns) is expanded.
+    // Below 768px, CSS hides the body unless this is true; above
+    // 768px, the body is always shown and this toggle is hidden.
+    let filters_expanded = RwSignal::new(false);
     let search = RwSignal::new(prefs.search);
     let avail_filter = RwSignal::new(prefs.avail_filter);
     let area_filter = RwSignal::new(prefs.area_filter);
@@ -1147,7 +1151,10 @@ pub fn DeviceCardsPage() -> impl IntoView {
             </Show>
 
             // ── Filter/sort toolbar ───────────────────────────────────────────
-            <div class="filter-panel panel">
+            <div
+                class="filter-panel panel"
+                class:filter-panel--expanded=move || filters_expanded.get()
+            >
                 <div class="filter-bar">
                     <SearchField search placeholder="Search name, area, type, plugin…" />
 
@@ -1164,6 +1171,27 @@ pub fn DeviceCardsPage() -> impl IntoView {
                     />
 
                     <SortDirToggle sort_dir />
+
+                    // Mobile-only toggle for the filter body. Hidden on
+                    // desktop via CSS; tap to reveal/hide the multi-
+                    // select dropdowns below. Active filter count
+                    // surfaces so users can see at a glance whether
+                    // any filtering is in effect.
+                    <button
+                        class="btn btn-outline filter-bar__toggle"
+                        type="button"
+                        on:click=move |_| filters_expanded.update(|v| *v = !*v)
+                    >
+                        <i class="ph ph-funnel" style="font-size:14px"></i>
+                        {move || if filters_expanded.get() { "Hide filters" } else { "Filters" }}
+                        {move || {
+                            let n = avail_filter.get().len()
+                                + area_filter.get().len()
+                                + type_filter.get().len()
+                                + plugin_filter.get().len();
+                            (n > 0).then(|| view! { <span class="filter-bar__count">{n}</span> })
+                        }}
+                    </button>
 
                 </div>
 

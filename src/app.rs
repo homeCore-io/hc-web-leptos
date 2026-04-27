@@ -173,13 +173,28 @@ fn NavShell(children: Children) -> impl IntoView {
         save_sidebar_collapsed(collapsed.get());
     });
 
+    // Mobile menu drawer state — controls visibility of the sidebar at
+    // <768px. Provided as context so SidebarNav links can close the
+    // drawer on tap. Intentionally NOT persisted: each visit starts
+    // closed, matching iOS-native drawer expectations.
+    let mobile_menu_open = RwSignal::new(false);
+    provide_context(MobileMenu(mobile_menu_open));
+
     view! {
-        <div class="shell" class:shell--collapsed=move || collapsed.get()>
+        <div
+            class="shell"
+            class:shell--collapsed=move || collapsed.get()
+            class:shell--mobile-menu-open=move || mobile_menu_open.get()
+        >
             <aside class="sidebar">
                 <div class="sidebar__header">
                     <div class="sidebar__brand">
                         <h1>
-                            <a href="/dashboards" class="hc-wordmark">
+                            <a
+                                href="/dashboards"
+                                class="hc-wordmark"
+                                on:click=move |_| mobile_menu_open.set(false)
+                            >
                                 <span class="hc-wordmark__a">"home"</span><span class="hc-wordmark__b">"Core"</span>
                             </a>
                         </h1>
@@ -200,8 +215,27 @@ fn NavShell(children: Children) -> impl IntoView {
                 <SidebarNav />
             </aside>
 
+            // Backdrop covers the rest of the screen while the mobile
+            // drawer is open. Tapping it closes the drawer — matches
+            // standard mobile pattern.
+            <Show when=move || mobile_menu_open.get()>
+                <div
+                    class="mobile-menu-backdrop"
+                    on:click=move |_| mobile_menu_open.set(false)
+                ></div>
+            </Show>
+
             <div class="main-col">
                 <header class="topbar">
+                    // Hamburger — only shown via CSS at <768px. Toggles
+                    // the mobile drawer.
+                    <button
+                        class="topbar__hamburger btn btn-icon"
+                        title="Open menu"
+                        on:click=move |_| mobile_menu_open.update(|v| *v = !*v)
+                    >
+                        <i class="ph ph-list" style="font-size:18px"></i>
+                    </button>
                     <div class="topbar-context">
                         <span class="topbar-context__kicker">"section"</span>
                         <span class="topbar-context__title">{move || section_title(&location.pathname.get())}</span>
@@ -245,6 +279,12 @@ fn NavShell(children: Children) -> impl IntoView {
         </div>
     }
 }
+
+/// Wrapper around the mobile drawer's open signal — provided via Leptos
+/// context so any nav-side component (e.g. SidebarNav) can close the
+/// drawer when the user taps a nav link.
+#[derive(Copy, Clone)]
+pub struct MobileMenu(pub RwSignal<bool>);
 
 /// Map the current path to a human-readable section title for the
 /// topbar. First-segment lookup; deeper paths show the section
@@ -340,6 +380,7 @@ fn SidebarNav() -> impl IntoView {
     let location = use_location();
     let order: RwSignal<Vec<&'static str>> = RwSignal::new(load_nav_order());
     let editing = RwSignal::new(false);
+    let mobile_menu = use_context::<MobileMenu>();
 
     view! {
         <nav>
@@ -367,7 +408,16 @@ fn SidebarNav() -> impl IntoView {
                                     }><i class="ph ph-arrow-up" style="font-size:14px"></i></button>
                                 }
                             })}
-                            <a href=href class=active_class title=label>
+                            <a
+                                href=href
+                                class=active_class
+                                title=label
+                                on:click=move |_| {
+                                    if let Some(MobileMenu(open)) = mobile_menu {
+                                        open.set(false);
+                                    }
+                                }
+                            >
                                 <i class={format!("ph ph-{icon}")} style="font-size:18px"></i>
                                 <span class="sidebar-nav__label">{label}</span>
                             </a>

@@ -4564,12 +4564,35 @@ select.audit-input {
     min-width: 0;
   }
 
-  /* Mobile-only collapse for the Create-Area / Create-Mode cards
-   * (and any future card opting into the pattern). Only the title
-   * row stays visible until the user taps the chevron toggle.
-   * Chevron itself is hidden on desktop and surfaces only here. */
+  /* Mobile-only collapse for the Create-Area / Create-Mode cards.
+   * Two distinct visual states:
+   *   collapsed → single thin row, just title + chevron, no
+   *               subtitle, no card chrome below
+   *   expanded  → normal card body with the form
+   * The collapsed appearance should read more like a list-item
+   * banner than a "card with empty interior."
+   */
   .collapsible-mobile:not(.is-expanded) > :not(.card-title-row) {
     display: none;
+  }
+  /* Tight collapsed state: shrink padding, drop the gap, hide the
+   * subtitle, and pull the title row to a single inline strip. */
+  .collapsible-mobile:not(.is-expanded) {
+    padding: 0.5rem 0.75rem;
+    gap: 0;
+  }
+  .collapsible-mobile:not(.is-expanded) .card-title-row {
+    margin: 0;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .collapsible-mobile:not(.is-expanded) .card-title-row > .cell-subtle {
+    display: none;
+  }
+  .collapsible-mobile:not(.is-expanded) .card-title {
+    font-size: 1rem;
+    line-height: 1.2;
+    margin: 0;
   }
   .collapsible-mobile-toggle {
     display: inline-flex;
@@ -4582,8 +4605,11 @@ select.audit-input {
     border-radius: var(--hc-radius-md, 8px);
     color: var(--hc-text-muted);
     margin-left: auto;
+    flex-shrink: 0;
   }
-  .card-title-row {
+  /* Expanded state: keep the normal card-title-row wrap behavior
+   * so subtitle wraps below title on narrow widths. */
+  .collapsible-mobile.is-expanded .card-title-row {
     flex-wrap: wrap;
     align-items: center;
   }

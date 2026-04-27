@@ -1687,6 +1687,10 @@ pub fn ModesPage() -> impl IntoView {
     let create_id = RwSignal::new(String::new());
     let create_kind = RwSignal::new(DraftModeKind::Manual);
     let create_builder = RwSignal::new(CriteriaBuilderState::default());
+    // Mobile-only collapse state for the Create Mode card. CSS hides
+    // the card body at <768px unless `is-expanded` is set; on desktop
+    // the rule doesn't apply so the card is always visible.
+    let create_open = RwSignal::new(false);
 
     let refresh = Callback::new(move |_| {
         let token = auth.token_str().unwrap_or_default();
@@ -1949,12 +1953,29 @@ pub fn ModesPage() -> impl IntoView {
             {move || error.get().map(|msg| view! { <p class="msg-error">{msg}</p> })}
             {move || notice.get().map(|msg| view! { <p class="msg-notice">{msg}</p> })}
 
-            <div class="detail-card mode-create-card">
+            <div
+                class="detail-card mode-create-card collapsible-mobile"
+                class:is-expanded=move || create_open.get()
+            >
                 <div class="card-title-row">
                     <h2 class="card-title">"Create Mode"</h2>
                     <span class="cell-subtle">
                         "Create manual variables or criteria-driven derived modes without leaving this page."
                     </span>
+                    <button
+                        class="collapsible-mobile-toggle"
+                        type="button"
+                        on:click=move |_| create_open.update(|v| *v = !*v)
+                    >
+                        <i
+                            class=move || if create_open.get() {
+                                "ph ph-caret-up"
+                            } else {
+                                "ph ph-caret-down"
+                            }
+                            style="font-size:18px"
+                        ></i>
+                    </button>
                 </div>
 
                 <div class="mode-create-row">

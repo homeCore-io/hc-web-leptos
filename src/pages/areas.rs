@@ -23,6 +23,12 @@ pub fn AreasPage() -> impl IntoView {
     let busy = RwSignal::new(false);
 
     let selected_area_id = RwSignal::new(Option::<String>::None);
+    // The Create-Area card is collapsed by default on mobile to avoid
+    // shoving the area list below the fold. CSS hides the body
+    // (everything but the title row) at <768px unless this signal is
+    // true; on desktop the rule doesn't apply so the card is always
+    // visible. Toggling is wired to a chevron button in the title row.
+    let create_open = RwSignal::new(false);
     let create_name = RwSignal::new(String::new());
     let edit_name = RwSignal::new(String::new());
     let assigned_ids = RwSignal::new(Vec::<String>::new());
@@ -186,10 +192,27 @@ pub fn AreasPage() -> impl IntoView {
             <ErrorBanner error=error />
             {move || notice.get().map(|n| view! { <p class="msg-notice">{n}</p> })}
 
-            <div class="detail-card">
+            <div
+                class="detail-card collapsible-mobile"
+                class:is-expanded=move || create_open.get()
+            >
                 <div class="card-title-row">
                     <h2 class="card-title">"Create Area"</h2>
                     <span class="cell-subtle">"Input can be natural text; HomeCore will normalize it."</span>
+                    <button
+                        class="collapsible-mobile-toggle"
+                        type="button"
+                        on:click=move |_| create_open.update(|v| *v = !*v)
+                    >
+                        <i
+                            class=move || if create_open.get() {
+                                "ph ph-caret-up"
+                            } else {
+                                "ph ph-caret-down"
+                            }
+                            style="font-size:18px"
+                        ></i>
+                    </button>
                 </div>
                 <div class="areas-create-row">
                     <input

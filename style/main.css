@@ -4294,6 +4294,16 @@ select.audit-input {
   display: none;
 }
 
+/* Mobile-only collapsible pattern for cards whose body is too tall
+ * on phones. Wrap the card with `.collapsible-mobile`; default state
+ * is collapsed at <768px (body hidden, only the title row shows).
+ * Add `.is-expanded` to reveal. On desktop the rule doesn't apply,
+ * so the card is always fully visible. The chevron toggle button
+ * (`.collapsible-mobile-toggle`) is hidden on desktop too. */
+.collapsible-mobile-toggle {
+  display: none;
+}
+
 @media (max-width: 768px) {
   /* Sidebar becomes a fixed drawer that slides in from the left.
    * Hidden by default; .shell--mobile-menu-open on the shell brings
@@ -4552,5 +4562,68 @@ select.audit-input {
    * the rule-detail flex row at narrow widths. Let it shrink. */
   .history-ts {
     min-width: 0;
+  }
+
+  /* Mobile-only collapse for the Create-Area / Create-Mode cards
+   * (and any future card opting into the pattern). Only the title
+   * row stays visible until the user taps the chevron toggle.
+   * Chevron itself is hidden on desktop and surfaces only here. */
+  .collapsible-mobile:not(.is-expanded) > :not(.card-title-row) {
+    display: none;
+  }
+  .collapsible-mobile-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: transparent;
+    border: 1px solid var(--hc-border);
+    border-radius: var(--hc-radius-md, 8px);
+    color: var(--hc-text-muted);
+    margin-left: auto;
+  }
+  .card-title-row {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  /* Admin page: the System Status grid uses minmax(140px, 1fr)
+   * which is fine, but downstream sections (User Management,
+   * Backup, Log Level, Calendars) contain forms and tables that
+   * historically don't have mobile rules. Defensive overflow
+   * + min-width reset so nothing in admin pushes its own width
+   * past the viewport and starves later siblings of layout. */
+  .admin-status-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+  .admin-stat {
+    padding: 0.55rem;
+    min-width: 0;
+  }
+  .admin-stat-value {
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+  }
+
+  /* Admin tables (Users, Calendars, etc.) wrap many columns of
+   * intrinsic-width content. At mobile width they can't shrink
+   * their cells without truncation. Make each table a horizontal
+   * scroll context so it can be panned in place rather than
+   * widening its parent .detail-card. The .detail-card itself
+   * still constrains visually. */
+  .detail-card {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .admin-table {
+    font-size: 0.82rem;
+    min-width: 480px;
+  }
+  /* Heading on admin sections should be allowed to wrap rather
+   * than push the card sideways. */
+  .heading {
+    flex-wrap: wrap;
   }
 }

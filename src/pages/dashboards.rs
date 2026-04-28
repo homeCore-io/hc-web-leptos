@@ -1201,7 +1201,7 @@ fn GenericStatCard(title: String, config: Value) -> impl IntoView {
                             "devices" => devices.len().to_string(),
                             "on" => devices.values().filter(|d| bool_attr(d.attributes.get("on")) == Some(true)).count().to_string(),
                             "offline" => devices.values().filter(|d| !d.available).count().to_string(),
-                            "media_playing" => devices.values().filter(|d| is_media_player(d) && str_attr(d.attributes.get("playback_state")) == Some("playing")).count().to_string(),
+                            "media_playing" => devices.values().filter(|d| is_media_player(d) && playback_state(d) == "playing").count().to_string(),
                             other => other.to_string(),
                         }
                     });
@@ -1607,12 +1607,7 @@ fn compute_hero_tile(
             if speakers.is_empty() {
                 return None;
             }
-            let playing = speakers.iter().find(|d| {
-                matches!(
-                    d.attributes.get("playback").and_then(Value::as_str),
-                    Some("playing")
-                )
-            });
+            let playing = speakers.iter().find(|d| playback_state(d) == "playing");
             match playing {
                 Some(d) => Some(HeroTile {
                     name: "media",

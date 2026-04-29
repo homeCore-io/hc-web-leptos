@@ -4768,6 +4768,16 @@ select.audit-input {
 
 /* ── Admin Configuration tab — section cards + form grid ──────────────── */
 
+/* Wrap the whole Configuration tab so the heading/help card, every
+   section card, and the raw editor share the same width — looks
+   cohesive instead of a 720px column with a 1500px banner above it. */
+.hc-config-tab {
+  max-width: 720px;
+}
+@media (max-width: 600px) {
+  .hc-config-tab { max-width: none; }
+}
+
 /* Cap the entire admin Configuration surface so 32" monitors don't
    get 200-character-wide input lanes. Wide-screen sections are pure
    waste when the densest section has six fields. */

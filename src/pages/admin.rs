@@ -626,6 +626,7 @@ fn ConfigurationTab() -> impl IntoView {
     };
 
     view! {
+        <div class="hc-config-tab">
         <div class="detail-card">
             <h2 class="card-title">"Configuration"</h2>
             <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">
@@ -712,6 +713,7 @@ fn ConfigurationTab() -> impl IntoView {
                 on:input=move |ev| edit_text.set(event_target_value(&ev))
                 readonly=move || !editing.get()
             ></textarea>
+        </div>
         </div>
     }
 }

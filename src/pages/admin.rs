@@ -142,11 +142,12 @@ async fn read_file_input_bytes(input_id: &str) -> Result<Vec<u8>, String> {
 // /admin (no trailing slug) defaults to System.
 
 const ADMIN_TABS: &[(&str, &str, &str)] = &[
-    ("system",      "System",         "ph ph-pulse"),
-    ("config",      "Configuration",  "ph ph-sliders"),
-    ("users",       "Users",          "ph ph-users"),
-    ("data",        "Data",           "ph ph-database"),
-    ("maintenance", "Maintenance",    "ph ph-broom"),
+    ("system",         "System",         "ph ph-pulse"),
+    ("config",         "Configuration",  "ph ph-sliders"),
+    ("notifications",  "Notifications",  "ph ph-bell"),
+    ("users",          "Users",          "ph ph-users"),
+    ("data",           "Data",           "ph ph-database"),
+    ("maintenance",    "Maintenance",    "ph ph-broom"),
 ];
 
 #[component]
@@ -181,11 +182,12 @@ pub fn AdminPage() -> impl IntoView {
             <TabBar tabs=tabs base_path="/admin" active_slug=active_tab />
 
             {move || match active_tab().as_str() {
-                "config"      => view! { <ConfigurationTab /> }.into_any(),
-                "users"       => view! { <UsersTab /> }.into_any(),
-                "data"        => view! { <DataTab /> }.into_any(),
-                "maintenance" => view! { <MaintenanceTab /> }.into_any(),
-                _             => view! { <SystemTab /> }.into_any(),
+                "config"        => view! { <ConfigurationTab /> }.into_any(),
+                "notifications" => view! { <crate::pages::admin_notify::NotificationsTab /> }.into_any(),
+                "users"         => view! { <UsersTab /> }.into_any(),
+                "data"          => view! { <DataTab /> }.into_any(),
+                "maintenance"   => view! { <MaintenanceTab /> }.into_any(),
+                _               => view! { <SystemTab /> }.into_any(),
             }}
         </div>
     }

@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod admin_config;
+pub mod admin_notify;
 pub mod audit;
 pub mod dashboards;
 pub mod areas;

@@ -321,6 +321,17 @@ pub async fn restart_system(token: &str) -> Result<(), String> {
     post_no_body("/system/restart", token).await
 }
 
+pub async fn put_system_config_array_of_tables(
+    token: &str,
+    section: &str,
+    items: &[Value],
+) -> Result<Value, String> {
+    let body = serde_json::json!({
+        "array_of_tables": { "section": section, "items": items }
+    });
+    put_json("/system/config", token, &body).await
+}
+
 // ── API key management ─────────────────────────────────────────────────────
 
 pub async fn list_api_keys(token: &str) -> Result<Vec<Value>, String> {

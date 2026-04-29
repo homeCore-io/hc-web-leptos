@@ -1109,6 +1109,14 @@ struct ParamDef {
     ty: String,
     default: Option<Value>,
     enum_values: Option<Vec<Value>>,
+    /// Friendly labels keyed by enum value, parsed from the
+    /// non-standard `x-options` hint. When present the drawer
+    /// substitutes these for raw enum values in selects/buttons.
+    option_labels: Vec<(String, String)>,
+    /// Non-standard `x-render` hint. `"buttons"` → render the enum
+    /// as one button per option that submits the response on click;
+    /// anything else falls back to the default renderer (select).
+    render_hint: Option<String>,
     required: bool,
     minimum: Option<f64>,
     maximum: Option<f64>,
@@ -1124,6 +1132,27 @@ fn parse_params(params: Option<&Value>) -> Vec<ParamDef> {
             .and_then(Value::as_str)
             .unwrap_or("string")
             .to_string();
+        let option_labels = spec
+            .get("x-options")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|entry| {
+                        let value = entry.get("value").and_then(Value::as_str)?.to_string();
+                        let label = entry
+                            .get("label")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                            .unwrap_or_else(|| value.clone());
+                        Some((value, label))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let render_hint = spec
+            .get("x-render")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         out.push(ParamDef {
             name: name.clone(),
             ty,
@@ -1132,6 +1161,8 @@ fn parse_params(params: Option<&Value>) -> Vec<ParamDef> {
                 .get("enum")
                 .and_then(Value::as_array)
                 .cloned(),
+            option_labels,
+            render_hint,
             required: spec.get("required").and_then(Value::as_bool).unwrap_or(false),
             minimum: spec.get("minimum").and_then(Value::as_f64),
             maximum: spec.get("maximum").and_then(Value::as_f64),
@@ -1953,6 +1984,64 @@ fn AwaitingUserCard(
         .unwrap_or_default();
     let has_schema = !params.is_empty();
 
+    // Special render path: a single string-enum field with
+    // `x-render: "buttons"` produces one button per option. Each
+    // click writes the value into form_state and submits the
+    // response — operator-friendly picker UX without an extra
+    // Submit step.
+    let buttons_field: Option<ParamDef> = if params.len() == 1
+        && matches!(params[0].ty.as_str(), "string")
+        && params[0].render_hint.as_deref() == Some("buttons")
+        && params[0].enum_values.is_some()
+    {
+        Some(params[0].clone())
+    } else {
+        None
+    };
+
+    if let Some(field) = buttons_field {
+        let label_lookup: std::collections::HashMap<String, String> =
+            field.option_labels.iter().cloned().collect();
+        let field_name = field.name.clone();
+        let options: Vec<String> = field
+            .enum_values
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+
+        return view! {
+            <div class="action-drawer__prompt">
+                <div class="action-drawer__prompt-title">"Awaiting response"</div>
+                <div class="action-drawer__prompt-body">{prompt}</div>
+                <div style="display:flex; flex-direction:column; gap:0.4rem; margin-top:0.6rem">
+                    {options.into_iter().map(|opt| {
+                        let label = label_lookup
+                            .get(&opt)
+                            .cloned()
+                            .unwrap_or_else(|| opt.clone());
+                        let opt_for_click = opt.clone();
+                        let field_for_click = field_name.clone();
+                        let submit_for_click = submit.clone();
+                        view! {
+                            <button
+                                class="hc-btn hc-btn--primary"
+                                style="justify-content:flex-start; text-align:left"
+                                on:click=move |_| {
+                                    state.update(|m| {
+                                        m.insert(field_for_click.clone(), Value::String(opt_for_click.clone()));
+                                    });
+                                    submit_for_click();
+                                }
+                            >{label}</button>
+                        }
+                    }).collect_view()}
+                </div>
+            </div>
+        }.into_any();
+    }
+
     let submit_for_click = submit.clone();
     view! {
         <div class="action-drawer__prompt">
@@ -1972,7 +2061,7 @@ fn AwaitingUserCard(
                 >"Submit response"</button>
             </div>
         </div>
-    }
+    }.into_any()
 }
 
 #[component]

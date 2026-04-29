@@ -4765,3 +4765,121 @@ select.audit-input {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
+
+/* ── Admin Configuration tab — section cards + form grid ──────────────── */
+
+.hc-section-card {
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius-md);
+  padding: 0.55rem 0.85rem 0.7rem;
+  box-shadow: var(--hc-shadow-sm);
+}
+
+.hc-section-card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Two-column grid: labels right-aligned in col 1, controls in col 2.
+   `align-items:start` keeps the label flush with the top of the input
+   when the control wraps (e.g. textarea + help text). */
+.hc-form-grid {
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) minmax(0, 1fr);
+  column-gap: 0.85rem;
+  row-gap: 0.4rem;
+  align-items: start;
+}
+
+.hc-form-label {
+  text-align: right;
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--hc-text);
+  padding-top: 0.4rem;       /* aligns with input baseline */
+  white-space: nowrap;
+}
+
+.hc-form-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.hc-form-help {
+  font-size: 0.75rem;
+  color: var(--hc-text-muted);
+  line-height: 1.3;
+}
+
+.hc-form-input {
+  padding: 0.32rem 0.5rem;
+  border: 1px solid var(--hc-border);
+  border-radius: 4px;
+  font-size: 0.88rem;
+  background: var(--hc-input-bg, var(--hc-surface));
+  color: var(--hc-text);
+}
+.hc-form-input:focus {
+  outline: 2px solid var(--hc-accent);
+  outline-offset: 1px;
+  border-color: var(--hc-accent);
+}
+
+.hc-form-input--xs   { width: 7rem; }
+.hc-form-input--sm   { width: 9rem; }
+.hc-form-input--md   { width: 100%; max-width: 22rem; }
+.hc-form-input--full { width: 100%; }
+
+/* Generic .hc-input alias used by admin_notify and other ad-hoc forms.
+   Inherits the same visual treatment so the whole admin surface feels
+   consistent without forcing every form to adopt hc-form-grid. */
+.hc-input {
+  padding: 0.32rem 0.5rem;
+  border: 1px solid var(--hc-border);
+  border-radius: 4px;
+  font-size: 0.88rem;
+  background: var(--hc-input-bg, var(--hc-surface));
+  color: var(--hc-text);
+  width: 100%;
+  max-width: 22rem;
+}
+.hc-input:focus {
+  outline: 2px solid var(--hc-accent);
+  outline-offset: 1px;
+  border-color: var(--hc-accent);
+}
+@media (max-width: 600px) {
+  .hc-input { max-width: none; }
+}
+
+.hc-form-checkbox {
+  justify-self: start;
+  margin-top: 0.35rem;
+}
+
+/* Mobile: collapse the two columns to a single stack so labels sit
+   above their inputs and inputs go full width. Triggered below the
+   point where the side-by-side layout starts to feel cramped. */
+@media (max-width: 600px) {
+  .hc-form-grid {
+    grid-template-columns: 1fr;
+    row-gap: 0.65rem;
+  }
+  .hc-form-label {
+    text-align: left;
+    padding-top: 0;
+    white-space: normal;
+  }
+  .hc-form-input--xs,
+  .hc-form-input--sm,
+  .hc-form-input--md {
+    width: 100%;
+    max-width: none;
+  }
+}

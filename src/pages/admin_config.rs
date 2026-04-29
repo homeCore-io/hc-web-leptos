@@ -412,37 +412,39 @@ pub fn SectionCard(section: Section, parsed: ReadSignal<Value>) -> impl IntoView
     let states_for_view: Arc<Vec<RwSignal<String>>> = Arc::new(states.clone());
 
     view! {
-        <div class="detail-card" style="margin-bottom:0.75rem">
+        <div class="hc-section-card" style="margin-bottom:0.5rem">
             <div
-                style="display:flex; align-items:center; gap:0.5rem; cursor:pointer"
+                class="hc-section-card__header"
                 on:click=move |_| open.update(|v| *v = !*v)
             >
                 <i
                     class=move || if open.get() { "ph ph-caret-down" } else { "ph ph-caret-right" }
-                    style="font-size:1rem; width:1rem"
+                    style="font-size:0.9rem; width:0.9rem"
                 ></i>
-                <h3 style="margin:0; font-size:1rem; flex:1">{title}</h3>
+                <h3 style="margin:0; font-size:0.95rem; flex:1; font-weight:600">{title}</h3>
                 {move || dirty.get().then(|| view! {
                     <span
                         title="Unsaved edits"
-                        style="display:inline-block; width:0.6rem; height:0.6rem; \
+                        style="display:inline-block; width:0.55rem; height:0.55rem; \
                                border-radius:50%; background:#f59e0b; flex-shrink:0"
                     ></span>
                 })}
-                <code style="font-size:0.8rem; color:var(--hc-text-muted)">{format!("[{}]", path)}</code>
+                <code style="font-size:0.75rem; color:var(--hc-text-muted)">{format!("[{}]", path)}</code>
             </div>
 
             <Show when=move || open.get()>
-                <p style="margin:0.5rem 0 1rem; color:var(--hc-text-muted); font-size:0.9rem">{help}</p>
+                <p style="margin:0.4rem 0 0.65rem; color:var(--hc-text-muted); font-size:0.85rem">{help}</p>
 
-                {
-                    let fields = Arc::clone(&fields_for_view);
-                    let states = Arc::clone(&states_for_view);
-                    fields.iter().enumerate().map(|(i, spec)| {
-                        let signal = states[i];
-                        render_field(spec.clone(), signal)
-                    }).collect_view()
-                }
+                <div class="hc-form-grid">
+                    {
+                        let fields = Arc::clone(&fields_for_view);
+                        let states = Arc::clone(&states_for_view);
+                        fields.iter().enumerate().map(|(i, spec)| {
+                            let signal = states[i];
+                            render_field(spec.clone(), signal)
+                        }).collect_view()
+                    }
+                </div>
 
                 {move || error.get().map(|e| view! {
                     <div class="msg-error" style="margin-top:0.5rem">{e}</div>
@@ -451,7 +453,7 @@ pub fn SectionCard(section: Section, parsed: ReadSignal<Value>) -> impl IntoView
                     <div class="msg-success" style="margin-top:0.5rem">{n}</div>
                 })}
 
-                <div style="margin-top:0.75rem">
+                <div style="margin-top:0.6rem; display:flex; justify-content:flex-end">
                     <button
                         class="hc-btn hc-btn--sm hc-btn--primary"
                         disabled=move || busy.get()
@@ -541,11 +543,24 @@ fn render_field(spec: FieldSpec, signal: RwSignal<String>) -> impl IntoView {
     let help = spec.help;
     let mono = matches!(spec.kind, FieldKind::Path);
 
+    // Constrain input width by kind so a `port` doesn't take 600px just
+    // because its container can. Path/StringList stay full-width since
+    // their values genuinely benefit from the room.
+    let width_class = match spec.kind {
+        FieldKind::Integer => "hc-form-input hc-form-input--xs",
+        FieldKind::Float   => "hc-form-input hc-form-input--sm",
+        FieldKind::Text    => "hc-form-input hc-form-input--md",
+        FieldKind::Path    => "hc-form-input hc-form-input--full",
+        FieldKind::StringList => "hc-form-input hc-form-input--full",
+        FieldKind::Bool    => "hc-form-checkbox",
+    };
+
     let input_view = match spec.kind {
         FieldKind::Bool => {
             view! {
                 <input
                     type="checkbox"
+                    class=width_class
                     prop:checked=move || signal.get() == "true"
                     on:change=move |ev| {
                         let target: web_sys::HtmlInputElement = event_target(&ev);
@@ -557,22 +572,20 @@ fn render_field(spec: FieldSpec, signal: RwSignal<String>) -> impl IntoView {
         FieldKind::StringList => {
             view! {
                 <textarea
-                    style="width:100%; min-height:5rem; font-family:inherit; padding:0.4rem; border:1px solid var(--hc-border); border-radius:4px"
+                    class=width_class
+                    style="min-height:3.25rem; font-family:inherit"
                     prop:value=move || signal.get()
                     on:input=move |ev| signal.set(event_target_value(&ev))
                 ></textarea>
             }.into_any()
         }
         _ => {
-            let style = if mono {
-                "width:100%; padding:0.4rem; font-family:monospace; border:1px solid var(--hc-border); border-radius:4px"
-            } else {
-                "width:100%; padding:0.4rem; border:1px solid var(--hc-border); border-radius:4px"
-            };
+            let extra_style = if mono { "font-family:monospace" } else { "" };
             view! {
                 <input
                     type="text"
-                    style=style
+                    class=width_class
+                    style=extra_style
                     prop:value=move || signal.get()
                     on:input=move |ev| signal.set(event_target_value(&ev))
                 />
@@ -580,15 +593,18 @@ fn render_field(spec: FieldSpec, signal: RwSignal<String>) -> impl IntoView {
         }
     };
 
+    // display:contents lets the label + control participate directly in
+    // the parent grid so labels in column 1 align across all rows
+    // without each row being its own grid container.
     view! {
-        <div style="margin-bottom:0.75rem">
-            <label style="display:flex; flex-direction:column; gap:0.25rem">
-                <span style="font-weight:500; font-size:0.9rem">{label}</span>
+        <div style="display:contents">
+            <label class="hc-form-label">{label}</label>
+            <div class="hc-form-control">
                 {input_view}
                 {(!help.is_empty()).then(|| view! {
-                    <span style="font-size:0.8rem; color:var(--hc-text-muted)">{help}</span>
+                    <span class="hc-form-help">{help}</span>
                 })}
-            </label>
+            </div>
         </div>
     }
 }

@@ -126,6 +126,36 @@ pub fn PluginsPage() -> impl IntoView {
         });
     };
 
+    // Enable/disable toggle. Persists the [[plugins]] entry's enabled
+    // flag in homecore.toml AND triggers start/stop on the supervisor.
+    // Mirrors the per-detail page toggle so behavior is consistent
+    // across the two surfaces.
+    let toggle_enabled = move |id: String, current: bool| {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let next = !current;
+        busy_id.set(Some(id.clone()));
+        spawn_local(async move {
+            if let Err(e) = patch_plugin(&token, &id, &json!({ "enabled": next })).await {
+                error.set(Some(e));
+            } else {
+                ws.plugins.update(|m| {
+                    if let Some(p) = m.get_mut(&id) {
+                        p.enabled = next;
+                    }
+                });
+            }
+            // Refresh in case the supervisor's start/stop has lit up.
+            if let Ok(list) = fetch_plugins(&token).await {
+                ws.plugins.update(|m| {
+                    for p in list {
+                        m.insert(p.plugin_id.clone(), p);
+                    }
+                });
+            }
+            busy_id.set(None);
+        });
+    };
+
     view! {
         <div class="plugins-page">
             // ── Heading ─────────────────────────────────────────────────────
@@ -205,6 +235,7 @@ pub fn PluginsPage() -> impl IntoView {
                             let dot_cls = status_dot_class(&status);
                             let label = status_label(&status);
                             let managed = p.managed;
+                            let enabled = p.enabled;
                             let device_count = p.device_count;
                             let uptime = p.uptime_str();
                             let version = p.version.clone().unwrap_or_default();
@@ -215,6 +246,7 @@ pub fn PluginsPage() -> impl IntoView {
                             let id_start = id.clone();
                             let id_stop = id.clone();
                             let id_restart = id.clone();
+                            let id_toggle = id.clone();
 
                             view! {
                                 <div class="plugin-row" on:click=move |_| {
@@ -240,10 +272,24 @@ pub fn PluginsPage() -> impl IntoView {
                                     </div>
 
                                     // Right: actions
+                                    //   - enabled = false → Enable (only).
+                                    //     Start/Stop/Restart hidden because they're
+                                    //     no-ops against a config-disabled plugin
+                                    //     (the supervisor doesn't track it).
+                                    //   - enabled = true  → Disable + the runtime
+                                    //     buttons gated on current status.
                                     {managed.then(|| {
+                                        let toggle = toggle_enabled.clone();
                                         view! {
                                             <div class="plugin-row-actions" on:click=|ev: web_sys::MouseEvent| ev.stop_propagation()>
-                                                {(status == "stopped" || status == "offline").then(|| {
+                                                <button
+                                                    class=if enabled { "hc-btn hc-btn--sm hc-btn--outline" }
+                                                          else      { "hc-btn hc-btn--sm hc-btn--primary" }
+                                                    disabled=is_busy
+                                                    on:click=move |_| toggle(id_toggle.clone(), enabled)
+                                                >{ if enabled { "Disable" } else { "Enable" } }</button>
+
+                                                {(enabled && (status == "stopped" || status == "offline")).then(|| {
                                                     let id = id_start.clone();
                                                     let do_action = do_action.clone();
                                                     view! {
@@ -252,7 +298,7 @@ pub fn PluginsPage() -> impl IntoView {
                                                         >"Start"</button>
                                                     }
                                                 })}
-                                                {(status == "active" || status == "starting").then(|| {
+                                                {(enabled && (status == "active" || status == "starting")).then(|| {
                                                     let id = id_stop.clone();
                                                     let do_action = do_action.clone();
                                                     view! {
@@ -261,7 +307,7 @@ pub fn PluginsPage() -> impl IntoView {
                                                         >"Stop"</button>
                                                     }
                                                 })}
-                                                {(status == "active").then(|| {
+                                                {(enabled && status == "active").then(|| {
                                                     let id = id_restart.clone();
                                                     let do_action = do_action.clone();
                                                     view! {

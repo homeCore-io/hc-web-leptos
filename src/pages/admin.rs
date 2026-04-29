@@ -241,9 +241,12 @@ fn MaintenanceTab() -> impl IntoView {
 
 #[component]
 fn ConfigurationTab() -> impl IntoView {
+    use crate::pages::admin_config::{all_sections, SectionCard};
+
     let auth = use_auth();
     let raw: RwSignal<String> = RwSignal::new(String::new());
     let path: RwSignal<String> = RwSignal::new(String::new());
+    let (parsed, set_parsed) = signal(serde_json::Value::Null);
     let edit_text: RwSignal<String> = RwSignal::new(String::new());
     let editing = RwSignal::new(false);
     let busy = RwSignal::new(false);
@@ -264,6 +267,7 @@ fn ConfigurationTab() -> impl IntoView {
                     if let Some(p) = v["path"].as_str() {
                         path.set(p.to_string());
                     }
+                    set_parsed.set(v["parsed"].clone());
                 }
                 Err(e) => error.set(Some(format!("Load failed: {e}"))),
             }
@@ -314,8 +318,8 @@ fn ConfigurationTab() -> impl IntoView {
         <div class="detail-card">
             <h2 class="card-title">"Configuration"</h2>
             <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">
-                "Edit homecore.toml directly. Per-section structured forms are coming \
-                 incrementally; for now use the raw editor below. "
+                "Edit per-section settings below; the raw config editor at the bottom \
+                 is the fallback for anything not exposed as a form. Most changes need a restart. "
                 {move || (!path.get().is_empty()).then(|| view! {
                     <code style="font-size:0.85rem">{path.get()}</code>
                 })}
@@ -339,7 +343,20 @@ fn ConfigurationTab() -> impl IntoView {
                     >"Restart Now"</button>
                 </div>
             })}
+        </div>
 
+        // Per-section structured forms. Each card is collapsible; the
+        // operator-friendly inputs live here. The raw editor below is
+        // a fallback for fields not yet covered or for bulk pastes.
+        <div style="margin:1rem 0">
+            {
+                all_sections().into_iter().map(|section| view! {
+                    <SectionCard section=section parsed=parsed />
+                }).collect_view()
+            }
+        </div>
+
+        <div class="detail-card">
             <div style="display:flex; gap:0.5rem; margin-bottom:0.5rem; align-items:center">
                 <h3 style="margin:0; font-size:1rem">"Raw config"</h3>
                 <span style="flex:1"></span>

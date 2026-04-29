@@ -13,11 +13,11 @@ use std::collections::HashMap;
 
 // ── Re-exports from hc-types (shared with core) ────────────────────────────
 
-pub use hc_types::rule::{Rule, RunMode, Trigger};
 pub use hc_types::dashboard::{
     DashboardDefinition, DashboardRefreshPolicy, DashboardResponse, DashboardVisibility,
     DashboardWidget, DashboardWidgetType,
 };
+pub use hc_types::rule::{Rule, RunMode, Trigger};
 
 // ── Admin types ─────────────────────────────────────────────────────────────
 
@@ -203,13 +203,61 @@ pub fn num_attr(v: Option<&serde_json::Value>) -> Option<f64> {
     })
 }
 
+/// Plugin-supplied battery semantics indicator. Set to "binary",
+/// "voltage", or "level" by plugins (currently hc-ecowitt) whose
+/// battery values aren't 0-100 percentages. Absent otherwise.
+pub fn battery_kind(d: &DeviceState) -> Option<&str> {
+    str_attr(d.attributes.get("battery_kind"))
+}
+
+/// Plugin-supplied "battery is currently low" flag. When present, this
+/// is the authoritative low signal — derived per-kind by the plugin so
+/// the UI doesn't need to know voltage thresholds or level scales.
+pub fn battery_low_explicit(d: &DeviceState) -> Option<bool> {
+    bool_attr(d.attributes.get("battery_low"))
+}
+
+/// Battery as a 0-100 percentage, when one is meaningful for this
+/// device.
+///
+/// For devices that report `battery_kind` of "binary"/"voltage"/"level"
+/// (e.g. Ecowitt sensors), the raw `battery` field is NOT a percentage
+/// and we explicitly do NOT return it — we only honor an explicit
+/// `battery_pct` field for those. For everything else (the vast
+/// majority — Z-Wave, Hue, Yolink, etc.) we keep the original fallback
+/// chain `battery_pct` -> `battery` -> `battery_level`.
 pub fn battery_pct(d: &DeviceState) -> Option<f64> {
+    if matches!(battery_kind(d), Some("binary" | "voltage" | "level")) {
+        return num_attr(d.attributes.get("battery_pct"));
+    }
     num_attr(
         d.attributes
             .get("battery_pct")
             .or_else(|| d.attributes.get("battery"))
             .or_else(|| d.attributes.get("battery_level")),
     )
+}
+
+/// Best-effort "is this device's battery currently low?".
+///
+/// Prefers the plugin-supplied `battery_low` flag (authoritative,
+/// per-kind threshold already applied). Falls back to comparing
+/// `battery_pct(d)` against the configured percentage threshold for
+/// devices that report a numeric percentage.
+///
+/// Returns `None` when the device exposes no battery information at
+/// all — caller decides whether to skip or treat as unknown.
+pub fn is_battery_low(d: &DeviceState, threshold_pct: f64) -> Option<bool> {
+    if let Some(low) = battery_low_explicit(d) {
+        return Some(low);
+    }
+    battery_pct(d).map(|p| p <= threshold_pct)
+}
+
+/// Whether the device exposes any battery information that the UI
+/// might want to display or count.
+pub fn has_battery_info(d: &DeviceState) -> bool {
+    battery_low_explicit(d).is_some() || battery_pct(d).is_some()
 }
 
 pub fn temperature_unit(d: &DeviceState) -> Option<&'static str> {
@@ -707,25 +755,86 @@ pub fn device_mdi_icon(d: &DeviceState) -> &'static str {
     let motion = bool_attr(d.attributes.get("motion")).unwrap_or(false);
 
     match key {
-        "light" | "dimmer" => if on { "ph ph-lightbulb-filament" } else { "ph ph-lightbulb" },
-        "switch" => if on { "ph ph-toggle-right" } else { "ph ph-toggle-left" },
-        "virtual_switch" => if on { "ph ph-toggle-right" } else { "ph ph-toggle-left" },
-        "lock" => if locked { "ph ph-lock" } else { "ph ph-lock-open" },
-        "shade" => if open { "ph ph-blinds" } else { "ph ph-blinds" },
+        "light" | "dimmer" => {
+            if on {
+                "ph ph-lightbulb-filament"
+            } else {
+                "ph ph-lightbulb"
+            }
+        }
+        "switch" => {
+            if on {
+                "ph ph-toggle-right"
+            } else {
+                "ph ph-toggle-left"
+            }
+        }
+        "virtual_switch" => {
+            if on {
+                "ph ph-toggle-right"
+            } else {
+                "ph ph-toggle-left"
+            }
+        }
+        "lock" => {
+            if locked {
+                "ph ph-lock"
+            } else {
+                "ph ph-lock-open"
+            }
+        }
+        "shade" => {
+            if open {
+                "ph ph-blinds"
+            } else {
+                "ph ph-blinds"
+            }
+        }
         "media_player" => "ph ph-speaker-hifi",
-        "motion_sensor" => if motion { "ph ph-person-simple-walk" } else { "ph ph-person-simple" },
-        "occupancy_sensor" => if occupied { "ph ph-user-circle" } else { "ph ph-house" },
+        "motion_sensor" => {
+            if motion {
+                "ph ph-person-simple-walk"
+            } else {
+                "ph ph-person-simple"
+            }
+        }
+        "occupancy_sensor" => {
+            if occupied {
+                "ph ph-user-circle"
+            } else {
+                "ph ph-house"
+            }
+        }
         "contact_sensor" => {
             // Check ui_hint first, then fall back to name-based detection
             let hint = d.ui_hint.as_deref().unwrap_or("").to_lowercase();
             let name = d.name.to_lowercase();
-            if hint == "garage" || hint == "gate" || name.contains("garage") || name.contains("oh1") || name.contains("oh2") || name.contains("overhead") || name.contains("gate") {
-                if open { "ph ph-garage" } else { "ph ph-garage" }
+            if hint == "garage"
+                || hint == "gate"
+                || name.contains("garage")
+                || name.contains("oh1")
+                || name.contains("oh2")
+                || name.contains("overhead")
+                || name.contains("gate")
+            {
+                if open {
+                    "ph ph-garage"
+                } else {
+                    "ph ph-garage"
+                }
             } else if hint == "window" || name.contains("window") {
-                if open { "ph ph-frame-corners" } else { "ph ph-square" }
+                if open {
+                    "ph ph-frame-corners"
+                } else {
+                    "ph ph-square"
+                }
             } else {
                 // door is the default for contact sensors
-                if open { "ph ph-door-open" } else { "ph ph-door" }
+                if open {
+                    "ph ph-door-open"
+                } else {
+                    "ph ph-door"
+                }
             }
         }
         "leak_sensor" => "ph ph-drop",
@@ -1036,15 +1145,24 @@ pub fn status_text(d: &DeviceState) -> String {
             None => format!("Light {illuminance:.1}"),
         };
     }
-    let battery_pct = battery_pct(d);
+    let battery_pct_val = battery_pct(d);
     let battery_state = str_attr(d.attributes.get("battery_state"))
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    if let Some(level) = battery_pct {
+    if let Some(level) = battery_pct_val {
         if matches!(battery_state, Some("low" | "critical")) {
             return format!("Battery {level:.0}% ({})", battery_state.unwrap());
         }
         return format!("Battery {level:.0}%");
+    }
+    // Plugin-supplied battery_low (e.g. Ecowitt) — render as a status
+    // string rather than a percentage when no pct is available.
+    if let Some(low) = battery_low_explicit(d) {
+        if low {
+            return "Battery low".into();
+        }
+        // Battery OK by itself isn't a status worth headlining; fall
+        // through so other state text takes precedence.
     }
     if let Some(state) = battery_state {
         return format!("Battery {}", state.replace('_', " "));
@@ -1323,7 +1441,10 @@ pub struct PluginInfo {
 impl PluginInfo {
     /// Display name: strip "plugin." prefix and capitalize.
     pub fn display_name(&self) -> String {
-        let name = self.plugin_id.strip_prefix("plugin.").unwrap_or(&self.plugin_id);
+        let name = self
+            .plugin_id
+            .strip_prefix("plugin.")
+            .unwrap_or(&self.plugin_id);
         let mut chars = name.chars();
         match chars.next() {
             Some(c) => format!("{}{}", c.to_uppercase(), chars.as_str()),
@@ -1333,13 +1454,19 @@ impl PluginInfo {
 
     /// Uptime as a human-readable string.
     pub fn uptime_str(&self) -> String {
-        let Some(started) = self.uptime_started else { return "—".into() };
+        let Some(started) = self.uptime_started else {
+            return "—".into();
+        };
         let secs = (Utc::now() - started).num_seconds().max(0) as u64;
         let d = secs / 86400;
         let h = (secs % 86400) / 3600;
         let m = (secs % 3600) / 60;
-        if d > 0 { format!("{d}d {h}h {m}m") }
-        else if h > 0 { format!("{h}h {m}m") }
-        else { format!("{m}m") }
+        if d > 0 {
+            format!("{d}d {h}h {m}m")
+        } else if h > 0 {
+            format!("{h}h {m}m")
+        } else {
+            format!("{m}m")
+        }
     }
 }

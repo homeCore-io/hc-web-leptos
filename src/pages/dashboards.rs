@@ -1554,30 +1554,39 @@ fn compute_hero_tile(
         }
 
         "battery" => {
-            // Devices with a battery attribute. Auto-hide the tile when no
-            // battery-powered devices exist in the live device map.
-            let battery_devices: Vec<(&DeviceState, f64)> = devices
+            // Any device with battery info — covers both percentage-based
+            // sensors (Z-Wave, Hue, Yolink) AND kind-based ones (Ecowitt
+            // emits battery_low + battery_kind without a percentage).
+            // Auto-hide if there's nothing battery-powered in the map.
+            let battery_devices: Vec<&DeviceState> = devices
                 .values()
-                .filter_map(|d| battery_pct(d).map(|p| (d, p)))
+                .filter(|d| has_battery_info(d))
                 .collect();
             if battery_devices.is_empty() {
                 return None;
             }
             let low_count = battery_devices
                 .iter()
-                .filter(|(_, p)| *p <= battery_threshold)
+                .filter(|d| is_battery_low(d, battery_threshold).unwrap_or(false))
                 .count();
-            let lowest_pct = battery_devices
+            // Lowest percentage among devices that actually report one;
+            // kind-based devices (Ecowitt) contribute via low_count only.
+            let lowest_pct: Option<f64> = battery_devices
                 .iter()
-                .map(|(_, p)| *p)
-                .fold(f64::INFINITY, f64::min);
+                .filter_map(|d| battery_pct(d))
+                .fold(None, |acc, p| Some(acc.map_or(p, |a: f64| a.min(p))));
             let pill = if low_count > 0 {
                 Some(("low", "alert"))
             } else {
                 Some(("ok", "ok"))
             };
             let value = if low_count == 0 {
-                format!("{:.0}%", lowest_pct)
+                match lowest_pct {
+                    Some(p) => format!("{:.0}%", p),
+                    // Only kind-based devices, all OK — show a status
+                    // word rather than a misleading "0%".
+                    None => "ok".into(),
+                }
             } else if low_count == 1 {
                 "1 low".to_string()
             } else {

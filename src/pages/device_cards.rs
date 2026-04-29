@@ -962,9 +962,7 @@ pub fn DeviceCardsPage() -> impl IntoView {
                     Some("climate") => d.device_type.as_deref() == Some("thermostat"),
                     Some("media") => d.device_type.as_deref() == Some("media_player"),
                     Some("energy") => d.device_type.as_deref() == Some("power_monitor"),
-                    Some("battery") => battery_pct(d)
-                        .map(|p| p <= battery_threshold)
-                        .unwrap_or(false),
+                    Some("battery") => is_battery_low(d, battery_threshold).unwrap_or(false),
                     _ => true,
                 }
             })
@@ -1128,7 +1126,12 @@ pub fn DeviceCardsPage() -> impl IntoView {
                         ),
                         "battery" => (
                             "ph ph-battery-low",
-                            format!("Battery-powered devices at or below {:.0}%.", bat_below),
+                            format!(
+                                "Battery-powered devices flagged low — at or below {:.0}% \
+                                 for percentage-reporting sensors, or marked low by their \
+                                 plugin (e.g. Ecowitt voltage / level sensors).",
+                                bat_below
+                            ),
                             "",
                         ),
                         _ => (

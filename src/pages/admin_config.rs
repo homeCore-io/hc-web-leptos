@@ -361,7 +361,14 @@ pub fn SectionCard(section: Section, parsed: ReadSignal<Value>) -> impl IntoView
     let states: Vec<RwSignal<String>> = (0..field_count)
         .map(|_| RwSignal::new(String::new()))
         .collect();
+    // Snapshot of last-loaded-from-disk values, used to detect unsaved
+    // edits. Updated whenever the parsed config refreshes (mount + save
+    // round-trip).
+    let baseline: Vec<RwSignal<String>> = (0..field_count)
+        .map(|_| RwSignal::new(String::new()))
+        .collect();
     let states_clone = states.clone();
+    let baseline_clone = baseline.clone();
     let dotted_path = section.path.to_string();
     let fields_for_seed = section.fields.clone();
     Effect::new(move |_| {
@@ -374,8 +381,20 @@ pub fn SectionCard(section: Section, parsed: ReadSignal<Value>) -> impl IntoView
                 FieldKind::Bool => value_to_bool(v).to_string(),
                 FieldKind::StringList => value_to_string_list(v),
             };
-            states_clone[i].set(s);
+            states_clone[i].set(s.clone());
+            baseline_clone[i].set(s);
         }
+    });
+
+    // Dirty indicator — true when any signal diverges from its baseline.
+    // Reactive so the header dot lights up the moment the operator types.
+    let dirty_states = states.clone();
+    let dirty_baseline = baseline.clone();
+    let dirty = Signal::derive(move || {
+        dirty_states
+            .iter()
+            .zip(dirty_baseline.iter())
+            .any(|(s, b)| s.get() != b.get())
     });
 
     use std::sync::Arc;
@@ -403,6 +422,13 @@ pub fn SectionCard(section: Section, parsed: ReadSignal<Value>) -> impl IntoView
                     style="font-size:1rem; width:1rem"
                 ></i>
                 <h3 style="margin:0; font-size:1rem; flex:1">{title}</h3>
+                {move || dirty.get().then(|| view! {
+                    <span
+                        title="Unsaved edits"
+                        style="display:inline-block; width:0.6rem; height:0.6rem; \
+                               border-radius:50%; background:#f59e0b; flex-shrink:0"
+                    ></span>
+                })}
                 <code style="font-size:0.8rem; color:var(--hc-text-muted)">{format!("[{}]", path)}</code>
             </div>
 

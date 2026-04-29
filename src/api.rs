@@ -321,6 +321,33 @@ pub async fn restart_system(token: &str) -> Result<(), String> {
     post_no_body("/system/restart", token).await
 }
 
+// ── API key management ─────────────────────────────────────────────────────
+
+pub async fn list_api_keys(token: &str) -> Result<Vec<Value>, String> {
+    get_json("/auth/api-keys", token).await
+}
+
+pub async fn create_api_key(
+    token: &str,
+    label: &str,
+    scopes: &[String],
+    expires_in_days: Option<u32>,
+) -> Result<Value, String> {
+    let mut body = serde_json::json!({ "label": label, "scopes": scopes });
+    if let Some(days) = expires_in_days {
+        body["expires_in_days"] = serde_json::json!(days);
+    }
+    post_json("/auth/api-keys", token, &body).await
+}
+
+pub async fn rotate_api_key(token: &str, id: &str) -> Result<Value, String> {
+    post_json(&format!("/auth/api-keys/{id}/rotate"), token, &serde_json::json!({})).await
+}
+
+pub async fn delete_api_key(token: &str, id: &str) -> Result<(), String> {
+    delete_no_body(&format!("/auth/api-keys/{id}"), token).await
+}
+
 pub async fn fetch_areas(token: &str) -> Result<Vec<Area>, String> {
     get_json("/areas", token).await
 }

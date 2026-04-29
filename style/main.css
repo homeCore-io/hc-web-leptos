@@ -4759,3 +4759,9 @@ select.audit-input {
     font-size: 0.85rem;
   }
 }
+
+/* Spinner animation used by Restart-Now reconnect banner */
+@keyframes hc-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

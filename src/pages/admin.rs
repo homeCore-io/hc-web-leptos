@@ -2,11 +2,12 @@
 //! log level, calendars, stale device references, device cleanup.
 
 use crate::api::{
-    add_calendar_by_url, bulk_delete_devices, change_password, create_user, delete_calendar,
-    delete_user, export_rules, export_scenes, fetch_calendars, fetch_calendar_events, fetch_me,
-    fetch_plugins, fetch_stale_refs, fetch_system_config, fetch_system_status, fetch_users,
-    get_log_level, import_rules, import_scenes, put_system_config_raw, restart_system,
-    restore_backup, set_log_level, set_user_role, trigger_backup, upload_calendar,
+    add_calendar_by_url, bulk_delete_devices, change_password, create_api_key, create_user,
+    delete_api_key, delete_calendar, delete_user, export_rules, export_scenes, fetch_calendars,
+    fetch_calendar_events, fetch_me, fetch_plugins, fetch_stale_refs, fetch_system_config,
+    fetch_system_status, fetch_users, get_log_level, import_rules, import_scenes, list_api_keys,
+    put_system_config_raw, restart_system, restore_backup, rotate_api_key, set_log_level,
+    set_user_role, trigger_backup, upload_calendar,
 };
 use crate::auth::use_auth;
 use crate::models::*;
@@ -204,7 +205,286 @@ fn SystemTab() -> impl IntoView {
 fn UsersTab() -> impl IntoView {
     view! {
         <UserManagementSection />
+        <ApiKeysSection />
         <ChangePasswordSection />
+    }
+}
+
+// ── ApiKeysSection ──────────────────────────────────────────────────────────
+
+#[component]
+fn ApiKeysSection() -> impl IntoView {
+    let auth = use_auth();
+    let keys: RwSignal<Vec<serde_json::Value>> = RwSignal::new(Vec::new());
+    let loading = RwSignal::new(true);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+    let notice: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Token displayed once after create/rotate (the plaintext is
+    // server-returned only at issuance — we surface it prominently
+    // until the operator dismisses).
+    let new_token: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Create-form state
+    let creating = RwSignal::new(false);
+    let create_label = RwSignal::new(String::new());
+    let create_scopes = RwSignal::new(String::new());
+    let create_expires_days = RwSignal::new(String::new());
+
+    let reload = move || {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        loading.set(true);
+        spawn_local(async move {
+            match list_api_keys(&token).await {
+                Ok(list) => keys.set(list),
+                Err(e) => error.set(Some(format!("Load failed: {e}"))),
+            }
+            loading.set(false);
+        });
+    };
+
+    // Initial load.
+    Effect::new(move |_| {
+        if auth.token.get().is_some() {
+            reload();
+        }
+    });
+
+    let do_create = move |_| {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let label = create_label.get_untracked().trim().to_string();
+        if label.is_empty() {
+            error.set(Some("Label is required.".into()));
+            return;
+        }
+        let scopes: Vec<String> = create_scopes
+            .get_untracked()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let expires_days = create_expires_days
+            .get_untracked()
+            .trim()
+            .parse::<u32>()
+            .ok();
+
+        error.set(None);
+        notice.set(None);
+        spawn_local(async move {
+            match create_api_key(&token, &label, &scopes, expires_days).await {
+                Ok(resp) => {
+                    if let Some(t) = resp["token"].as_str() {
+                        new_token.set(Some(t.to_string()));
+                    }
+                    notice.set(Some(format!("Created key '{label}'.")));
+                    creating.set(false);
+                    create_label.set(String::new());
+                    create_scopes.set(String::new());
+                    create_expires_days.set(String::new());
+                    reload();
+                }
+                Err(e) => error.set(Some(e)),
+            }
+        });
+    };
+
+    let do_rotate = move |id: String| {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        error.set(None);
+        notice.set(None);
+        spawn_local(async move {
+            match rotate_api_key(&token, &id).await {
+                Ok(resp) => {
+                    if let Some(t) = resp["token"].as_str() {
+                        new_token.set(Some(t.to_string()));
+                    }
+                    notice.set(Some("Key rotated. The previous secret is now invalid.".into()));
+                    reload();
+                }
+                Err(e) => error.set(Some(e)),
+            }
+        });
+    };
+
+    let do_delete = move |id: String, label: String| {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let confirm_msg = format!("Revoke API key '{label}'? This cannot be undone.");
+        if let Some(w) = web_sys::window() {
+            if w.confirm_with_message(&confirm_msg).unwrap_or(false) == false {
+                return;
+            }
+        }
+        error.set(None);
+        notice.set(None);
+        spawn_local(async move {
+            match delete_api_key(&token, &id).await {
+                Ok(()) => {
+                    notice.set(Some(format!("Revoked '{label}'.")));
+                    reload();
+                }
+                Err(e) => error.set(Some(e)),
+            }
+        });
+    };
+
+    view! {
+        <div class="detail-card">
+            <h2 class="card-title">"API Keys"</h2>
+            <p style="margin-bottom:0.75rem; color:var(--hc-text-muted)">
+                "Long-lived bearer tokens for service accounts (hc-mcp, scripts, integrations). \
+                 Each key has a label, scope subset, and optional expiry. The plaintext token is \
+                 shown only once — at creation or rotation — so save it immediately."
+            </p>
+
+            <ErrorBanner error=error />
+            {move || notice.get().map(|n| view! {
+                <div class="msg-success" style="margin-bottom:0.5rem">{n}</div>
+            })}
+
+            // Surface freshly-issued token until dismissed.
+            {move || new_token.get().map(|t| {
+                let t_for_clip = t.clone();
+                view! {
+                    <div class="msg-warning" style="margin-bottom:0.75rem; word-break:break-all">
+                        <div style="font-weight:600; margin-bottom:0.25rem">"New API key — copy now, it won't be shown again:"</div>
+                        <code style="display:block; padding:0.5rem; background:var(--hc-accent-soft); border-radius:4px; font-family:monospace">{t}</code>
+                        <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
+                            <button class="hc-btn hc-btn--sm hc-btn--outline"
+                                on:click=move |_| {
+                                    if let Some(w) = web_sys::window() {
+                                        let _ = w.navigator().clipboard().write_text(&t_for_clip);
+                                    }
+                                }
+                            >"Copy"</button>
+                            <button class="hc-btn hc-btn--sm hc-btn--outline"
+                                on:click=move |_| new_token.set(None)
+                            >"Dismiss"</button>
+                        </div>
+                    </div>
+                }
+            })}
+
+            // ── List ─────────────────────────────────────────────────────
+            <Show when=move || !loading.get() fallback=|| view! { <p>"Loading…"</p> }>
+                {move || {
+                    let list = keys.get();
+                    if list.is_empty() {
+                        view! { <p style="color:var(--hc-text-muted)">"No API keys issued yet."</p> }.into_any()
+                    } else {
+                        view! {
+                            <table style="width:100%; border-collapse:collapse">
+                                <thead>
+                                    <tr style="border-bottom:1px solid var(--hc-border); text-align:left">
+                                        <th style="padding:0.5rem">"Label"</th>
+                                        <th style="padding:0.5rem">"Prefix"</th>
+                                        <th style="padding:0.5rem">"Scopes"</th>
+                                        <th style="padding:0.5rem">"Last used"</th>
+                                        <th style="padding:0.5rem">"Expires"</th>
+                                        <th style="padding:0.5rem; text-align:right">"Actions"</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {
+                                    list.into_iter().map(|k| {
+                                        let id    = k["id"].as_str().unwrap_or("").to_string();
+                                        let label = k["label"].as_str().unwrap_or("").to_string();
+                                        let prefix = k["prefix"].as_str().unwrap_or("").to_string();
+                                        let scopes_arr = k["scopes"].as_array().cloned().unwrap_or_default();
+                                        let scopes = scopes_arr.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+                                        let last_used = k["last_used_at"].as_str().map(|s| s.to_string()).unwrap_or_else(|| "never".into());
+                                        let expires = k["expires_at"].as_str().map(|s| s.to_string()).unwrap_or_else(|| "never".into());
+                                        let revoked = k["revoked_at"].is_string();
+
+                                        let id_rotate = id.clone();
+                                        let id_delete = id.clone();
+                                        let label_delete = label.clone();
+                                        let do_rotate = do_rotate.clone();
+                                        let do_delete = do_delete.clone();
+
+                                        view! {
+                                            <tr style="border-bottom:1px solid var(--hc-border)" class:hc-revoked=revoked>
+                                                <td style="padding:0.5rem">
+                                                    {label.clone()}
+                                                    {revoked.then(|| view! { <span style="color:var(--hc-text-muted); margin-left:0.5rem">"(revoked)"</span> })}
+                                                </td>
+                                                <td style="padding:0.5rem; font-family:monospace; font-size:0.85rem">{format!("hc_sk_{prefix}…")}</td>
+                                                <td style="padding:0.5rem; font-size:0.85rem; color:var(--hc-text-muted)">{scopes}</td>
+                                                <td style="padding:0.5rem; font-size:0.85rem; color:var(--hc-text-muted)">{last_used}</td>
+                                                <td style="padding:0.5rem; font-size:0.85rem; color:var(--hc-text-muted)">{expires}</td>
+                                                <td style="padding:0.5rem; text-align:right; white-space:nowrap">
+                                                    {(!revoked).then(|| view! {
+                                                        <button class="hc-btn hc-btn--sm hc-btn--outline"
+                                                            style="margin-right:0.25rem"
+                                                            on:click=move |_| do_rotate(id_rotate.clone())
+                                                        >"Rotate"</button>
+                                                        <button class="hc-btn hc-btn--sm hc-btn--danger-outline"
+                                                            on:click=move |_| do_delete(id_delete.clone(), label_delete.clone())
+                                                        >"Revoke"</button>
+                                                    })}
+                                                </td>
+                                            </tr>
+                                        }
+                                    }).collect_view()
+                                }
+                                </tbody>
+                            </table>
+                        }.into_any()
+                    }
+                }}
+            </Show>
+
+            // ── Create form ──────────────────────────────────────────────
+            <div style="margin-top:1rem">
+                {move || if creating.get() {
+                    view! {
+                        <h3 style="font-size:1rem; margin:0 0 0.5rem">"Create new API key"</h3>
+                        <div style="display:flex; flex-direction:column; gap:0.5rem">
+                            <label>
+                                <span style="display:block; font-weight:500">"Label"</span>
+                                <input type="text" style="width:100%; padding:0.4rem"
+                                    prop:value=move || create_label.get()
+                                    on:input=move |ev| create_label.set(event_target_value(&ev))
+                                    placeholder="e.g. hc-mcp, ci-deploy, mobile-app"
+                                />
+                            </label>
+                            <label>
+                                <span style="display:block; font-weight:500">"Scopes (comma-separated)"</span>
+                                <input type="text" style="width:100%; padding:0.4rem; font-family:monospace; font-size:0.85rem"
+                                    prop:value=move || create_scopes.get()
+                                    on:input=move |ev| create_scopes.set(event_target_value(&ev))
+                                    placeholder="devices:read,plugins:read,plugins:write"
+                                />
+                                <span style="font-size:0.8rem; color:var(--hc-text-muted)">
+                                    "Subset of your account's scopes. Empty = inherits all your scopes."
+                                </span>
+                            </label>
+                            <label>
+                                <span style="display:block; font-weight:500">"Expires in (days)"</span>
+                                <input type="number" style="width:8rem; padding:0.4rem"
+                                    prop:value=move || create_expires_days.get()
+                                    on:input=move |ev| create_expires_days.set(event_target_value(&ev))
+                                    placeholder="optional"
+                                />
+                                <span style="font-size:0.8rem; color:var(--hc-text-muted); margin-left:0.5rem">"Empty = no expiry."</span>
+                            </label>
+                            <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
+                                <button class="hc-btn hc-btn--sm hc-btn--primary" on:click=do_create>"Create"</button>
+                                <button class="hc-btn hc-btn--sm hc-btn--outline"
+                                    on:click=move |_| creating.set(false)
+                                >"Cancel"</button>
+                            </div>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {
+                        <button class="hc-btn hc-btn--sm hc-btn--primary"
+                            on:click=move |_| creating.set(true)
+                        >"+ New API key"</button>
+                    }.into_any()
+                }}
+            </div>
+        </div>
     }
 }
 
@@ -297,16 +577,45 @@ fn ConfigurationTab() -> impl IntoView {
         });
     };
 
+    // Track the reconnect-after-restart phase. While `restarting` is
+    // true: disable the form, show a persistent banner, and poll the
+    // /system/status endpoint until it answers — then full-reload the
+    // page so we pick up new behavior baked into the new hc-core +
+    // re-fetch the new JWT-secret-validated session.
+    let restarting = RwSignal::new(false);
+
     let do_restart = move |_| {
         let token = match auth.token.get_untracked() { Some(t) => t, None => return };
         busy.set(true);
         spawn_local(async move {
             match restart_system(&token).await {
                 Ok(()) => {
-                    notice.set(Some(
-                        "Restart requested. The page will reconnect when hc-core is back up.".into(),
-                    ));
                     restart_required.set(false);
+                    restarting.set(true);
+                    notice.set(None);
+
+                    // Poll /system/status every second up to ~60s. As
+                    // soon as we get any 2xx, reload — the new hc-core
+                    // is back and ready.
+                    let token = token.clone();
+                    spawn_local(async move {
+                        for _ in 0..60 {
+                            gloo_timers::future::TimeoutFuture::new(1000).await;
+                            if fetch_system_status(&token).await.is_ok() {
+                                if let Some(w) = web_sys::window() {
+                                    let _ = w.location().reload();
+                                }
+                                return;
+                            }
+                        }
+                        // Fell through — restart took too long. Surface
+                        // an error so the operator knows to reload manually.
+                        restarting.set(false);
+                        error.set(Some(
+                            "hc-core didn't come back up within 60s. Reload the page manually."
+                                .into(),
+                        ));
+                    });
                 }
                 Err(e) => error.set(Some(format!("Restart failed: {e}"))),
             }
@@ -333,12 +642,18 @@ fn ConfigurationTab() -> impl IntoView {
                 </div>
             })}
 
-            {move || restart_required.get().then(|| view! {
+            {move || restarting.get().then(|| view! {
+                <div class="msg-warning" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem">
+                    <i class="ph ph-spinner-gap" style="font-size:1.1rem; animation: hc-spin 1s linear infinite"></i>
+                    <span>"Restarting hc-core… page will reload as soon as it's back."</span>
+                </div>
+            })}
+            {move || (restart_required.get() && !restarting.get()).then(|| view! {
                 <div class="msg-warning" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem">
                     <span>"Some changes require a restart of hc-core to take effect."</span>
                     <button
                         class="hc-btn hc-btn--sm hc-btn--primary"
-                        disabled=move || busy.get()
+                        disabled=move || busy.get() || restarting.get()
                         on:click=do_restart
                     >"Restart Now"</button>
                 </div>

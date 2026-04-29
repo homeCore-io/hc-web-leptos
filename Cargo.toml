@@ -48,6 +48,8 @@ web-sys = { version = "0.3", features = [
     "console",
     "EventSource",
     "EventSourceInit",
+    "Navigator",
+    "Clipboard",
 ] }
 console_error_panic_hook = "0.1"
 

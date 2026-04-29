@@ -378,6 +378,44 @@ pub fn PluginDetailPage() -> impl IntoView {
 
     let wipe_busy = RwSignal::new(false);
 
+    // Enable / disable toggle. Persists the [[plugins]] entry's
+    // enabled flag in homecore.toml AND triggers start/stop on the
+    // managed subprocess. Single source of truth — flip this and the
+    // plugin's runtime state matches its config-time state.
+    let toggle_enabled = move || {
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
+        let id = plugin_id();
+        let current = plugin
+            .get_untracked()
+            .map(|p| p.enabled)
+            .unwrap_or(false);
+        let next = !current;
+        busy.set(true);
+        spawn_local(async move {
+            match patch_plugin(&token, &id, &json!({ "enabled": next })).await {
+                Ok(()) => {
+                    // Reflect the change locally without waiting for the
+                    // next plugin-list refresh.
+                    ws.plugins.update(|m| {
+                        if let Some(p) = m.get_mut(&id) {
+                            p.enabled = next;
+                        }
+                    });
+                    notice.set(Some(if next {
+                        "Plugin enabled — starting…".into()
+                    } else {
+                        "Plugin disabled — stopping…".into()
+                    }));
+                }
+                Err(e) => error.set(Some(e)),
+            }
+            busy.set(false);
+        });
+    };
+
     // Log level change
     let on_log_level_change = move |level: String| {
         let token = match auth.token.get_untracked() { Some(t) => t, None => return };
@@ -540,7 +578,9 @@ pub fn PluginDetailPage() -> impl IntoView {
                     {move || plugin.get().map(|p| {
                         let status = p.status.clone();
                         let managed = p.managed;
+                        let enabled = p.enabled;
                         let do_action = do_action.clone();
+                        let toggle = toggle_enabled.clone();
                         view! {
                             <div class="plugin-detail-actions">
                                 {managed.then(|| {
@@ -549,6 +589,17 @@ pub fn PluginDetailPage() -> impl IntoView {
                                     let do_action2 = do_action.clone();
                                     let do_action3 = do_action.clone();
                                     view! {
+                                        // Persistent enable/disable — flips
+                                        // the [[plugins]] entry in
+                                        // homecore.toml. Auto-start/stop is a
+                                        // side effect handled by hc-api.
+                                        <button
+                                            class=if enabled { "hc-btn hc-btn--sm hc-btn--outline" }
+                                                  else      { "hc-btn hc-btn--sm hc-btn--primary" }
+                                            disabled=move || busy.get()
+                                            on:click=move |_| toggle()
+                                        >{ if enabled { "Disable" } else { "Enable" } }</button>
+
                                         {(status == "stopped" || status == "offline").then(|| view! {
                                             <button class="hc-btn hc-btn--sm hc-btn--primary" disabled=move || busy.get()
                                                 on:click=move |_| do_action("start")

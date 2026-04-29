@@ -104,6 +104,9 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("/admin") view=move || view! {
                     <AuthGuard><AdminPage /></AuthGuard>
                 }/>
+                <Route path=path!("/admin/:tab") view=move || view! {
+                    <AuthGuard><AdminPage /></AuthGuard>
+                }/>
                 <Route path=path!("/audit") view=move || view! {
                     <AuthGuard><AuditPage /></AuthGuard>
                 }/>

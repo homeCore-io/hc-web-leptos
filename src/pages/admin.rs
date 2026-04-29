@@ -4,14 +4,16 @@
 use crate::api::{
     add_calendar_by_url, bulk_delete_devices, change_password, create_user, delete_calendar,
     delete_user, export_rules, export_scenes, fetch_calendars, fetch_calendar_events, fetch_me,
-    fetch_plugins, fetch_stale_refs, fetch_system_status, fetch_users, get_log_level, import_rules,
-    import_scenes, restore_backup, set_log_level, set_user_role, trigger_backup, upload_calendar,
+    fetch_plugins, fetch_stale_refs, fetch_system_config, fetch_system_status, fetch_users,
+    get_log_level, import_rules, import_scenes, put_system_config_raw, restart_system,
+    restore_backup, set_log_level, set_user_role, trigger_backup, upload_calendar,
 };
 use crate::auth::use_auth;
 use crate::models::*;
-use crate::pages::shared::ErrorBanner;
+use crate::pages::shared::{ErrorBanner, TabBar, TabSpec};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::hooks::use_params_map;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -134,9 +136,38 @@ async fn read_file_input_bytes(input_id: &str) -> Result<Vec<u8>, String> {
 }
 
 // ── Main AdminPage ──────────────────────────────────────────────────────────
+//
+// Five tabs, each deep-linkable (/admin/system, /admin/config, etc.).
+// /admin (no trailing slug) defaults to System.
+
+const ADMIN_TABS: &[(&str, &str, &str)] = &[
+    ("system",      "System",         "ph ph-pulse"),
+    ("config",      "Configuration",  "ph ph-sliders"),
+    ("users",       "Users",          "ph ph-users"),
+    ("data",        "Data",           "ph ph-database"),
+    ("maintenance", "Maintenance",    "ph ph-broom"),
+];
 
 #[component]
 pub fn AdminPage() -> impl IntoView {
+    let params = use_params_map();
+    let active_tab = move || {
+        params
+            .read()
+            .get("tab")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "system".to_string())
+    };
+
+    let tabs: Vec<TabSpec> = ADMIN_TABS
+        .iter()
+        .map(|(slug, label, icon)| TabSpec {
+            slug,
+            label,
+            icon,
+        })
+        .collect();
+
     view! {
         <div class="page">
             <div class="heading">
@@ -146,24 +177,207 @@ pub fn AdminPage() -> impl IntoView {
                 </div>
             </div>
 
-            <SystemStatusSection />
-            <UserManagementSection />
-            <ChangePasswordSection />
-            <BackupDataSection />
-            <LogLevelSection />
-            <CalendarsSection />
+            <TabBar tabs=tabs base_path="/admin" active_slug=active_tab />
 
-            <div class="detail-card">
-                <h2 class="card-title">"Stale Device References"</h2>
-                <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">"Rules that reference device IDs no longer registered in the device store."</p>
-                <StaleRefsSection />
+            {move || match active_tab().as_str() {
+                "config"      => view! { <ConfigurationTab /> }.into_any(),
+                "users"       => view! { <UsersTab /> }.into_any(),
+                "data"        => view! { <DataTab /> }.into_any(),
+                "maintenance" => view! { <MaintenanceTab /> }.into_any(),
+                _             => view! { <SystemTab /> }.into_any(),
+            }}
+        </div>
+    }
+}
+
+// ── Tab content ─────────────────────────────────────────────────────────────
+
+#[component]
+fn SystemTab() -> impl IntoView {
+    view! {
+        <SystemStatusSection />
+        <LogLevelSection />
+    }
+}
+
+#[component]
+fn UsersTab() -> impl IntoView {
+    view! {
+        <UserManagementSection />
+        <ChangePasswordSection />
+    }
+}
+
+#[component]
+fn DataTab() -> impl IntoView {
+    view! {
+        <BackupDataSection />
+        <CalendarsSection />
+    }
+}
+
+#[component]
+fn MaintenanceTab() -> impl IntoView {
+    view! {
+        <div class="detail-card">
+            <h2 class="card-title">"Stale Device References"</h2>
+            <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">
+                "Rules that reference device IDs no longer registered in the device store."
+            </p>
+            <StaleRefsSection />
+        </div>
+
+        <div class="detail-card">
+            <h2 class="card-title">"Device Cleanup"</h2>
+            <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">
+                "Bulk delete devices by ID. Affected rules will have references nullified."
+            </p>
+            <DeviceCleanupSection />
+        </div>
+    }
+}
+
+// ── Configuration tab ──────────────────────────────────────────────────────
+
+#[component]
+fn ConfigurationTab() -> impl IntoView {
+    let auth = use_auth();
+    let raw: RwSignal<String> = RwSignal::new(String::new());
+    let path: RwSignal<String> = RwSignal::new(String::new());
+    let edit_text: RwSignal<String> = RwSignal::new(String::new());
+    let editing = RwSignal::new(false);
+    let busy = RwSignal::new(false);
+    let restart_required = RwSignal::new(false);
+    let error: RwSignal<Option<String>> = RwSignal::new(None);
+    let notice: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Load current config on mount.
+    Effect::new(move |_| {
+        let token = match auth.token.get() { Some(t) => t, None => return };
+        spawn_local(async move {
+            match fetch_system_config(&token).await {
+                Ok(v) => {
+                    if let Some(s) = v["raw"].as_str() {
+                        raw.set(s.to_string());
+                        edit_text.set(s.to_string());
+                    }
+                    if let Some(p) = v["path"].as_str() {
+                        path.set(p.to_string());
+                    }
+                }
+                Err(e) => error.set(Some(format!("Load failed: {e}"))),
+            }
+        });
+    });
+
+    let save_raw = move |_| {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let body = edit_text.get_untracked();
+        busy.set(true);
+        error.set(None);
+        notice.set(None);
+        spawn_local(async move {
+            match put_system_config_raw(&token, &body).await {
+                Ok(v) => {
+                    if let Some(s) = v["raw"].as_str() {
+                        raw.set(s.to_string());
+                    }
+                    let needs_restart = v["restart_required"].as_bool().unwrap_or(true);
+                    restart_required.set(needs_restart);
+                    editing.set(false);
+                    notice.set(Some("Saved.".into()));
+                }
+                Err(e) => error.set(Some(e)),
+            }
+            busy.set(false);
+        });
+    };
+
+    let do_restart = move |_| {
+        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        busy.set(true);
+        spawn_local(async move {
+            match restart_system(&token).await {
+                Ok(()) => {
+                    notice.set(Some(
+                        "Restart requested. The page will reconnect when hc-core is back up.".into(),
+                    ));
+                    restart_required.set(false);
+                }
+                Err(e) => error.set(Some(format!("Restart failed: {e}"))),
+            }
+            busy.set(false);
+        });
+    };
+
+    view! {
+        <div class="detail-card">
+            <h2 class="card-title">"Configuration"</h2>
+            <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">
+                "Edit homecore.toml directly. Per-section structured forms are coming \
+                 incrementally; for now use the raw editor below. "
+                {move || (!path.get().is_empty()).then(|| view! {
+                    <code style="font-size:0.85rem">{path.get()}</code>
+                })}
+            </p>
+
+            <ErrorBanner error=error />
+
+            {move || notice.get().map(|n| view! {
+                <div class="msg-success" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem">
+                    <span>{n}</span>
+                </div>
+            })}
+
+            {move || restart_required.get().then(|| view! {
+                <div class="msg-warning" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem">
+                    <span>"Some changes require a restart of hc-core to take effect."</span>
+                    <button
+                        class="hc-btn hc-btn--sm hc-btn--primary"
+                        disabled=move || busy.get()
+                        on:click=do_restart
+                    >"Restart Now"</button>
+                </div>
+            })}
+
+            <div style="display:flex; gap:0.5rem; margin-bottom:0.5rem; align-items:center">
+                <h3 style="margin:0; font-size:1rem">"Raw config"</h3>
+                <span style="flex:1"></span>
+                {move || if editing.get() {
+                    view! {
+                        <button
+                            class="hc-btn hc-btn--sm hc-btn--outline"
+                            disabled=move || busy.get()
+                            on:click=move |_| {
+                                edit_text.set(raw.get_untracked());
+                                editing.set(false);
+                            }
+                        >"Cancel"</button>
+                        <button
+                            class="hc-btn hc-btn--sm hc-btn--primary"
+                            disabled=move || busy.get()
+                            on:click=save_raw
+                        >"Save"</button>
+                    }.into_any()
+                } else {
+                    view! {
+                        <button
+                            class="hc-btn hc-btn--sm hc-btn--outline"
+                            on:click=move |_| {
+                                edit_text.set(raw.get_untracked());
+                                editing.set(true);
+                            }
+                        >"Edit"</button>
+                    }.into_any()
+                }}
             </div>
 
-            <div class="detail-card">
-                <h2 class="card-title">"Device Cleanup"</h2>
-                <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">"Bulk delete devices by ID. Affected rules will have references nullified."</p>
-                <DeviceCleanupSection />
-            </div>
+            <textarea
+                style="width:100%; min-height:30rem; font-family:monospace; font-size:0.85rem; padding:0.75rem; border:1px solid var(--hc-border); border-radius:6px"
+                prop:value=move || if editing.get() { edit_text.get() } else { raw.get() }
+                on:input=move |ev| edit_text.set(event_target_value(&ev))
+                readonly=move || !editing.get()
+            ></textarea>
         </div>
     }
 }

@@ -476,3 +476,64 @@ pub fn ToastContainer() -> impl IntoView {
         </div>
     }
 }
+
+// ── TabBar ───────────────────────────────────────────────────────────────────
+//
+// Modern underline-style tab nav. Each tab is a real `<a href>` so the
+// browser's back button + middle-click + keyboard Enter all work
+// naturally — `<button>` would break that. The active treatment is
+// derived from the current URL path so deep-links land on the right tab.
+//
+// Caller passes a Vec<TabSpec>: slug + label + Phosphor icon class.
+// `base_path` is what each slug is appended to (e.g. "/admin").
+// `active_slug` is a closure returning the slug currently active —
+// typically derived from a route param.
+
+#[derive(Clone)]
+pub struct TabSpec {
+    pub slug: &'static str,
+    pub label: &'static str,
+    pub icon: &'static str,
+}
+
+#[component]
+pub fn TabBar<F>(
+    tabs: Vec<TabSpec>,
+    base_path: &'static str,
+    active_slug: F,
+) -> impl IntoView
+where
+    F: Fn() -> String + Copy + Send + Sync + 'static,
+{
+    let base = base_path.trim_end_matches('/').to_string();
+
+    view! {
+        <nav class="hc-tabs" role="tablist">
+            {
+                tabs.into_iter().map(|tab| {
+                    let TabSpec { slug, label, icon } = tab;
+                    let href = format!("{}/{}", base, slug);
+                    let is_active = move || active_slug() == slug;
+                    let cls = move || {
+                        if is_active() {
+                            "hc-tabs__tab hc-tabs__tab--active"
+                        } else {
+                            "hc-tabs__tab"
+                        }
+                    };
+                    view! {
+                        <a
+                            class=cls
+                            href=href
+                            role="tab"
+                            aria-selected=move || if is_active() { "true" } else { "false" }
+                        >
+                            <i class={format!("{icon} hc-tabs__icon")}></i>
+                            <span class="hc-tabs__label">{label}</span>
+                        </a>
+                    }
+                }).collect_view()
+            }
+        </nav>
+    }
+}

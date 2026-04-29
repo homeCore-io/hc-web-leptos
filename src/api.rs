@@ -303,6 +303,24 @@ pub async fn fetch_battery_settings(token: &str) -> Result<Value, String> {
     get_json("/system/battery_settings", token).await
 }
 
+pub async fn fetch_system_config(token: &str) -> Result<Value, String> {
+    get_json("/system/config", token).await
+}
+
+pub async fn put_system_config_raw(token: &str, raw: &str) -> Result<Value, String> {
+    let body = serde_json::json!({ "raw": raw });
+    put_json("/system/config", token, &body).await
+}
+
+pub async fn put_system_config_patch(token: &str, patch: &Value) -> Result<Value, String> {
+    let body = serde_json::json!({ "patch": patch });
+    put_json("/system/config", token, &body).await
+}
+
+pub async fn restart_system(token: &str) -> Result<(), String> {
+    post_no_body("/system/restart", token).await
+}
+
 pub async fn fetch_areas(token: &str) -> Result<Vec<Area>, String> {
     get_json("/areas", token).await
 }

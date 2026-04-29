@@ -4696,3 +4696,66 @@ select.audit-input {
     flex-shrink: 0;
   }
 }
+
+/* ── TabBar (underline-style nav) ─────────────────────────────────────── */
+
+.hc-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  margin: 0 0 1.5rem 0;
+  border-bottom: 1px solid var(--hc-border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.hc-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  margin-bottom: -1px; /* overlap the bottom border so the active rule sits on top */
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  color: var(--hc-text-muted);
+  font-size: 0.95rem;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.12s, border-color 0.12s, background-color 0.12s;
+}
+
+.hc-tabs__tab:hover {
+  color: var(--hc-text);
+  background-color: var(--hc-accent-soft);
+}
+
+.hc-tabs__tab--active {
+  color: var(--hc-text);
+  border-bottom-color: var(--hc-accent);
+  font-weight: 600;
+}
+
+.hc-tabs__tab--active:hover {
+  background-color: transparent; /* no hover wash on the active tab */
+}
+
+.hc-tabs__icon {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.hc-tabs__label {
+  line-height: 1;
+}
+
+@media (max-width: 640px) {
+  .hc-tabs__tab {
+    padding: 0.6rem 0.75rem;
+  }
+  .hc-tabs__label {
+    font-size: 0.85rem;
+  }
+}

@@ -181,14 +181,16 @@ pub fn AdminPage() -> impl IntoView {
 
             <TabBar tabs=tabs base_path="/admin" active_slug=active_tab />
 
-            {move || match active_tab().as_str() {
-                "config"        => view! { <ConfigurationTab /> }.into_any(),
-                "notifications" => view! { <crate::pages::admin_notify::NotificationsTab /> }.into_any(),
-                "users"         => view! { <UsersTab /> }.into_any(),
-                "data"          => view! { <DataTab /> }.into_any(),
-                "maintenance"   => view! { <MaintenanceTab /> }.into_any(),
-                _               => view! { <SystemTab /> }.into_any(),
-            }}
+            <div class="hc-admin-tab">
+                {move || match active_tab().as_str() {
+                    "config"        => view! { <ConfigurationTab /> }.into_any(),
+                    "notifications" => view! { <crate::pages::admin_notify::NotificationsTab /> }.into_any(),
+                    "users"         => view! { <UsersTab /> }.into_any(),
+                    "data"          => view! { <DataTab /> }.into_any(),
+                    "maintenance"   => view! { <MaintenanceTab /> }.into_any(),
+                    _               => view! { <SystemTab /> }.into_any(),
+                }}
+            </div>
         </div>
     }
 }
@@ -626,7 +628,6 @@ fn ConfigurationTab() -> impl IntoView {
     };
 
     view! {
-        <div class="hc-config-tab">
         <div class="detail-card">
             <h2 class="card-title">"Configuration"</h2>
             <p style="margin-bottom:0.75rem;color:var(--hc-text-muted,#888)">
@@ -713,7 +714,6 @@ fn ConfigurationTab() -> impl IntoView {
                 on:input=move |ev| edit_text.set(event_target_value(&ev))
                 readonly=move || !editing.get()
             ></textarea>
-        </div>
         </div>
     }
 }

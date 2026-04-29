@@ -4768,14 +4768,16 @@ select.audit-input {
 
 /* ── Admin Configuration tab — section cards + form grid ──────────────── */
 
-/* Wrap the whole Configuration tab so the heading/help card, every
-   section card, and the raw editor share the same width — looks
-   cohesive instead of a 720px column with a 1500px banner above it. */
-.hc-config-tab {
+/* Single column for every admin tab so System/Configuration/Users/
+   Notifications/Data/Maintenance all share the same width and the
+   page reads as one cohesive surface instead of jumping between
+   narrow forms and full-width tables. Applied at AdminPage level
+   in admin.rs. */
+.hc-admin-tab {
   max-width: 720px;
 }
 @media (max-width: 600px) {
-  .hc-config-tab { max-width: none; }
+  .hc-admin-tab { max-width: none; }
 }
 
 /* Cap the entire admin Configuration surface so 32" monitors don't

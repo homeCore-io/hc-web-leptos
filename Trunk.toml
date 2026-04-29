@@ -1,6 +1,12 @@
 [build]
 target = "index.html"
 
+# Cargo re-resolves on every wasm build with the meta-layout [patch]
+# overrides active, which touches Cargo.lock. Without this ignore the
+# trunk watcher sees the lock change and triggers another build → loop.
+[watch]
+ignore = ["Cargo.lock"]
+
 [serve]
 addresses = ["0.0.0.0"]
 port = 3000

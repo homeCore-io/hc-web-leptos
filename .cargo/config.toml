@@ -1,0 +1,9 @@
+# Standalone build profile — applies when this repo is cloned alone
+# without the meta-layout workspace at clients/Cargo.toml. In workspace
+# mode the workspace root profile takes precedence (with a per-package
+# override for hc-web-leptos so its WASM bundle still gets opt-level=z).
+# This file is the standalone fallback.
+
+[profile.release]
+opt-level = "z"
+lto       = true

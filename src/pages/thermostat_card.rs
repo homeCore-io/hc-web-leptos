@@ -742,13 +742,19 @@ fn render_thermostat_chart(history: &[HistoryEntry], window_hours: u32) -> impl 
 }
 
 fn format_chart_time(ms: f64, window_hours: u32) -> String {
-    let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ms));
+    // Chart x-axis labels are the home-zone wall clock — same zone the
+    // server schedules history samples in. Browser-local would shift
+    // labels for any operator viewing the dashboard from a different
+    // TZ, which would misalign chart features (e.g. nightly heating
+    // setbacks) against the home-zone clock the data was captured in.
+    use chrono::{Datelike, Timelike};
+    let Some(local) = crate::tz::from_millis(ms) else {
+        return String::new();
+    };
     if window_hours >= 168 {
-        let m = date.get_month() + 1;
-        let d = date.get_date();
-        format!("{m}/{d}")
+        format!("{}/{}", local.month(), local.day())
     } else if window_hours >= 24 {
-        let weekday = match date.get_day() {
+        let weekday = match local.weekday().num_days_from_sunday() {
             0 => "Sun",
             1 => "Mon",
             2 => "Tue",
@@ -757,8 +763,8 @@ fn format_chart_time(ms: f64, window_hours: u32) -> String {
             5 => "Fri",
             _ => "Sat",
         };
-        format!("{weekday} {:02}", date.get_hours())
+        format!("{weekday} {:02}", local.hour())
     } else {
-        format!("{:02}:{:02}", date.get_hours(), date.get_minutes())
+        format!("{:02}:{:02}", local.hour(), local.minute())
     }
 }

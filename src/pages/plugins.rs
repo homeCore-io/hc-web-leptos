@@ -1219,6 +1219,18 @@ fn ActionRow(
 
     let is_streaming = action.stream;
     let is_admin = matches!(action.requires_role, RequiresRole::Admin);
+    // W3: gray out the submit button(s) when the action is admin-only and
+    // the current user isn't admin. The server enforces the same rule (W2);
+    // this client-side gate avoids a click → 403 → toast roundtrip and
+    // makes the UI honest about what's actionable.
+    let role_blocked = Signal::derive(move || {
+        is_admin
+            && !auth
+                .user
+                .get()
+                .map(|u| u.role == "admin")
+                .unwrap_or(false)
+    });
     let label = action.label.clone();
     let description = action.description.clone();
     let action_id = action.id.clone();
@@ -1292,7 +1304,12 @@ fn ActionRow(
                 <div class="plugin-action-row__controls">
                     <button
                         class="hc-btn hc-btn--sm hc-btn--primary"
-                        disabled=move || busy.get()
+                        disabled=move || busy.get() || role_blocked.get()
+                        title=move || if role_blocked.get() {
+                            "Admin role required for this action"
+                        } else {
+                            ""
+                        }
                         on:click=move |_| {
                             if is_streaming {
                                 drawer_open.set(true);
@@ -1316,7 +1333,12 @@ fn ActionRow(
                     <div style="display:flex; gap:0.5rem; margin-top:0.5rem">
                         <button
                             class="hc-btn hc-btn--sm hc-btn--primary"
-                            disabled=move || busy.get()
+                            disabled=move || busy.get() || role_blocked.get()
+                            title=move || if role_blocked.get() {
+                                "Admin role required for this action"
+                            } else {
+                                ""
+                            }
                             on:click={
                                 let submit_run = submit_run.clone();
                                 move |_| submit_run()
@@ -1565,6 +1587,17 @@ fn ActionDrawer(
     let label = action.label.clone();
     let description = action.description.clone();
     let is_admin = matches!(action.requires_role, RequiresRole::Admin);
+    // W3: same role-block as ActionRow — gray the Run button when the
+    // action is admin-only and the current user isn't admin (server
+    // enforces the same rule via W2's scope guard).
+    let role_blocked = Signal::derive(move || {
+        is_admin
+            && !auth
+                .user
+                .get()
+                .map(|u| u.role == "admin")
+                .unwrap_or(false)
+    });
 
     // Keep the SSE handle + callbacks alive for the lifetime of the run.
     let stream_holder: StoredValue<Option<StreamHandle>, leptos::reactive::owner::LocalStorage> =
@@ -1856,7 +1889,12 @@ fn ActionDrawer(
                             <div class="action-drawer__footer">
                                 <button
                                     class="hc-btn hc-btn--sm hc-btn--primary"
-                                    disabled=move || starting.get()
+                                    disabled=move || starting.get() || role_blocked.get()
+                                    title=move || if role_blocked.get() {
+                                        "Admin role required for this action"
+                                    } else {
+                                        ""
+                                    }
                                     on:click=move |_| start_sv.with_value(|f| f())
                                 >
                                     {move || if starting.get() { "Starting…" } else { "Run" }}

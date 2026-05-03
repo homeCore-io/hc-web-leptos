@@ -1267,6 +1267,11 @@ fn BackupDataSection() -> impl IntoView {
     let error = RwSignal::new(Option::<String>::None);
     let notice = RwSignal::new(Option::<String>::None);
     let import_result = RwSignal::new(Option::<String>::None);
+    // Phase text shown below the backup button while build_zip is running
+    // server-side. The fetch itself is opaque (we don't get upload/build
+    // progress from axum), so we cycle through plausible-honest phases on
+    // a timer to make the UI feel responsive — better than dead air.
+    let backup_status = RwSignal::new(Option::<String>::None);
 
     // ── Backup download ─────────────────────────────────────────────────────
     let on_backup = move |_| {
@@ -1275,14 +1280,41 @@ fn BackupDataSection() -> impl IntoView {
         error.set(None);
         notice.set(None);
         import_result.set(None);
+        backup_status.set(Some("Requesting backup from server…".to_string()));
+
+        // Phase rotation. Aborts early if backup_status was cleared by the
+        // main task (i.e. the response landed before this timer ran out).
+        spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(1500).await;
+            if backup_status.get_untracked().is_some() {
+                backup_status
+                    .set(Some("Reading state and history databases…".to_string()));
+            }
+            gloo_timers::future::TimeoutFuture::new(2500).await;
+            if backup_status.get_untracked().is_some() {
+                backup_status
+                    .set(Some("Bundling plugin configs and rules…".to_string()));
+            }
+            gloo_timers::future::TimeoutFuture::new(3000).await;
+            if backup_status.get_untracked().is_some() {
+                backup_status.set(Some("Compressing — almost done…".to_string()));
+            }
+        });
+
         spawn_local(async move {
             match trigger_backup(&token).await {
                 Ok(bytes) => {
-                    trigger_browser_download(&bytes, "homecore-backup.zip", "application/zip");
-                    notice.set(Some("Backup downloaded.".to_string()));
+                    let size_mb = bytes.len() as f64 / 1_048_576.0;
+                    trigger_browser_download(
+                        &bytes,
+                        "homecore-backup.zip",
+                        "application/zip",
+                    );
+                    notice.set(Some(format!("Backup downloaded ({size_mb:.1} MB).")));
                 }
                 Err(e) => error.set(Some(format!("Backup failed: {e}"))),
             }
+            backup_status.set(None);
             busy.set(false);
         });
     };
@@ -1406,6 +1438,22 @@ fn BackupDataSection() -> impl IntoView {
         notice.set(None);
         restore_result.set(None);
         restore_confirm.set(false);
+        backup_status.set(Some("Reading backup file from disk…".to_string()));
+
+        // Phase rotation for the restore path. Same shape as the backup
+        // button — gloss over the opaque fetch with honest-enough text.
+        spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(800).await;
+            if backup_status.get_untracked().is_some() {
+                backup_status.set(Some("Uploading archive to server…".to_string()));
+            }
+            gloo_timers::future::TimeoutFuture::new(2500).await;
+            if backup_status.get_untracked().is_some() {
+                backup_status
+                    .set(Some("Server is extracting and writing files…".to_string()));
+            }
+        });
+
         spawn_local(async move {
             match read_file_input_bytes("restore-backup-file").await {
                 Ok(bytes) => match restore_backup(&token, &bytes).await {
@@ -1414,17 +1462,27 @@ fn BackupDataSection() -> impl IntoView {
                             .as_array()
                             .map(|a| a.len())
                             .unwrap_or(0);
+                        let skipped = resp["skipped"]
+                            .as_array()
+                            .map(|a| a.len())
+                            .unwrap_or(0);
                         let msg = resp["message"]
                             .as_str()
                             .unwrap_or("Restore complete.");
+                        let skipped_note = if skipped > 0 {
+                            format!(" {skipped} entries skipped (see server logs).")
+                        } else {
+                            String::new()
+                        };
                         restore_result.set(Some(format!(
-                            "{restored} file(s) restored. {msg}"
+                            "{restored} file(s) restored.{skipped_note} {msg}"
                         )));
                     }
                     Err(e) => error.set(Some(format!("Restore failed: {e}"))),
                 },
                 Err(e) => error.set(Some(e)),
             }
+            backup_status.set(None);
             busy.set(false);
         });
     };
@@ -1440,16 +1498,19 @@ fn BackupDataSection() -> impl IntoView {
             // ── Full backup ─────────────────────────────────────────────────
             <div class="admin-data-group">
                 <h3 class="admin-data-heading">"Full Backup"</h3>
-                <p class="cell-subtle">"Download a zip archive of the current HomeCore configuration and state databases."</p>
+                <p class="cell-subtle">"Download a zip archive of the current HomeCore configuration and state databases. Large histories may take 10–30s to compress."</p>
                 <div class="admin-data-actions">
                     <button
                         class="btn btn-primary"
                         disabled=move || busy.get()
                         on:click=on_backup
                     >
-                        {move || if busy.get() { "Downloading..." } else { "Download Backup" }}
+                        {move || if busy.get() { "Building backup…" } else { "Download Backup" }}
                     </button>
                 </div>
+                {move || backup_status.get().map(|s| view! {
+                    <p class="cell-subtle" style="margin-top:0.5rem; font-style:italic">{s}</p>
+                })}
             </div>
 
             // ── Export ───────────────────────────────────────────────────────
@@ -1527,6 +1588,9 @@ fn BackupDataSection() -> impl IntoView {
                             >"Cancel"</button>
                         })}
                     </div>
+                    {move || backup_status.get().map(|s| view! {
+                        <p class="cell-subtle" style="margin-top:0.5rem; font-style:italic">{s}</p>
+                    })}
                 </div>
             </div>
         </div>

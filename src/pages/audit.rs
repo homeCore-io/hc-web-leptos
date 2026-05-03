@@ -6,7 +6,7 @@
 
 use crate::api::{fetch_audit, AuditFilter};
 use crate::auth::use_auth;
-use chrono::{DateTime, Datelike, Local, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde_json::Value;
@@ -310,7 +310,7 @@ fn render_entry(r: Value) -> impl IntoView {
     let ts_raw = r.get("ts").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let parsed = DateTime::parse_from_rfc3339(&ts_raw).ok();
     let ts_local = parsed
-        .map(|d| d.with_timezone(&Local).format("%H:%M:%S").to_string())
+        .map(|d| crate::tz::fmt_time(&d.with_timezone(&Utc)))
         .unwrap_or_default();
 
     let result = r.get("result").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -396,14 +396,14 @@ fn group_by_day(rows: Vec<Value>) -> Vec<(String, Vec<Value>)> {
     if rows.is_empty() {
         return Vec::new();
     }
-    let today = Local::now().date_naive();
+    let today = crate::tz::today();
     let mut out: Vec<(String, Vec<Value>)> = Vec::new();
     let mut current: Option<String> = None;
     for r in rows {
         let ts_raw = r.get("ts").and_then(|v| v.as_str()).unwrap_or("");
         let day_label = DateTime::parse_from_rfc3339(ts_raw)
             .ok()
-            .map(|d| d.with_timezone(&Local).date_naive())
+            .map(|d| crate::tz::local_date(&d.with_timezone(&Utc)))
             .map(|d| {
                 if d == today {
                     "Today".to_string()

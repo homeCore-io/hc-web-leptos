@@ -40,6 +40,17 @@ pub struct SystemStatus {
     pub plugins_active: u64,
     pub state_db_bytes: u64,
     pub history_db_bytes: u64,
+    /// IANA zone name configured server-side (`[location].timezone`),
+    /// used to render UTC timestamps in the operator's local zone.
+    /// Defaults to `"UTC"` when the server has no configured TZ.
+    /// Optional in the deserializer so older servers (pre-TZ-1) that
+    /// don't include the field still work.
+    #[serde(default = "default_timezone")]
+    pub timezone: String,
+}
+
+fn default_timezone() -> String {
+    "UTC".into()
 }
 
 // ── Rule Groups ──────────────────────────────────────────────────────────────
@@ -1398,8 +1409,11 @@ pub fn format_duration_secs(total: u64) -> String {
 }
 
 pub fn format_abs(ts: Option<&DateTime<Utc>>) -> String {
-    ts.map(|t| t.format("%Y-%m-%d %H:%M").to_string())
-        .unwrap_or_default()
+    // Format in the server's configured TZ (set at app boot from
+    // /system/status). Falls back to UTC when the TZ hasn't been
+    // populated yet — preserves the previous shape of the output
+    // for older servers that don't ship the field.
+    ts.map(crate::tz::fmt_abs).unwrap_or_default()
 }
 
 // ── Plugin types ────────────────────────────────────────────────────────────

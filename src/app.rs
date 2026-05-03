@@ -164,6 +164,21 @@ fn NavShell(children: Children) -> impl IntoView {
     provide_context(ws_ctx);
     mount_ws(ws_ctx, auth.token);
 
+    // Fetch the server's configured TZ once when NavShell mounts so
+    // every page's UTC→local rendering uses the operator's zone, not
+    // UTC. We deliberately don't gate on this — `crate::tz::app_tz()`
+    // returns UTC until this resolves, and the same call sites
+    // re-render once the signal settles via Leptos's reactive graph.
+    {
+        let token = auth.token;
+        leptos::task::spawn_local(async move {
+            let t = token.get_untracked().unwrap_or_default();
+            if let Ok(status) = crate::api::fetch_system_status(&t).await {
+                crate::tz::set_app_tz(&status.timezone);
+            }
+        });
+    }
+
     let username = move || auth.user.get().map(|u| u.username).unwrap_or_default();
     let role = move || auth.user.get().map(|u| u.role).unwrap_or_default();
 

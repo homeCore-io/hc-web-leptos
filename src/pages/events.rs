@@ -152,17 +152,18 @@ fn source_class(src: &str) -> &'static str {
 }
 
 fn format_time(ts: &str) -> String {
-    // Parse UTC timestamp and convert to local time via JS Date.
-    if let Some(_window) = web_sys::window() {
-        let js_date = js_sys::Date::new(&wasm_bindgen::JsValue::from_str(ts));
-        if js_date.get_time().is_finite() {
-            let h = js_date.get_hours();
-            let m = js_date.get_minutes();
-            let s = js_date.get_seconds();
-            return format!("{h:02}:{m:02}:{s:02}");
-        }
+    // Parse server UTC timestamp and render HH:MM:SS in the configured
+    // home zone (set at app boot from /system/status). Browser-local
+    // would also be a reasonable choice, but for a home-automation
+    // dashboard "what time was this *at home*" matches the operator's
+    // mental model better than "what time was this on my phone."
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+        return crate::tz::fmt_time(&dt.with_timezone(&chrono::Utc));
     }
-    // Fallback: extract from raw string
+    // Fallback: extract from raw string when the input isn't a valid
+    // RFC-3339 timestamp (defensive — server should always emit valid
+    // timestamps, but ignoring the error here would render an empty
+    // cell which is worse than the raw string).
     if let Some(t_pos) = ts.find('T') {
         let time_part = &ts[t_pos + 1..];
         time_part.get(..8).unwrap_or(time_part).to_string()

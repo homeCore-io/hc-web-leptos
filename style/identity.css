@@ -79,6 +79,16 @@ html, body {
   letter-spacing: 0.14em;
   font-weight: 400;
 }
+/* Server-version line directly under "control surface". Slightly
+   muted + no uppercase transform so the literal "v0.1.2" reads as a
+   version, not as a label competing with the brand. Inherits
+   sidebar__brand's display:none when collapsed (no override needed). */
+.sidebar .subtitle--version {
+  color: var(--hc-text-muted);
+  text-transform: none;
+  letter-spacing: 0.06em;
+  margin-top: 0.1rem;
+}
 
 /* ── 3. Mono treatment for data-shaped text ─────────────────────────── */
 
@@ -891,6 +901,14 @@ button.primary:active {
   letter-spacing: 0.16em;
   color: var(--hc-text-muted);
   margin-bottom: 0.6rem;
+}
+/* Version line on login screen — same family/muting, no uppercase
+   so the literal "v0.1.2" reads naturally. Mirrors the sidebar's
+   .subtitle--version in shape. */
+.login-card .login-tagline--version {
+  text-transform: none;
+  letter-spacing: 0.06em;
+  margin-top: -0.3rem;
 }
 .login-card label {
   display: flex;

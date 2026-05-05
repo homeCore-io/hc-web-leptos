@@ -1,6 +1,6 @@
 //! Login page — username + password form, stores JWT on success.
 
-use crate::auth::{api_login, use_auth};
+use crate::auth::{api_login, use_auth, API_BASE};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
@@ -14,6 +14,24 @@ pub fn LoginPage() -> impl IntoView {
     let password = RwSignal::new(String::new());
     let error = RwSignal::new(Option::<String>::None);
     let loading = RwSignal::new(false);
+
+    // Server-reported version, fetched from the unauthenticated /health
+    // endpoint so the login screen can show it pre-auth. Same shape as
+    // NavShell's version line, just sourced from /health (no token)
+    // instead of /system/status (needs token).
+    let server_version: RwSignal<Option<String>> = RwSignal::new(None);
+    spawn_local(async move {
+        if let Ok(resp) = gloo_net::http::Request::get(&format!("{API_BASE}/health"))
+            .send()
+            .await
+        {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                if let Some(v) = body.get("version").and_then(|v| v.as_str()) {
+                    server_version.set(Some(v.to_string()));
+                }
+            }
+        }
+    });
 
     // Redirect already-authenticated users
     let nav_redirect = navigate.clone();
@@ -60,6 +78,7 @@ pub fn LoginPage() -> impl IntoView {
                         </span>
                     </h1>
                     <p class="login-tagline">"control surface"</p>
+                    <p class="login-tagline login-tagline--version">{move || server_version.get().map(|v| format!("v{v}"))}</p>
                 </div>
 
                 <form on:submit=submit>

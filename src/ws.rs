@@ -11,9 +11,12 @@
 //! Delays: 1 s → 2 s → 5 s → 15 s (cap).
 //!
 //! ## Event-type filter
-//! The WS URL includes `&type=device_state_changed,device_availability_changed`
-//! so the server only forwards the two event types the client uses.  All other
-//! event types (`rule_fired`, `scene_activated`, …) are dropped server-side.
+//! No server-side filter is applied — the shared WS forwards every event
+//! type. Pages that only consume typed updates (devices, scenes, plugins)
+//! match on `WsEvent` and ignore anything they don't care about; the
+//! Activity page subscribes to `WsContext.latest_event` to receive the
+//! raw stream. `PluginHeartbeat` events are dropped server-side unless
+//! explicitly requested via `&type=`.
 //!
 //! ## Closure lifetime note
 //! `on_open / on_msg / on_err / on_close` are `forget()`-ed each reconnect.
@@ -52,6 +55,12 @@ pub struct WsContext {
     pub status: RwSignal<WsStatus>,
     /// Live plugin map keyed by `plugin_id` — updated by REST seed + WS events.
     pub plugins: RwSignal<HashMap<String, crate::models::PluginInfo>>,
+    /// Latest raw event payload + monotonic seq. Set on every WS frame so the
+    /// Activity page can subscribe instead of opening its own `/events/stream`.
+    /// Pages that only care about typed updates (devices/scenes/plugins) keep
+    /// reading the existing maps and never touch this signal — no spurious
+    /// re-renders on unrelated event types.
+    pub latest_event: RwSignal<Option<(u64, Value)>>,
 }
 
 impl WsContext {
@@ -61,6 +70,7 @@ impl WsContext {
             scene_activations: RwSignal::new(HashMap::new()),
             status: RwSignal::new(WsStatus::Connecting),
             plugins: RwSignal::new(HashMap::new()),
+            latest_event: RwSignal::new(None),
         }
     }
 }
@@ -164,6 +174,9 @@ pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
     });
 
     let reconnect_trigger: RwSignal<u32> = RwSignal::new(0);
+    // Monotonic seq for `latest_event`. Survives reconnects so subscribers
+    // (Activity page) can keep dedup state across socket churn.
+    let event_seq: RwSignal<u64> = RwSignal::new(0);
 
     Effect::new(move |_| {
         let attempt = reconnect_trigger.get();
@@ -175,11 +188,11 @@ pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
 
         ctx.status.set(WsStatus::Connecting);
 
-        // Append server-side event-type filter — reduces fanout to only what
-        // the client actually handles.
-        let base = events_ws_url(&token);
-        let url =
-            format!("{base}&type=device_state_changed,device_availability_changed,scene_activated");
+        // No server-side type filter — the Activity page consumes the full
+        // event stream via `ctx.latest_event`. Other pages match on `WsEvent`
+        // and silently drop unrelated types. PluginHeartbeat is filtered
+        // server-side unless explicitly requested.
+        let url = events_ws_url(&token);
 
         let ws = match web_sys::WebSocket::new(&url) {
             Ok(ws) => ws,
@@ -204,7 +217,18 @@ pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
                     Some(s) => s,
                     None => return,
                 };
-                let event: WsEvent = match serde_json::from_str(&text) {
+                // Parse once into a generic Value for the Activity-page
+                // subscriber, then deserialize into the typed enum for the
+                // device/scene/plugin dispatch below.
+                let raw: Value = match serde_json::from_str(&text) {
+                    Ok(v) => v,
+                    Err(_) => return,
+                };
+                let seq = event_seq.get_untracked().wrapping_add(1);
+                event_seq.set(seq);
+                ctx.latest_event.set(Some((seq, raw.clone())));
+
+                let event: WsEvent = match serde_json::from_value(raw) {
                     Ok(e) => e,
                     Err(_) => return,
                 };

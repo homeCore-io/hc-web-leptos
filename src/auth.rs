@@ -10,6 +10,10 @@ use wasm_bindgen::JsCast;
 
 pub const API_BASE: &str = "/api/v1";
 const TOKEN_KEY: &str = "hc-leptos:token";
+/// Per-tab fingerprint, persisted in `sessionStorage`. Survives reloads,
+/// dies with the tab. Surfaces in core's WS connect/disconnect logs as
+/// `client_id=<value>` so reconnect storms can be correlated to a tab.
+const CLIENT_ID_KEY: &str = "hc-leptos:client_id";
 
 // ── User type ─────────────────────────────────────────────────────────────────
 
@@ -167,10 +171,36 @@ fn ls_remove(key: &str) {
     }
 }
 
+// ── sessionStorage helpers (per-tab, dies with the tab) ───────────────────────
+
+fn ss_get(key: &str) -> Option<String> {
+    web_sys::window()
+        .and_then(|w| w.session_storage().ok().flatten())
+        .and_then(|s| s.get_item(key).ok().flatten())
+}
+
+fn ss_set(key: &str, val: &str) {
+    if let Some(s) = web_sys::window().and_then(|w| w.session_storage().ok().flatten()) {
+        let _ = s.set_item(key, val);
+    }
+}
+
+/// Stable per-tab fingerprint. Generated lazily on first call and stashed
+/// in `sessionStorage`; reloads of the same tab return the same value.
+pub fn client_id() -> String {
+    if let Some(existing) = ss_get(CLIENT_ID_KEY) {
+        return existing;
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    ss_set(CLIENT_ID_KEY, &id);
+    id
+}
+
 // ── WebSocket URL helper ──────────────────────────────────────────────────────
 
 /// Build the WebSocket URL for the HomeCore events stream.
-/// Appends ?token=<jwt> so the server can authenticate the upgrade.
+/// Appends ?token=<jwt> so the server can authenticate the upgrade,
+/// and &client_id=<uuid> so server logs can correlate reconnect storms.
 pub fn events_ws_url(token: &str) -> String {
     let location = web_sys::window()
         .and_then(|w| w.location().href().ok())
@@ -187,7 +217,8 @@ pub fn events_ws_url(token: &str) -> String {
         .and_then(|w| w.location().host().ok())
         .unwrap_or_else(|| "localhost:8080".to_string());
 
-    format!("{protocol}://{host}/api/v1/events/stream?token={token}")
+    let cid = client_id();
+    format!("{protocol}://{host}/api/v1/events/stream?token={token}&client_id={cid}")
 }
 
 /// Build the WebSocket URL for the HomeCore log stream.
@@ -200,7 +231,8 @@ pub fn logs_ws_url(token: &str, history: u32) -> String {
         .and_then(|w| w.location().host().ok())
         .unwrap_or_else(|| "localhost:8080".to_string());
 
-    format!("{protocol}://{host}/api/v1/logs/stream?token={token}&history={history}&level=info")
+    let cid = client_id();
+    format!("{protocol}://{host}/api/v1/logs/stream?token={token}&history={history}&level=info&client_id={cid}")
 }
 
 /// Build the SSE URL for a plugin streaming-action request. `EventSource`
@@ -215,7 +247,8 @@ pub fn plugin_stream_sse_url(plugin_id: &str, request_id: &str, token: &str) -> 
     let enc_pid = js_sys::encode_uri_component(plugin_id);
     let enc_rid = js_sys::encode_uri_component(request_id);
     let enc_tok = js_sys::encode_uri_component(token);
+    let enc_cid = js_sys::encode_uri_component(&client_id());
     format!(
-        "{scheme}//{host}/api/v1/plugins/{enc_pid}/command/{enc_rid}/stream?token={enc_tok}"
+        "{scheme}//{host}/api/v1/plugins/{enc_pid}/command/{enc_rid}/stream?token={enc_tok}&client_id={enc_cid}"
     )
 }

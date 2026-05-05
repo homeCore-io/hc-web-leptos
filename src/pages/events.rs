@@ -2,14 +2,18 @@
 //!
 //! Architecture:
 //!   - REST `GET /events` seeds the initial event history
-//!   - WS `/events/stream` provides live event updates
-//!   - WS `/logs/stream?history=N` provides log history + live log updates
+//!   - Live event updates flow via the shared `WsContext.latest_event`
+//!     signal — the page no longer opens its own `/events/stream`
+//!     connection (WS-3, 0.1.2). This avoids a redundant socket on top
+//!     of the session-wide WS in `crate::ws::mount_ws`.
+//!   - WS `/logs/stream?history=N` still opens its own connection
+//!     (different endpoint, separate ring buffer of historical lines).
 //!   - Both streams merge into a single `RwSignal<Vec<ActivityEntry>>`
 //!   - 500-entry buffer cap, newest first
 //!   - Pause/resume: when paused, incoming entries buffer silently
 
 use crate::api::fetch_events;
-use crate::auth::{events_ws_url, logs_ws_url, use_auth};
+use crate::auth::{logs_ws_url, use_auth};
 use crate::ws::use_ws;
 use crate::pages::shared::{
     MultiSelectDropdown, ResetFiltersButton, SearchField,
@@ -227,7 +231,12 @@ pub fn EventsPage() -> impl IntoView {
     // Device name lookup — uses the shared WsContext device map.
     let ws_devices = ws.devices;
 
-    // ── Load initial events + connect WS ─────────────────────────────────────
+    // ── Load initial events via REST + connect logs WS ─────────────────────
+    //
+    // Live event updates come from the shared `WsContext.latest_event`
+    // signal, populated by `crate::ws::mount_ws`. This page no longer
+    // opens its own `/events/stream` socket (WS-3). The logs WS is still
+    // opened here — different endpoint, separate ring of historical lines.
     Effect::new(move |_| {
         let token = match auth.token.get() { Some(t) => t, None => return };
 
@@ -250,39 +259,7 @@ pub fn EventsPage() -> impl IntoView {
             });
         }
 
-        // Connect events WS
-        {
-            let token = token.clone();
-            let url = events_ws_url(&token);
-            let event_counter: RwSignal<u64> = RwSignal::new(100_000);
-            if let Ok(ws) = web_sys::WebSocket::new(&url) {
-                let on_open = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
-                    ws_status.set("live");
-                });
-                ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-                on_open.forget();
-
-                let on_msg = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |ev: web_sys::MessageEvent| {
-                    let text = match ev.data().as_string() { Some(s) => s, None => return };
-                    let parsed: Value = match serde_json::from_str(&text) { Ok(v) => v, Err(_) => return };
-                    let seq = event_counter.get_untracked();
-                    event_counter.set(seq + 1);
-                    add_entry(normalize_event(seq, &parsed));
-                });
-                ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
-                on_msg.forget();
-
-                let on_err = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
-                    ws_status.set("disconnected");
-                });
-                ws.set_onerror(Some(on_err.as_ref().unchecked_ref()));
-                on_err.forget();
-
-                on_cleanup(move || { let _ = ws.close(); });
-            }
-        }
-
-        // Connect logs WS (with history replay)
+        // Connect logs WS (with history replay) — unchanged.
         {
             let url = logs_ws_url(&token, 200);
             if let Ok(ws) = web_sys::WebSocket::new(&url) {
@@ -299,6 +276,29 @@ pub fn EventsPage() -> impl IntoView {
                 on_cleanup(move || { let _ = ws.close(); });
             }
         }
+    });
+
+    // Reactively follow the shared WS status so the page header reflects
+    // it after the initial load.
+    Effect::new(move |_| {
+        ws_status.set(match ws.status.get() {
+            crate::ws::WsStatus::Live => "live",
+            crate::ws::WsStatus::Connecting => "connecting",
+            crate::ws::WsStatus::Disconnected => "disconnected",
+        });
+    });
+
+    // Subscribe to the shared event stream. Track the last seq we've
+    // already rendered so we don't double-add when other signals on the
+    // page trigger this Effect.
+    let last_seq: RwSignal<u64> = RwSignal::new(0);
+    Effect::new(move |_| {
+        let Some((seq, ref raw)) = ws.latest_event.get() else { return };
+        if seq <= last_seq.get_untracked() {
+            return;
+        }
+        last_seq.set(seq);
+        add_entry(normalize_event(seq, raw));
     });
 
     // ── Dynamic filter options ───────────────────────────────────────────────

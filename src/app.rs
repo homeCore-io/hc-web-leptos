@@ -1,7 +1,7 @@
 //! Root application component: provides AuthState context, router, auth guard,
 //! and the nav shell wrapper.
 
-use crate::auth::{use_auth, AuthState};
+use crate::auth::{install_auth_handle, use_auth, AuthState};
 use crate::pages::shared::{ToastContainer, ToastContext};
 use crate::pages::{
     admin::AdminPage,
@@ -27,6 +27,13 @@ use leptos_router::{
     hooks::use_location,
     path,
 };
+use wasm_bindgen::prelude::*;
+
+/// How often the proactive expiry check fires, in milliseconds.
+/// 30 s is short enough that an expired token leads to a redirect within
+/// half a minute even when the user is reading cached state without
+/// firing API calls, and long enough that the JWT decode cost is noise.
+const SESSION_CHECK_INTERVAL_MS: i32 = 30_000;
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 
@@ -35,6 +42,27 @@ pub fn App() -> impl IntoView {
     let auth = AuthState::new();
     provide_context(auth);
     provide_context(ToastContext::new());
+
+    // Stash AuthState in a thread-local so `api.rs::handle_session_expiry`
+    // can trigger logout from inside `spawn_local` tasks where
+    // `use_context` returns None.
+    install_auth_handle(auth);
+
+    // Proactive expiry check: bounce the user to /login within
+    // SESSION_CHECK_INTERVAL_MS of the JWT's `exp`, even if they're
+    // browsing cached WsContext state without making API calls.
+    let session_cb = Closure::<dyn FnMut()>::new(move || {
+        if auth.is_session_expired() {
+            auth.logout();
+        }
+    });
+    if let Some(window) = web_sys::window() {
+        let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
+            session_cb.as_ref().unchecked_ref(),
+            SESSION_CHECK_INTERVAL_MS,
+        );
+    }
+    session_cb.forget();
 
     // Shared WS context lives at the app root so the WebSocket survives
     // route navigation. Hosting it in NavShell (which is created fresh

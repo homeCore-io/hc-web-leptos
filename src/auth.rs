@@ -6,6 +6,7 @@
 
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
 use wasm_bindgen::JsCast;
 
 pub const API_BASE: &str = "/api/v1";
@@ -71,11 +72,44 @@ impl AuthState {
         self.token.set(None);
         self.user.set(None);
     }
+
+    /// True when a token is stored and its `exp` claim is in the past.
+    /// False when there is no token (nothing to expire) or it's still valid.
+    pub fn is_session_expired(&self) -> bool {
+        self.token
+            .get_untracked()
+            .map(|t| jwt_is_expired(&t))
+            .unwrap_or(false)
+    }
 }
 
 /// Retrieve the `AuthState` from Leptos context.
 pub fn use_auth() -> AuthState {
     use_context::<AuthState>().expect("AuthState not in context — wrap with <AuthProvider>")
+}
+
+// ── Out-of-context AuthState handle ───────────────────────────────────────────
+//
+// `api.rs` reaches `handle_session_expiry` from inside `spawn_local` blocks,
+// which detach the reactive owner — `use_context::<AuthState>()` returns
+// `None` there. To reliably trigger a logout on 401, we stash the AuthState
+// in a thread-local cell at App init and read it back from any thread of
+// control. AuthState is `Copy`, so this is just a couple of pointers.
+
+thread_local! {
+    static AUTH_HANDLE: Cell<Option<AuthState>> = const { Cell::new(None) };
+}
+
+/// Install the global AuthState handle. Call once from `App` after creating
+/// the AuthState. Subsequent calls overwrite (only meaningful in tests).
+pub fn install_auth_handle(auth: AuthState) {
+    AUTH_HANDLE.with(|c| c.set(Some(auth)));
+}
+
+/// Read the global AuthState handle. Returns `None` only if `App` did not
+/// install it — code paths that depend on this should fall back gracefully.
+pub fn try_auth_handle() -> Option<AuthState> {
+    AUTH_HANDLE.with(|c| c.get())
 }
 
 // ── Login API call ────────────────────────────────────────────────────────────

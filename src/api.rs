@@ -15,15 +15,23 @@ use serde_json::Value;
 /// Clear the expired token so the auth guard redirects to login.
 /// Called when any API request returns 401.
 fn handle_session_expiry() {
-    // Try to get the auth context (available when called from a reactive scope).
-    if let Some(auth) = leptos::prelude::use_context::<crate::auth::AuthState>() {
+    // Preferred path: the global AuthState handle installed at App init
+    // works regardless of reactive owner. `use_context` would return None
+    // here because we're inside a `spawn_local` task that detaches the
+    // owner — that was the silent failure that let expired sessions keep
+    // browsing until a write 401'd through a context-preserving caller.
+    if let Some(auth) = crate::auth::try_auth_handle() {
         auth.logout();
-    } else {
-        // Fallback: clear localStorage directly (auth signal won't update,
-        // but a page reload will redirect to login).
-        if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-            let _ = storage.remove_item("hc-leptos:token");
-        }
+        return;
+    }
+    // Defensive fallback — should not happen if App installed the handle.
+    // Clear storage and force a hard navigation so the user can't keep
+    // working against a stale session.
+    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+        let _ = storage.remove_item("hc-leptos:token");
+    }
+    if let Some(window) = web_sys::window() {
+        let _ = window.location().set_href("/login");
     }
 }
 

@@ -1,8 +1,9 @@
 //! Root application component: provides AuthState context, router, auth guard,
 //! and the nav shell wrapper.
 
-use crate::auth::{use_auth, AuthState};
+use crate::auth::{install_auth_handle, use_auth, AuthState};
 use crate::pages::shared::{ToastContainer, ToastContext};
+use crate::version_check::{mount_version_check, VersionBanner, VersionState};
 use crate::pages::{
     admin::AdminPage,
     audit::AuditPage,
@@ -27,13 +28,57 @@ use leptos_router::{
     hooks::use_location,
     path,
 };
+use wasm_bindgen::prelude::*;
+
+/// How often the proactive expiry check fires, in milliseconds.
+/// 30 s is short enough that an expired token leads to a redirect within
+/// half a minute even when the user is reading cached state without
+/// firing API calls, and long enough that the JWT decode cost is noise.
+const SESSION_CHECK_INTERVAL_MS: i32 = 30_000;
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 #[component]
 pub fn App() -> impl IntoView {
-    provide_context(AuthState::new());
+    let auth = AuthState::new();
+    provide_context(auth);
     provide_context(ToastContext::new());
+
+    // Stash AuthState in a thread-local so `api.rs::handle_session_expiry`
+    // can trigger logout from inside `spawn_local` tasks where
+    // `use_context` returns None.
+    install_auth_handle(auth);
+
+    // Proactive expiry check: bounce the user to /login within
+    // SESSION_CHECK_INTERVAL_MS of the JWT's `exp`, even if they're
+    // browsing cached WsContext state without making API calls.
+    let session_cb = Closure::<dyn FnMut()>::new(move || {
+        if auth.is_session_expired() {
+            auth.logout();
+        }
+    });
+    if let Some(window) = web_sys::window() {
+        let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
+            session_cb.as_ref().unchecked_ref(),
+            SESSION_CHECK_INTERVAL_MS,
+        );
+    }
+    session_cb.forget();
+
+    // Shared WS context lives at the app root so the WebSocket survives
+    // route navigation. Hosting it in NavShell (which is created fresh
+    // by every <AuthGuard> wrapper) tore the socket down on every page
+    // change and discarded the seeded device/plugin maps.
+    let ws_ctx = WsContext::new();
+    provide_context(ws_ctx);
+    mount_ws(ws_ctx, auth.token);
+
+    // Version-skew banner — surfaces "this tab is on old WASM, reload to
+    // pick up the new homeCore". Runs after WsContext is provided because
+    // it watches the shared WS status.
+    let version_state = VersionState::new();
+    provide_context(version_state);
+    mount_version_check(version_state);
 
     // Restore saved theme preference on load.
     if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
@@ -112,6 +157,7 @@ pub fn App() -> impl IntoView {
                 }/>
             </Routes>
         </Router>
+        <VersionBanner />
         <ToastContainer />
     }
 }
@@ -158,11 +204,6 @@ fn AuthGuard(children: Children) -> impl IntoView {
 #[component]
 fn NavShell(children: Children) -> impl IntoView {
     let auth = use_auth();
-
-    // Provide the shared WS context for all child pages.
-    let ws_ctx = WsContext::new();
-    provide_context(ws_ctx);
-    mount_ws(ws_ctx, auth.token);
 
     // Server-reported version, populated from /system/status alongside
     // the TZ fetch below. Rendered in the sidebar header so the operator

@@ -4,6 +4,7 @@ mod auth;
 mod models;
 mod pages;
 mod tz;
+mod version_check;
 mod ws;
 
 use wasm_bindgen::prelude::wasm_bindgen;

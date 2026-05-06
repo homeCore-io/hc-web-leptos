@@ -3,6 +3,7 @@
 
 use crate::auth::{install_auth_handle, use_auth, AuthState};
 use crate::pages::shared::{ToastContainer, ToastContext};
+use crate::version_check::{mount_version_check, VersionBanner, VersionState};
 use crate::pages::{
     admin::AdminPage,
     audit::AuditPage,
@@ -71,6 +72,13 @@ pub fn App() -> impl IntoView {
     let ws_ctx = WsContext::new();
     provide_context(ws_ctx);
     mount_ws(ws_ctx, auth.token);
+
+    // Version-skew banner — surfaces "this tab is on old WASM, reload to
+    // pick up the new homeCore". Runs after WsContext is provided because
+    // it watches the shared WS status.
+    let version_state = VersionState::new();
+    provide_context(version_state);
+    mount_version_check(version_state);
 
     // Restore saved theme preference on load.
     if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
@@ -149,6 +157,7 @@ pub fn App() -> impl IntoView {
                 }/>
             </Routes>
         </Router>
+        <VersionBanner />
         <ToastContainer />
     }
 }

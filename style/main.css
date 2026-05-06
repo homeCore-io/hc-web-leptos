@@ -3709,6 +3709,43 @@ a.cell-link:hover { text-decoration: underline; }
   to   { transform: translateX(0); opacity: 1; }
 }
 
+/* ── Version-skew banner ──────────────────────────────────────────── */
+/* Pinned to the top of the viewport. Visible on every route including
+   /login because the WASM-vs-server mismatch is route-agnostic. */
+.version-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10000;
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.55rem 0.9rem;
+  background: var(--hc-warning-soft, #fff3cd);
+  border-bottom: 1px solid var(--hc-warning, #d4a72c);
+  color: var(--hc-text);
+  font-size: 0.85rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  animation: version-banner-slide-down 0.3s ease-out;
+}
+.version-banner__icon { font-size: 18px; color: var(--hc-warning, #d4a72c); }
+.version-banner__text { flex: 1; }
+.version-banner__text code {
+  background: rgba(0,0,0,0.06); padding: 0.05rem 0.35rem;
+  border-radius: 0.25rem; font-size: 0.85em;
+}
+.version-banner__action {
+  background: var(--hc-warning, #d4a72c); color: #1a1a1a;
+  border: none; border-radius: 0.35rem;
+  padding: 0.3rem 0.8rem; font-weight: 600; cursor: pointer;
+}
+.version-banner__action:hover { filter: brightness(1.05); }
+.version-banner__dismiss {
+  background: none; border: none; cursor: pointer;
+  font-size: 1.1rem; color: var(--hc-text-muted);
+  padding: 0 0.2rem; line-height: 1;
+}
+.version-banner__dismiss:hover { color: var(--hc-text); }
+@keyframes version-banner-slide-down {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
 /* ── Rule editor: mobile responsive ───────────────────────────────── */
 @media (max-width: 620px) {
   .trigger-row-2 { grid-template-columns: 1fr; }

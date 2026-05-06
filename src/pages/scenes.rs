@@ -6,11 +6,10 @@ use crate::api::{
 use crate::auth::use_auth;
 use crate::models::*;
 use crate::pages::shared::{
-    ErrorBanner,
     card_size_canvas_class, common_card_prefs_map, json_str_set, load_common_card_prefs,
     load_pref_json, ls_set, set_to_json_array, CardSize, CardSizeSelect, CommonCardPrefs,
-    LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField,
-    SortDir, SortDirToggle, SortSelect,
+    ErrorBanner, LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField, SortDir,
+    SortDirToggle, SortSelect,
 };
 use crate::ws::use_ws;
 use leptos::prelude::*;
@@ -605,7 +604,6 @@ pub fn ScenesPage() -> impl IntoView {
     let plugin_filter = RwSignal::new(prefs.plugin_filter);
     let sort_by = RwSignal::new(prefs.sort_by);
     let sort_dir = RwSignal::new(prefs.sort_dir);
-
 
     Effect::new(move |_| {
         save_prefs(

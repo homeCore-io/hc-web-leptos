@@ -10,22 +10,21 @@
 //!   Reference data (devices, areas, scenes, modes) is fetched once on page load
 //!   and provided as read-only signals for searchable dropdowns.
 
-use crate::pages::shared::{ErrorBanner, use_toast};
 use crate::api::{
-    clone_rule, create_rule, delete_rule, fetch_areas, fetch_devices, fetch_modes,
-    fetch_rule, fetch_rules, fetch_scenes, rule_fire_history, test_rule, update_rule,
+    clone_rule, create_rule, delete_rule, fetch_areas, fetch_devices, fetch_modes, fetch_rule,
+    fetch_rules, fetch_scenes, rule_fire_history, test_rule, update_rule,
 };
 use crate::auth::use_auth;
 use crate::models::{
-    is_media_player, is_scene_like, is_timer_device,
-    media_available_favorites, media_available_playlists,
-    Area, DeviceState, ModeRecord, Rule, RunMode, Scene, Trigger,
+    is_media_player, is_scene_like, is_timer_device, media_available_favorites,
+    media_available_playlists, Area, DeviceState, ModeRecord, Rule, RunMode, Scene, Trigger,
 };
+use crate::pages::shared::{use_toast, ErrorBanner};
 use hc_types::device::DeviceChangeKind as HcDeviceChangeKind;
 use hc_types::rule::{
-    Action, ButtonEventType, CompareOp, Condition, LogLevel, ModeCommand,
-    ModeDelayEntry, ModeSceneEntry, ModeStateEntry,
-    PeriodicUnit, RuleAction, SunEventType, ThresholdOp, VariableOp,
+    Action, ButtonEventType, CompareOp, Condition, LogLevel, ModeCommand, ModeDelayEntry,
+    ModeSceneEntry, ModeStateEntry, PeriodicUnit, RuleAction, SunEventType, ThresholdOp,
+    VariableOp,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -60,7 +59,6 @@ fn default_rule() -> Rule {
     }
 }
 
-
 // ── Bridge: merge typed metadata with sub-editor Value data for save ────────
 
 /// Build a Rule for saving.
@@ -87,7 +85,6 @@ fn build_save_rule(rule: RwSignal<Rule>) -> Rule {
     rule.get_untracked()
 }
 
-
 // ── Route entry points ───────────────────────────────────────────────────────
 
 #[component]
@@ -106,32 +103,30 @@ pub fn EditRulePage() -> impl IntoView {
 
 #[component]
 fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
-    let auth    = use_auth();
-    let is_new  = id.is_none();
+    let auth = use_auth();
+    let is_new = id.is_none();
     let rule: RwSignal<Rule> = RwSignal::new(default_rule());
     let saved_rule: RwSignal<Option<Rule>> = RwSignal::new(None);
-    let is_dirty = Memo::new(move |_| {
-        saved_rule.get().map_or(false, |s| s != rule.get())
-    });
+    let is_dirty = Memo::new(move |_| saved_rule.get().map_or(false, |s| s != rule.get()));
     let loading = RwSignal::new(!is_new);
-    let saving  = RwSignal::new(false);
+    let saving = RwSignal::new(false);
     let save_err: RwSignal<Option<String>> = RwSignal::new(None);
     // Timestamp of the last successful save — drives the "saved Xs ago"
     // text in the sticky action bar.
     let last_saved_at: RwSignal<Option<chrono::DateTime<chrono::Utc>>> = RwSignal::new(None);
     let toast = use_toast();
-    let advanced_open  = RwSignal::new(false);
+    let advanced_open = RwSignal::new(false);
     let confirm_delete = RwSignal::new(false);
     let tag_input: RwSignal<String> = RwSignal::new(String::new());
 
     // Test run + fire history panels (edit mode only)
-    let test_loading   = RwSignal::new(false);
+    let test_loading = RwSignal::new(false);
     let test_result: RwSignal<Option<Value>> = RwSignal::new(None);
     let test_err: RwSignal<Option<String>> = RwSignal::new(None);
     let history_loading = RwSignal::new(false);
     let history_data: RwSignal<Option<Value>> = RwSignal::new(None);
     let history_err: RwSignal<Option<String>> = RwSignal::new(None);
-    let history_open   = RwSignal::new(false);
+    let history_open = RwSignal::new(false);
 
     // Reference data (fetched once, provided as context for sub-components).
     let devices: RwSignal<Vec<DeviceState>> = RwSignal::new(vec![]);
@@ -147,28 +142,51 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
 
     // ── Load rule (edit mode) + reference data ───────────────────────────────
     Effect::new(move |_| {
-        let token = match auth.token.get() { Some(t) => t, None => return };
+        let token = match auth.token.get() {
+            Some(t) => t,
+            None => return,
+        };
         // Fetch reference data.
         let t2 = token.clone();
         let t3 = token.clone();
         let t4 = token.clone();
-        spawn_local(async move { if let Ok(d) = fetch_devices(&t2).await { devices.set(d); } });
-        spawn_local(async move { if let Ok(a) = fetch_areas(&t3).await { areas.set(a); } });
-        spawn_local(async move { if let Ok(s) = fetch_scenes(&t4).await { scenes.set(s); } });
+        spawn_local(async move {
+            if let Ok(d) = fetch_devices(&t2).await {
+                devices.set(d);
+            }
+        });
+        spawn_local(async move {
+            if let Ok(a) = fetch_areas(&t3).await {
+                areas.set(a);
+            }
+        });
+        spawn_local(async move {
+            if let Ok(s) = fetch_scenes(&t4).await {
+                scenes.set(s);
+            }
+        });
         {
             let t5 = token.clone();
-            spawn_local(async move { if let Ok(m) = fetch_modes(&t5).await { modes.set(m); } });
+            spawn_local(async move {
+                if let Ok(m) = fetch_modes(&t5).await {
+                    modes.set(m);
+                }
+            });
         }
         {
             let t6 = token.clone();
             spawn_local(async move {
-                if let Ok(r) = fetch_rules(&t6).await { all_rules.set(r); }
+                if let Ok(r) = fetch_rules(&t6).await {
+                    all_rules.set(r);
+                }
             });
         }
         // Fetch rule (edit mode).
         if let Some(id_sig) = id {
             let rule_id = id_sig.get();
-            if rule_id.is_empty() { return; }
+            if rule_id.is_empty() {
+                return;
+            }
             spawn_local(async move {
                 match fetch_rule(&token, &rule_id).await {
                     Ok(r) => {
@@ -176,7 +194,10 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
                         rule.set(r);
                         loading.set(false);
                     }
-                    Err(e) => { save_err.set(Some(format!("Load failed: {e}"))); loading.set(false); }
+                    Err(e) => {
+                        save_err.set(Some(format!("Load failed: {e}")));
+                        loading.set(false);
+                    }
                 }
             });
         }
@@ -191,7 +212,8 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
             }
         });
         if let Some(window) = web_sys::window() {
-            let _ = window.add_event_listener_with_callback("beforeunload", cb.as_ref().unchecked_ref());
+            let _ = window
+                .add_event_listener_with_callback("beforeunload", cb.as_ref().unchecked_ref());
         }
         let cb_ref = cb.as_ref().unchecked_ref::<js_sys::Function>().clone();
         cb.forget();
@@ -205,9 +227,13 @@ fn RuleEditorPage(id: Option<Signal<String>>) -> impl IntoView {
     // ── Tag commit ───────────────────────────────────────────────────────────
     let commit_tag = move || {
         let raw = tag_input.get_untracked().trim().to_string();
-        if raw.is_empty() { return; }
+        if raw.is_empty() {
+            return;
+        }
         rule.update(|r| {
-            if !r.tags.contains(&raw) { r.tags.push(raw); }
+            if !r.tags.contains(&raw) {
+                r.tags.push(raw);
+            }
         });
         tag_input.set(String::new());
     };
@@ -845,40 +871,80 @@ fn default_trigger_typed(key: &str) -> Trigger {
     use chrono::{NaiveTime, Weekday};
     match key {
         "device_state_changed" => Trigger::DeviceStateChanged {
-            device_id: String::new(), device_ids: vec![], attribute: None,
-            to: None, from: None, not_from: None, not_to: None,
-            for_duration_secs: None, change_kind: None, change_source: None,
+            device_id: String::new(),
+            device_ids: vec![],
+            attribute: None,
+            to: None,
+            from: None,
+            not_from: None,
+            not_to: None,
+            for_duration_secs: None,
+            change_kind: None,
+            change_source: None,
         },
         "device_availability_changed" => Trigger::DeviceAvailabilityChanged {
-            device_id: String::new(), to: None, for_duration_secs: None,
+            device_id: String::new(),
+            to: None,
+            for_duration_secs: None,
         },
         "button_event" => Trigger::ButtonEvent {
-            device_id: String::new(), button_number: None, event: ButtonEventType::Pushed,
+            device_id: String::new(),
+            button_number: None,
+            event: ButtonEventType::Pushed,
         },
         "numeric_threshold" => Trigger::NumericThreshold {
-            device_id: String::new(), attribute: String::new(),
-            op: ThresholdOp::CrossesAbove, value: 0.0, for_duration_secs: None,
+            device_id: String::new(),
+            attribute: String::new(),
+            op: ThresholdOp::CrossesAbove,
+            value: 0.0,
+            for_duration_secs: None,
         },
         "time_of_day" => Trigger::TimeOfDay {
             time: NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
-            days: vec![Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun],
+            days: vec![
+                Weekday::Mon,
+                Weekday::Tue,
+                Weekday::Wed,
+                Weekday::Thu,
+                Weekday::Fri,
+                Weekday::Sat,
+                Weekday::Sun,
+            ],
         },
         "sun_event" => Trigger::SunEvent {
-            event: SunEventType::Sunset, offset_minutes: 0,
+            event: SunEventType::Sunset,
+            offset_minutes: 0,
         },
-        "cron" => Trigger::Cron { expression: "0 0 8 * * *".into() },
-        "periodic" => Trigger::Periodic { every_n: 15, unit: PeriodicUnit::Minutes },
+        "cron" => Trigger::Cron {
+            expression: "0 0 8 * * *".into(),
+        },
+        "periodic" => Trigger::Periodic {
+            every_n: 15,
+            unit: PeriodicUnit::Minutes,
+        },
         "calendar_event" => Trigger::CalendarEvent {
-            calendar_id: None, title_contains: None, offset_minutes: 0,
+            calendar_id: None,
+            title_contains: None,
+            offset_minutes: 0,
         },
-        "custom_event" => Trigger::CustomEvent { event_type: String::new() },
+        "custom_event" => Trigger::CustomEvent {
+            event_type: String::new(),
+        },
         "system_started" => Trigger::SystemStarted,
         "hub_variable_changed" => Trigger::HubVariableChanged { name: None },
-        "mode_changed" => Trigger::ModeChanged { mode_id: None, to: None },
-        "webhook_received" => Trigger::WebhookReceived { path: "/hooks/".into() },
+        "mode_changed" => Trigger::ModeChanged {
+            mode_id: None,
+            to: None,
+        },
+        "webhook_received" => Trigger::WebhookReceived {
+            path: "/hooks/".into(),
+        },
         "mqtt_message" => Trigger::MqttMessage {
             topic_pattern: "homecore/devices/+/state".into(),
-            payload: None, value_path: None, value_op: None, value_cmp: None,
+            payload: None,
+            value_path: None,
+            value_op: None,
+            value_cmp: None,
         },
         "device_battery_low" => Trigger::DeviceBatteryLow { device_id: None },
         "device_battery_recovered" => Trigger::DeviceBatteryRecovered { device_id: None },
@@ -1517,24 +1583,59 @@ fn condition_variant_key(c: &Condition) -> &'static str {
 fn default_condition_typed(key: &str) -> Condition {
     match key {
         "device_state" => Condition::DeviceState {
-            device_id: String::new(), attribute: "on".into(), op: CompareOp::Eq, value: json!(true),
+            device_id: String::new(),
+            attribute: "on".into(),
+            op: CompareOp::Eq,
+            value: json!(true),
         },
         "time_window" => Condition::TimeWindow {
             start: chrono::NaiveTime::from_hms_opt(8, 0, 0).unwrap(),
             end: chrono::NaiveTime::from_hms_opt(22, 0, 0).unwrap(),
         },
-        "script_expression" => Condition::ScriptExpression { script: String::new() },
-        "time_elapsed" => Condition::TimeElapsed { device_id: String::new(), attribute: String::new(), duration_secs: 60 },
-        "device_last_change" => Condition::DeviceLastChange { device_id: String::new(), kind: None, source: None, actor_id: None, actor_name: None },
-        "not" => Condition::Not { condition: Box::new(default_condition_typed("device_state")) },
+        "script_expression" => Condition::ScriptExpression {
+            script: String::new(),
+        },
+        "time_elapsed" => Condition::TimeElapsed {
+            device_id: String::new(),
+            attribute: String::new(),
+            duration_secs: 60,
+        },
+        "device_last_change" => Condition::DeviceLastChange {
+            device_id: String::new(),
+            kind: None,
+            source: None,
+            actor_id: None,
+            actor_name: None,
+        },
+        "not" => Condition::Not {
+            condition: Box::new(default_condition_typed("device_state")),
+        },
         "and" => Condition::And { conditions: vec![] },
         "or" => Condition::Or { conditions: vec![] },
         "xor" => Condition::Xor { conditions: vec![] },
-        "private_boolean_is" => Condition::PrivateBooleanIs { name: String::new(), value: true },
-        "hub_variable" => Condition::HubVariable { name: String::new(), op: CompareOp::Eq, value: json!("") },
-        "mode_is" => Condition::ModeIs { mode_id: String::new(), on: true },
-        "calendar_active" => Condition::CalendarActive { calendar_id: None, title_contains: None },
-        _ => Condition::DeviceState { device_id: String::new(), attribute: "on".into(), op: CompareOp::Eq, value: json!(true) },
+        "private_boolean_is" => Condition::PrivateBooleanIs {
+            name: String::new(),
+            value: true,
+        },
+        "hub_variable" => Condition::HubVariable {
+            name: String::new(),
+            op: CompareOp::Eq,
+            value: json!(""),
+        },
+        "mode_is" => Condition::ModeIs {
+            mode_id: String::new(),
+            on: true,
+        },
+        "calendar_active" => Condition::CalendarActive {
+            calendar_id: None,
+            title_contains: None,
+        },
+        _ => Condition::DeviceState {
+            device_id: String::new(),
+            attribute: "on".into(),
+            op: CompareOp::Eq,
+            value: json!(true),
+        },
     }
 }
 
@@ -1584,10 +1685,7 @@ fn ConditionList(rule: RwSignal<Rule>) -> impl IntoView {
 
 /// Typed condition editor — takes get/set callbacks, works at any nesting depth.
 #[component]
-fn TypedConditionEditor(
-    get: Signal<Condition>,
-    set: Callback<Condition>,
-) -> impl IntoView {
+fn TypedConditionEditor(get: Signal<Condition>, set: Callback<Condition>) -> impl IntoView {
     view! {
         <div class="condition-editor">
             <label class="field-label">"Condition type"</label>
@@ -2075,51 +2173,160 @@ fn action_variant_key(a: &Action) -> &'static str {
 
 fn action_category_typed(a: &Action) -> &'static str {
     match a {
-        Action::SetDeviceState { .. } | Action::FadeDevice { .. } | Action::CaptureDeviceState { .. } | Action::RestoreDeviceState { .. } => "device",
+        Action::SetDeviceState { .. }
+        | Action::FadeDevice { .. }
+        | Action::CaptureDeviceState { .. }
+        | Action::RestoreDeviceState { .. } => "device",
         Action::Conditional { .. } => "conditional",
         Action::Notify { .. } => "notify",
         Action::SetMode { .. } => "mode",
-        Action::Delay { .. } | Action::WaitForEvent { .. } | Action::WaitForExpression { .. } => "timing",
+        Action::Delay { .. } | Action::WaitForEvent { .. } | Action::WaitForExpression { .. } => {
+            "timing"
+        }
         Action::RunScript { .. } => "script",
-        Action::RunRuleActions { .. } | Action::PauseRule { .. } | Action::ResumeRule { .. } | Action::CancelDelays { .. } | Action::CancelRuleTimers { .. } => "rule_ctrl",
+        Action::RunRuleActions { .. }
+        | Action::PauseRule { .. }
+        | Action::ResumeRule { .. }
+        | Action::CancelDelays { .. }
+        | Action::CancelRuleTimers { .. } => "rule_ctrl",
         _ => "more",
     }
 }
 
 fn default_action_typed(key: &str) -> Action {
     match key {
-        "set_device_state" => Action::SetDeviceState { device_id: String::new(), state: json!({}), track_event_value: false },
-        "publish_mqtt" => Action::PublishMqtt { topic: String::new(), payload: String::new(), retain: false },
-        "call_service" => Action::CallService { url: String::new(), method: "POST".into(), body: json!({}), timeout_ms: None, retries: None, response_event: None },
-        "fire_event" => Action::FireEvent { event_type: String::new(), payload: json!({}) },
-        "run_script" => Action::RunScript { script: String::new() },
-        "notify" => Action::Notify { channel: String::new(), message: String::new(), title: None },
-        "delay" => Action::Delay { duration_secs: 5, cancelable: false, cancel_key: None },
-        "set_variable" => Action::SetVariable { name: String::new(), value: json!(""), op: None },
-        "set_hub_variable" => Action::SetHubVariable { name: String::new(), value: json!(""), op: None },
-        "set_mode" => Action::SetMode { mode_id: String::new(), command: ModeCommand::On },
-        "run_rule_actions" => Action::RunRuleActions { rule_id: Uuid::nil() },
-        "pause_rule" => Action::PauseRule { rule_id: Uuid::nil() },
-        "resume_rule" => Action::ResumeRule { rule_id: Uuid::nil() },
+        "set_device_state" => Action::SetDeviceState {
+            device_id: String::new(),
+            state: json!({}),
+            track_event_value: false,
+        },
+        "publish_mqtt" => Action::PublishMqtt {
+            topic: String::new(),
+            payload: String::new(),
+            retain: false,
+        },
+        "call_service" => Action::CallService {
+            url: String::new(),
+            method: "POST".into(),
+            body: json!({}),
+            timeout_ms: None,
+            retries: None,
+            response_event: None,
+        },
+        "fire_event" => Action::FireEvent {
+            event_type: String::new(),
+            payload: json!({}),
+        },
+        "run_script" => Action::RunScript {
+            script: String::new(),
+        },
+        "notify" => Action::Notify {
+            channel: String::new(),
+            message: String::new(),
+            title: None,
+        },
+        "delay" => Action::Delay {
+            duration_secs: 5,
+            cancelable: false,
+            cancel_key: None,
+        },
+        "set_variable" => Action::SetVariable {
+            name: String::new(),
+            value: json!(""),
+            op: None,
+        },
+        "set_hub_variable" => Action::SetHubVariable {
+            name: String::new(),
+            value: json!(""),
+            op: None,
+        },
+        "set_mode" => Action::SetMode {
+            mode_id: String::new(),
+            command: ModeCommand::On,
+        },
+        "run_rule_actions" => Action::RunRuleActions {
+            rule_id: Uuid::nil(),
+        },
+        "pause_rule" => Action::PauseRule {
+            rule_id: Uuid::nil(),
+        },
+        "resume_rule" => Action::ResumeRule {
+            rule_id: Uuid::nil(),
+        },
         "cancel_delays" => Action::CancelDelays { key: None },
         "cancel_rule_timers" => Action::CancelRuleTimers { rule_id: None },
-        "set_private_boolean" => Action::SetPrivateBoolean { name: String::new(), value: true },
-        "log_message" => Action::LogMessage { message: String::new(), level: None },
-        "comment" => Action::Comment { text: String::new() },
+        "set_private_boolean" => Action::SetPrivateBoolean {
+            name: String::new(),
+            value: true,
+        },
+        "log_message" => Action::LogMessage {
+            message: String::new(),
+            level: None,
+        },
+        "comment" => Action::Comment {
+            text: String::new(),
+        },
         "stop_rule_chain" => Action::StopRuleChain,
         "exit_rule" => Action::ExitRule,
-        "wait_for_event" => Action::WaitForEvent { event_type: None, device_id: None, attribute: None, timeout_ms: None },
-        "wait_for_expression" => Action::WaitForExpression { expression: String::new(), poll_interval_ms: None, timeout_ms: None, hold_duration_ms: None },
-        "capture_device_state" => Action::CaptureDeviceState { key: String::new(), device_ids: vec![] },
+        "wait_for_event" => Action::WaitForEvent {
+            event_type: None,
+            device_id: None,
+            attribute: None,
+            timeout_ms: None,
+        },
+        "wait_for_expression" => Action::WaitForExpression {
+            expression: String::new(),
+            poll_interval_ms: None,
+            timeout_ms: None,
+            hold_duration_ms: None,
+        },
+        "capture_device_state" => Action::CaptureDeviceState {
+            key: String::new(),
+            device_ids: vec![],
+        },
         "restore_device_state" => Action::RestoreDeviceState { key: String::new() },
-        "fade_device" => Action::FadeDevice { device_id: String::new(), target: json!({}), duration_secs: 30, steps: None },
+        "fade_device" => Action::FadeDevice {
+            device_id: String::new(),
+            target: json!({}),
+            duration_secs: 30,
+            steps: None,
+        },
         "parallel" => Action::Parallel { actions: vec![] },
-        "conditional" => Action::Conditional { condition: String::new(), then_actions: vec![], else_if: vec![], else_actions: vec![] },
-        "repeat_until" => Action::RepeatUntil { condition: String::new(), actions: vec![], max_iterations: Some(10), interval_ms: None },
-        "repeat_while" => Action::RepeatWhile { condition: String::new(), actions: vec![], max_iterations: Some(10), interval_ms: None },
-        "repeat_count" => Action::RepeatCount { count: 3, actions: vec![], interval_ms: None },
-        "ping_host" => Action::PingHost { host: String::new(), count: None, timeout_ms: None, then_actions: vec![], else_actions: vec![], response_event: None },
-        _ => Action::LogMessage { message: String::new(), level: None },
+        "conditional" => Action::Conditional {
+            condition: String::new(),
+            then_actions: vec![],
+            else_if: vec![],
+            else_actions: vec![],
+        },
+        "repeat_until" => Action::RepeatUntil {
+            condition: String::new(),
+            actions: vec![],
+            max_iterations: Some(10),
+            interval_ms: None,
+        },
+        "repeat_while" => Action::RepeatWhile {
+            condition: String::new(),
+            actions: vec![],
+            max_iterations: Some(10),
+            interval_ms: None,
+        },
+        "repeat_count" => Action::RepeatCount {
+            count: 3,
+            actions: vec![],
+            interval_ms: None,
+        },
+        "ping_host" => Action::PingHost {
+            host: String::new(),
+            count: None,
+            timeout_ms: None,
+            then_actions: vec![],
+            else_actions: vec![],
+            response_event: None,
+        },
+        _ => Action::LogMessage {
+            message: String::new(),
+            level: None,
+        },
     }
 }
 
@@ -2170,10 +2377,7 @@ fn ActionList(rule: RwSignal<Rule>) -> impl IntoView {
 
 /// Wraps TypedActionEditor with an enabled toggle (for top-level RuleAction).
 #[component]
-fn TypedRuleActionEditor(
-    get: Signal<RuleAction>,
-    set: Callback<RuleAction>,
-) -> impl IntoView {
+fn TypedRuleActionEditor(get: Signal<RuleAction>, set: Callback<RuleAction>) -> impl IntoView {
     view! {
         <div class="action-editor">
             <div class="action-header-row">
@@ -2200,10 +2404,7 @@ fn TypedRuleActionEditor(
 /// Typed action editor — takes get/set callbacks, works at any nesting depth.
 /// Handles all action types including recursive ones (Parallel, Conditional, Repeat).
 #[component]
-fn TypedActionEditor(
-    get: Signal<Action>,
-    set: Callback<Action>,
-) -> impl IntoView {
+fn TypedActionEditor(get: Signal<Action>, set: Callback<Action>) -> impl IntoView {
     let category_for = move || action_category_typed(&get.get());
 
     view! {
@@ -3205,14 +3406,14 @@ fn category_default(cat: &str) -> &'static str {
 
 // Icon names are Phosphor identifiers (slot into "ph ph-{name}" by the view).
 const ACTION_CATEGORIES: &[(&str, &str, &str)] = &[
-    ("device",      "Control device",  "devices"),
-    ("conditional", "IF / ELSE",       "git-branch"),
-    ("notify",      "Notify",          "bell"),
-    ("mode",        "Set mode",        "sliders-horizontal"),
-    ("timing",      "Delay / Wait",    "clock"),
-    ("script",      "Script",          "code"),
-    ("rule_ctrl",   "Rule control",    "robot"),
-    ("more",        "More…",           "dots-three"),
+    ("device", "Control device", "devices"),
+    ("conditional", "IF / ELSE", "git-branch"),
+    ("notify", "Notify", "bell"),
+    ("mode", "Set mode", "sliders-horizontal"),
+    ("timing", "Delay / Wait", "clock"),
+    ("script", "Script", "code"),
+    ("rule_ctrl", "Rule control", "robot"),
+    ("more", "More…", "dots-three"),
 ];
 
 // ── TypedDeviceStateBuilder ──────────────────────────────────────────────────
@@ -3223,60 +3424,155 @@ fn device_commands(d: &DeviceState) -> Vec<(&'static str, &'static str)> {
     let has = |k: &str| d.attributes.contains_key(k);
     let has_f = |k: &str| d.attributes.get(k).and_then(|v| v.as_f64()).is_some();
     if is_timer_device(d) {
-        cmds.push(("timer_start","Start timer")); cmds.push(("timer_cancel","Cancel timer"));
-        cmds.push(("timer_pause","Pause timer")); cmds.push(("timer_resume","Resume timer"));
-        cmds.push(("timer_restart","Restart timer"));
+        cmds.push(("timer_start", "Start timer"));
+        cmds.push(("timer_cancel", "Cancel timer"));
+        cmds.push(("timer_pause", "Pause timer"));
+        cmds.push(("timer_resume", "Resume timer"));
+        cmds.push(("timer_restart", "Restart timer"));
         return cmds;
     }
-    if is_scene_like(d) { cmds.push(("activate","Activate scene")); return cmds; }
-    if has("on") { cmds.push(("on_true","Turn on")); cmds.push(("on_false","Turn off")); }
-    if has_f("brightness_pct") { cmds.push(("brightness_pct","Set brightness")); }
-    if has_f("color_temp") { cmds.push(("color_temp","Set color temperature")); }
-    if has_f("position") { cmds.push(("position","Set position")); }
-    if has("locked") { cmds.push(("lock","Lock")); cmds.push(("unlock","Unlock")); }
+    if is_scene_like(d) {
+        cmds.push(("activate", "Activate scene"));
+        return cmds;
+    }
+    if has("on") {
+        cmds.push(("on_true", "Turn on"));
+        cmds.push(("on_false", "Turn off"));
+    }
+    if has_f("brightness_pct") {
+        cmds.push(("brightness_pct", "Set brightness"));
+    }
+    if has_f("color_temp") {
+        cmds.push(("color_temp", "Set color temperature"));
+    }
+    if has_f("position") {
+        cmds.push(("position", "Set position"));
+    }
+    if has("locked") {
+        cmds.push(("lock", "Lock"));
+        cmds.push(("unlock", "Unlock"));
+    }
     if is_media_player(d) {
-        cmds.push(("play","Play")); cmds.push(("pause","Pause")); cmds.push(("stop","Stop"));
-        cmds.push(("next","Next track")); cmds.push(("prev","Previous track"));
-        if has_f("volume") { cmds.push(("set_volume","Set volume")); }
-        if has("muted") { cmds.push(("set_mute","Set mute")); }
-        if has("shuffle") { cmds.push(("set_shuffle","Set shuffle")); }
-        if !media_available_favorites(d).is_empty() { cmds.push(("play_favorite","Play favorite")); }
-        if !media_available_playlists(d).is_empty() { cmds.push(("play_playlist","Play playlist")); }
+        cmds.push(("play", "Play"));
+        cmds.push(("pause", "Pause"));
+        cmds.push(("stop", "Stop"));
+        cmds.push(("next", "Next track"));
+        cmds.push(("prev", "Previous track"));
+        if has_f("volume") {
+            cmds.push(("set_volume", "Set volume"));
+        }
+        if has("muted") {
+            cmds.push(("set_mute", "Set mute"));
+        }
+        if has("shuffle") {
+            cmds.push(("set_shuffle", "Set shuffle"));
+        }
+        if !media_available_favorites(d).is_empty() {
+            cmds.push(("play_favorite", "Play favorite"));
+        }
+        if !media_available_playlists(d).is_empty() {
+            cmds.push(("play_playlist", "Play playlist"));
+        }
     }
     cmds
 }
 
 fn detect_command(state: &Value) -> String {
-    let obj = match state.as_object() { Some(o) => o, None => return String::new() };
+    let obj = match state.as_object() {
+        Some(o) => o,
+        None => return String::new(),
+    };
     if let Some(cmd) = obj.get("command").and_then(|v| v.as_str()) {
-        return match cmd { "start"=>"timer_start", "cancel"=>"timer_cancel", "pause"=>"timer_pause", "resume"=>"timer_resume", "restart"=>"timer_restart", _ => cmd }.to_string();
+        return match cmd {
+            "start" => "timer_start",
+            "cancel" => "timer_cancel",
+            "pause" => "timer_pause",
+            "resume" => "timer_resume",
+            "restart" => "timer_restart",
+            _ => cmd,
+        }
+        .to_string();
     }
-    if obj.get("activate").and_then(|v| v.as_bool()) == Some(true) { return "activate".to_string(); }
+    if obj.get("activate").and_then(|v| v.as_bool()) == Some(true) {
+        return "activate".to_string();
+    }
     if let Some(act) = obj.get("action").and_then(|v| v.as_str()) {
-        return match act { "play"=>"play", "pause"=>"pause", "stop"=>"stop", "next"=>"next", "previous"=>"prev", "set_volume"=>"set_volume", "set_mute"=>"set_mute", "set_shuffle"=>"set_shuffle", "play_favorite"=>"play_favorite", "play_playlist"=>"play_playlist", _ => act }.to_string();
+        return match act {
+            "play" => "play",
+            "pause" => "pause",
+            "stop" => "stop",
+            "next" => "next",
+            "previous" => "prev",
+            "set_volume" => "set_volume",
+            "set_mute" => "set_mute",
+            "set_shuffle" => "set_shuffle",
+            "play_favorite" => "play_favorite",
+            "play_playlist" => "play_playlist",
+            _ => act,
+        }
+        .to_string();
     }
-    if let Some(v) = obj.get("on") { return if v.as_bool()==Some(true) { "on_true" } else { "on_false" }.to_string(); }
-    if obj.contains_key("locked") { return if obj["locked"].as_bool()==Some(true) { "lock" } else { "unlock" }.to_string(); }
-    if obj.contains_key("brightness_pct") { return "brightness_pct".to_string(); }
-    if obj.contains_key("color_temp") { return "color_temp".to_string(); }
-    if obj.contains_key("position") { return "position".to_string(); }
+    if let Some(v) = obj.get("on") {
+        return if v.as_bool() == Some(true) {
+            "on_true"
+        } else {
+            "on_false"
+        }
+        .to_string();
+    }
+    if obj.contains_key("locked") {
+        return if obj["locked"].as_bool() == Some(true) {
+            "lock"
+        } else {
+            "unlock"
+        }
+        .to_string();
+    }
+    if obj.contains_key("brightness_pct") {
+        return "brightness_pct".to_string();
+    }
+    if obj.contains_key("color_temp") {
+        return "color_temp".to_string();
+    }
+    if obj.contains_key("position") {
+        return "position".to_string();
+    }
     String::new()
 }
 
 fn command_to_state(cmd: &str, d: &DeviceState) -> Value {
     match cmd {
-        "timer_start" => json!({"command":"start","duration_secs":300}), "timer_cancel" => json!({"command":"cancel"}),
-        "timer_pause" => json!({"command":"pause"}), "timer_resume" => json!({"command":"resume"}), "timer_restart" => json!({"command":"restart"}),
-        "activate" => json!({"activate":true}), "on_true" => json!({"on":true}), "on_false" => json!({"on":false}),
-        "brightness_pct" => json!({"brightness_pct": d.attributes.get("brightness_pct").and_then(|v| v.as_i64()).unwrap_or(50)}),
-        "color_temp" => json!({"color_temp": d.attributes.get("color_temp").and_then(|v| v.as_i64()).unwrap_or(2700)}),
-        "position" => json!({"position": d.attributes.get("position").and_then(|v| v.as_i64()).unwrap_or(50)}),
-        "lock" => json!({"locked":true}), "unlock" => json!({"locked":false}),
-        "play" => json!({"action":"play"}), "pause" => json!({"action":"pause"}), "stop" => json!({"action":"stop"}),
-        "next" => json!({"action":"next"}), "prev" => json!({"action":"previous"}),
-        "set_volume" => json!({"action":"set_volume","volume": d.attributes.get("volume").and_then(|v| v.as_i64()).unwrap_or(20)}),
-        "set_mute" => json!({"action":"set_mute","muted":false}), "set_shuffle" => json!({"action":"set_shuffle","shuffle":false}),
-        "play_favorite" => json!({"action":"play_favorite","favorite":""}), "play_playlist" => json!({"action":"play_playlist","playlist":""}),
+        "timer_start" => json!({"command":"start","duration_secs":300}),
+        "timer_cancel" => json!({"command":"cancel"}),
+        "timer_pause" => json!({"command":"pause"}),
+        "timer_resume" => json!({"command":"resume"}),
+        "timer_restart" => json!({"command":"restart"}),
+        "activate" => json!({"activate":true}),
+        "on_true" => json!({"on":true}),
+        "on_false" => json!({"on":false}),
+        "brightness_pct" => {
+            json!({"brightness_pct": d.attributes.get("brightness_pct").and_then(|v| v.as_i64()).unwrap_or(50)})
+        }
+        "color_temp" => {
+            json!({"color_temp": d.attributes.get("color_temp").and_then(|v| v.as_i64()).unwrap_or(2700)})
+        }
+        "position" => {
+            json!({"position": d.attributes.get("position").and_then(|v| v.as_i64()).unwrap_or(50)})
+        }
+        "lock" => json!({"locked":true}),
+        "unlock" => json!({"locked":false}),
+        "play" => json!({"action":"play"}),
+        "pause" => json!({"action":"pause"}),
+        "stop" => json!({"action":"stop"}),
+        "next" => json!({"action":"next"}),
+        "prev" => json!({"action":"previous"}),
+        "set_volume" => {
+            json!({"action":"set_volume","volume": d.attributes.get("volume").and_then(|v| v.as_i64()).unwrap_or(20)})
+        }
+        "set_mute" => json!({"action":"set_mute","muted":false}),
+        "set_shuffle" => json!({"action":"set_shuffle","shuffle":false}),
+        "play_favorite" => json!({"action":"play_favorite","favorite":""}),
+        "play_playlist" => json!({"action":"play_playlist","playlist":""}),
         _ => json!({}),
     }
 }
@@ -3291,10 +3587,7 @@ fn command_to_state(cmd: &str, d: &DeviceState) -> Value {
 /// toggle into JSON mode for any device when the typed editor can't
 /// express what they need.
 #[component]
-fn TypedDeviceStateBuilder(
-    get: Signal<Action>,
-    set: Callback<Action>,
-) -> impl IntoView {
+fn TypedDeviceStateBuilder(get: Signal<Action>, set: Callback<Action>) -> impl IntoView {
     let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
 
     // Persistent UI state — kept at component scope so it survives re-renders
@@ -3307,8 +3600,12 @@ fn TypedDeviceStateBuilder(
     // Read the device_id and state from the action
     let get_state_info = move || -> (String, Value) {
         match &get.get() {
-            Action::SetDeviceState { device_id, state, .. } => (device_id.clone(), state.clone()),
-            Action::FadeDevice { device_id, target, .. } => (device_id.clone(), target.clone()),
+            Action::SetDeviceState {
+                device_id, state, ..
+            } => (device_id.clone(), state.clone()),
+            Action::FadeDevice {
+                device_id, target, ..
+            } => (device_id.clone(), target.clone()),
             _ => (String::new(), json!({})),
         }
     };
@@ -3627,17 +3924,23 @@ fn DeviceSelect(
 // For triggers with device_ids: shows selected devices as chips + add dropdown.
 
 #[component]
-fn DeviceMultiSelect(
-    rule: RwSignal<Rule>,
-) -> impl IntoView {
+fn DeviceMultiSelect(rule: RwSignal<Rule>) -> impl IntoView {
     let devices = use_context::<RwSignal<Vec<DeviceState>>>().unwrap_or(RwSignal::new(vec![]));
 
     // Read primary device_id + additional device_ids from trigger
     let get_all_ids = move || -> Vec<String> {
         match &rule.get().trigger {
-            Trigger::DeviceStateChanged { device_id, device_ids, .. } => {
+            Trigger::DeviceStateChanged {
+                device_id,
+                device_ids,
+                ..
+            } => {
                 if device_ids.is_empty() {
-                    if device_id.is_empty() { vec![] } else { vec![device_id.clone()] }
+                    if device_id.is_empty() {
+                        vec![]
+                    } else {
+                        vec![device_id.clone()]
+                    }
                 } else {
                     let mut ids = device_ids.clone();
                     if !device_id.is_empty() && !ids.contains(device_id) {
@@ -3652,7 +3955,12 @@ fn DeviceMultiSelect(
 
     let set_ids = move |ids: Vec<String>| {
         rule.update(|r| {
-            if let Trigger::DeviceStateChanged { ref mut device_id, ref mut device_ids, .. } = r.trigger {
+            if let Trigger::DeviceStateChanged {
+                ref mut device_id,
+                ref mut device_ids,
+                ..
+            } = r.trigger
+            {
                 if ids.len() <= 1 {
                     *device_id = ids.first().cloned().unwrap_or_default();
                     *device_ids = vec![];
@@ -3665,7 +3973,12 @@ fn DeviceMultiSelect(
     };
 
     let device_name = move |id: &str| -> String {
-        devices.get().iter().find(|d| d.device_id == id).map(|d| d.name.clone()).unwrap_or_else(|| id.to_string())
+        devices
+            .get()
+            .iter()
+            .find(|d| d.device_id == id)
+            .map(|d| d.name.clone())
+            .unwrap_or_else(|| id.to_string())
     };
 
     view! {
@@ -3713,18 +4026,18 @@ fn DeviceMultiSelect(
 /// Canonical display labels for a boolean attribute's true/false values.
 fn bool_labels(attr: &str) -> (&'static str, &'static str) {
     match attr {
-        "open"       => ("Open",        "Closed"),
-        "on"         => ("On",          "Off"),
-        "locked"     => ("Locked",      "Unlocked"),
-        "muted"      => ("Muted",       "Unmuted"),
-        "shuffle"    => ("On",          "Off"),
-        "loudness"   => ("On",          "Off"),
-        "available"  => ("Online",      "Offline"),
-        "motion"     => ("Active",      "Clear"),
-        "occupied"   => ("Occupied",    "Vacant"),
-        "leak"       => ("Leak detected","Dry"),
-        "vibration"  => ("Active",      "Clear"),
-        _            => ("True",        "False"),
+        "open" => ("Open", "Closed"),
+        "on" => ("On", "Off"),
+        "locked" => ("Locked", "Unlocked"),
+        "muted" => ("Muted", "Unmuted"),
+        "shuffle" => ("On", "Off"),
+        "loudness" => ("On", "Off"),
+        "available" => ("Online", "Offline"),
+        "motion" => ("Active", "Clear"),
+        "occupied" => ("Occupied", "Vacant"),
+        "leak" => ("Leak detected", "Dry"),
+        "vibration" => ("Active", "Clear"),
+        _ => ("True", "False"),
     }
 }
 
@@ -3875,7 +4188,8 @@ fn ModeSelect(value: String, on_select: Callback<String>) -> impl IntoView {
 
 #[component]
 fn RuleSelect(value: String, on_select: Callback<String>) -> impl IntoView {
-    let all_rules = use_context::<RwSignal<Vec<crate::models::Rule>>>().unwrap_or(RwSignal::new(vec![]));
+    let all_rules =
+        use_context::<RwSignal<Vec<crate::models::Rule>>>().unwrap_or(RwSignal::new(vec![]));
 
     view! {
         <select class="hc-select"

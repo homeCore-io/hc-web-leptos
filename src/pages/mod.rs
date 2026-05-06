@@ -1,9 +1,9 @@
 pub mod admin;
 pub mod admin_config;
 pub mod admin_notify;
+pub mod areas;
 pub mod audit;
 pub mod dashboards;
-pub mod areas;
 pub mod device_cards;
 pub mod device_detail;
 pub mod events;
@@ -15,6 +15,6 @@ pub mod rule_detail;
 pub mod rules;
 pub mod scene_detail;
 pub mod scenes;
-pub mod thermostat_card;
 #[allow(dead_code)]
 pub mod shared;
+pub mod thermostat_card;

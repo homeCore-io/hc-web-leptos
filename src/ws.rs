@@ -329,7 +329,9 @@ pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
         let on_err = {
             let scheduled = scheduled.clone();
             Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
-                if scheduled.replace(true) { return; }
+                if scheduled.replace(true) {
+                    return;
+                }
                 ctx.status.set(WsStatus::Disconnected);
                 schedule_reconnect(reconnect_trigger, attempt);
             })
@@ -340,7 +342,9 @@ pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
         let on_close = {
             let scheduled = scheduled.clone();
             Closure::<dyn FnMut(web_sys::CloseEvent)>::new(move |_| {
-                if scheduled.replace(true) { return; }
+                if scheduled.replace(true) {
+                    return;
+                }
                 ctx.status.set(WsStatus::Disconnected);
                 schedule_reconnect(reconnect_trigger, attempt);
             })

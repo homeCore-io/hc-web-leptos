@@ -1,6 +1,5 @@
 //! Areas page — room and zone management.
 
-use crate::pages::shared::ErrorBanner;
 use crate::api::{
     create_area as create_area_request, delete_area as delete_area_request, fetch_areas,
     fetch_devices, set_area_devices as set_area_devices_request,
@@ -8,6 +7,7 @@ use crate::api::{
 };
 use crate::auth::use_auth;
 use crate::models::*;
+use crate::pages::shared::ErrorBanner;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 

@@ -10,8 +10,8 @@ use crate::models::*;
 use crate::pages::shared::{
     card_size_canvas_class, common_card_prefs_map, json_str_set, load_common_card_prefs,
     load_pref_json, ls_set, set_to_json_array, CardSize, CardSizeSelect, CommonCardPrefs,
-    LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField,
-    SortDir, SortDirToggle, SortSelect,
+    LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField, SortDir, SortDirToggle,
+    SortSelect,
 };
 use crate::ws::use_ws;
 use leptos::prelude::*;
@@ -419,10 +419,7 @@ fn parse_clause_from_value(value: &Value) -> Result<CriterionDraft, String> {
                 .and_then(Value::as_str)
                 .unwrap_or("eq")
                 .to_string(),
-            value_text: obj
-                .get("value")
-                .map(value_to_text)
-                .unwrap_or_default(),
+            value_text: obj.get("value").map(value_to_text).unwrap_or_default(),
         }),
         Some("mode_is") => Ok(CriterionDraft::ModeIs {
             mode_id: obj
@@ -432,7 +429,9 @@ fn parse_clause_from_value(value: &Value) -> Result<CriterionDraft, String> {
                 .to_string(),
             on: obj.get("on").and_then(Value::as_bool).unwrap_or(true),
         }),
-        Some(other) => Err(format!("Unsupported criterion type '{other}' for inline editing.")),
+        Some(other) => Err(format!(
+            "Unsupported criterion type '{other}' for inline editing."
+        )),
         None => Err("Criterion type is required.".to_string()),
     }
 }
@@ -474,7 +473,10 @@ fn parse_group_from_value(value: &Value) -> Result<(CriteriaLogic, Vec<Criterion
 fn builder_from_criteria(criteria: &CriteriaModeConfig) -> Result<CriteriaBuilderState, String> {
     let (on_logic, on_clauses) = parse_group_from_value(&criteria.on_condition)?;
     let (off_logic, off_clauses) = match criteria.off_behavior {
-        CriteriaOffBehavior::Inverse => (CriteriaLogic::All, vec![CriterionDraft::blank_device_state()]),
+        CriteriaOffBehavior::Inverse => (
+            CriteriaLogic::All,
+            vec![CriterionDraft::blank_device_state()],
+        ),
         CriteriaOffBehavior::Explicit => {
             let Some(off_condition) = criteria.off_condition.as_ref() else {
                 return Err("Explicit off criteria is missing.".to_string());
@@ -1681,7 +1683,6 @@ pub fn ModesPage() -> impl IntoView {
     let type_filter = RwSignal::new(prefs.type_filter);
     let sort_by = RwSignal::new(prefs.sort_by);
     let sort_dir = RwSignal::new(prefs.sort_dir);
-
 
     let create_name = RwSignal::new(String::new());
     let create_id = RwSignal::new(String::new());

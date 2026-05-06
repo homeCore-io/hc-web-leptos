@@ -30,7 +30,9 @@ pub fn ThermostatCard(device: DeviceState) -> impl IntoView {
     let device_id_cmd = device_id.clone();
     let auth_for_cmd = auth.clone();
     let send_cmd: Rc<dyn Fn(Value)> = Rc::new(move |cmd: Value| {
-        let Some(token) = auth_for_cmd.token.get_untracked() else { return };
+        let Some(token) = auth_for_cmd.token.get_untracked() else {
+            return;
+        };
         let id = device_id_cmd.clone();
         busy.set(true);
         spawn_local(async move {
@@ -54,7 +56,9 @@ pub fn ThermostatCard(device: DeviceState) -> impl IntoView {
         let therm_id = therm_id.clone();
         let nav = nav.clone();
         move || {
-            let Some(token) = auth_for_del.token.get_untracked() else { return };
+            let Some(token) = auth_for_del.token.get_untracked() else {
+                return;
+            };
             let pid = plugin_id.clone();
             let tid = therm_id.clone();
             let nav = nav.clone();
@@ -71,7 +75,9 @@ pub fn ThermostatCard(device: DeviceState) -> impl IntoView {
     // History fetch effect — refires on range change.
     let device_id_hist = device_id.clone();
     Effect::new(move |_| {
-        let Some(token) = auth.token.get() else { return };
+        let Some(token) = auth.token.get() else {
+            return;
+        };
         let hours = history_range_hours.get();
         let did = device_id_hist.clone();
         let now_ms = js_sys::Date::now();
@@ -95,8 +101,14 @@ pub fn ThermostatCard(device: DeviceState) -> impl IntoView {
     // the device signal is updated on every ws push, the view re-renders.
     let attrs = device.attributes.clone();
 
-    let sp = attrs.get("setpoint").and_then(|v| v.as_f64()).unwrap_or(70.0);
-    let hyst = attrs.get("hysteresis").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    let sp = attrs
+        .get("setpoint")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(70.0);
+    let hyst = attrs
+        .get("hysteresis")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0);
     let mode = attrs
         .get("mode")
         .and_then(|v| v.as_str())
@@ -535,10 +547,7 @@ pub fn ThermostatCard(device: DeviceState) -> impl IntoView {
 }
 
 /// Devices with a numeric reading at `attr`; skip thermostats (can't self-feed).
-fn sensor_candidates(
-    devices: &HashMap<String, DeviceState>,
-    attr: &str,
-) -> Vec<(String, String)> {
+fn sensor_candidates(devices: &HashMap<String, DeviceState>, attr: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = devices
         .values()
         .filter(|d| d.device_type.as_deref() != Some("thermostat"))

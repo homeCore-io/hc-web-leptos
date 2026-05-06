@@ -3,11 +3,10 @@
 
 use crate::auth::{install_auth_handle, use_auth, AuthState};
 use crate::pages::shared::{ToastContainer, ToastContext};
-use crate::version_check::{mount_version_check, VersionBanner, VersionState};
 use crate::pages::{
     admin::AdminPage,
-    audit::AuditPage,
     areas::AreasPage,
+    audit::AuditPage,
     dashboards::DashboardsPage,
     device_cards::DeviceCardsPage,
     device_detail::DeviceDetailPage,
@@ -21,6 +20,7 @@ use crate::pages::{
     scene_detail::{NativeSceneDetailPage, NewScenePage, PluginSceneDetailPage},
     scenes::ScenesPage,
 };
+use crate::version_check::{mount_version_check, VersionBanner, VersionState};
 use crate::ws::{mount_ws, WsContext};
 use leptos::prelude::*;
 use leptos_router::{
@@ -85,7 +85,10 @@ pub fn App() -> impl IntoView {
         if let Ok(Some(theme)) = storage.get_item("hc-leptos:theme") {
             if !theme.is_empty() {
                 let doc = web_sys::window().unwrap().document().unwrap();
-                let _ = doc.document_element().unwrap().set_attribute("data-theme", &theme);
+                let _ = doc
+                    .document_element()
+                    .unwrap()
+                    .set_attribute("data-theme", &theme);
             }
         }
     }
@@ -359,20 +362,24 @@ pub struct MobileMenu(pub RwSignal<bool>);
 /// topbar. First-segment lookup; deeper paths show the section
 /// they belong to.
 fn section_title(pathname: &str) -> &'static str {
-    let first = pathname.trim_start_matches('/').split('/').next().unwrap_or("");
+    let first = pathname
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .unwrap_or("");
     match first {
         "dashboards" => "Overview",
-        "devices"    => "Devices",
-        "areas"      => "Areas",
-        "scenes"     => "Scenes",
-        "modes"      => "Modes",
-        "events"     => "Activity",
-        "rules"      => "Rules",
-        "glue"       => "Glue",
-        "plugins"    => "Plugins",
-        "admin"      => "Admin",
-        "audit"      => "Audit",
-        _            => "HomeCore",
+        "devices" => "Devices",
+        "areas" => "Areas",
+        "scenes" => "Scenes",
+        "modes" => "Modes",
+        "events" => "Activity",
+        "rules" => "Rules",
+        "glue" => "Glue",
+        "plugins" => "Plugins",
+        "admin" => "Admin",
+        "audit" => "Audit",
+        _ => "HomeCore",
     }
 }
 
@@ -390,17 +397,72 @@ struct NavItem {
 // Icon names are Phosphor identifiers (without the `ph-` prefix);
 // the SidebarNav view composes the full class as `ph ph-{icon}`.
 const NAV_ITEMS: &[NavItem] = &[
-    NavItem { id: "dashboards", href: "/dashboards", icon: "gauge",          label: "Overview" },
-    NavItem { id: "devices",    href: "/devices",    icon: "devices",        label: "Devices"  },
-    NavItem { id: "areas",      href: "/areas",      icon: "house-line",     label: "Areas"    },
-    NavItem { id: "scenes",     href: "/scenes",     icon: "lightbulb",      label: "Scenes"   },
-    NavItem { id: "modes",      href: "/modes",      icon: "sliders-horizontal", label: "Modes" },
-    NavItem { id: "events",     href: "/events",     icon: "lightning",      label: "Events"   },
-    NavItem { id: "rules",      href: "/rules",      icon: "robot",          label: "Rules"    },
-    NavItem { id: "glue",       href: "/glue",       icon: "puzzle-piece",   label: "Glue"     },
-    NavItem { id: "plugins",    href: "/plugins",    icon: "squares-four",   label: "Plugins"  },
-    NavItem { id: "admin",      href: "/admin",      icon: "shield-check",   label: "Admin"    },
-    NavItem { id: "audit",      href: "/audit",      icon: "list-checks",    label: "Audit"    },
+    NavItem {
+        id: "dashboards",
+        href: "/dashboards",
+        icon: "gauge",
+        label: "Overview",
+    },
+    NavItem {
+        id: "devices",
+        href: "/devices",
+        icon: "devices",
+        label: "Devices",
+    },
+    NavItem {
+        id: "areas",
+        href: "/areas",
+        icon: "house-line",
+        label: "Areas",
+    },
+    NavItem {
+        id: "scenes",
+        href: "/scenes",
+        icon: "lightbulb",
+        label: "Scenes",
+    },
+    NavItem {
+        id: "modes",
+        href: "/modes",
+        icon: "sliders-horizontal",
+        label: "Modes",
+    },
+    NavItem {
+        id: "events",
+        href: "/events",
+        icon: "lightning",
+        label: "Events",
+    },
+    NavItem {
+        id: "rules",
+        href: "/rules",
+        icon: "robot",
+        label: "Rules",
+    },
+    NavItem {
+        id: "glue",
+        href: "/glue",
+        icon: "puzzle-piece",
+        label: "Glue",
+    },
+    NavItem {
+        id: "plugins",
+        href: "/plugins",
+        icon: "squares-four",
+        label: "Plugins",
+    },
+    NavItem {
+        id: "admin",
+        href: "/admin",
+        icon: "shield-check",
+        label: "Admin",
+    },
+    NavItem {
+        id: "audit",
+        href: "/audit",
+        icon: "list-checks",
+        label: "Audit",
+    },
 ];
 
 const SIDEBAR_COLLAPSED_KEY: &str = "hc-leptos:sidebar:collapsed";
@@ -412,10 +474,7 @@ fn load_sidebar_collapsed() -> bool {
 }
 
 fn save_sidebar_collapsed(collapsed: bool) {
-    crate::pages::shared::ls_set(
-        SIDEBAR_COLLAPSED_KEY,
-        if collapsed { "1" } else { "0" },
-    );
+    crate::pages::shared::ls_set(SIDEBAR_COLLAPSED_KEY, if collapsed { "1" } else { "0" });
 }
 
 fn load_nav_order() -> Vec<&'static str> {
@@ -440,7 +499,10 @@ fn load_nav_order() -> Vec<&'static str> {
 }
 
 fn save_nav_order(order: &[&str]) {
-    let arr: Vec<serde_json::Value> = order.iter().map(|id| serde_json::Value::String(id.to_string())).collect();
+    let arr: Vec<serde_json::Value> = order
+        .iter()
+        .map(|id| serde_json::Value::String(id.to_string()))
+        .collect();
     crate::pages::shared::ls_set(NAV_ORDER_KEY, &serde_json::Value::Array(arr).to_string());
 }
 

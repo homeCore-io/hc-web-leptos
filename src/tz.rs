@@ -51,9 +51,7 @@ pub fn fmt_abs(utc: &DateTime<Utc>) -> String {
 /// rows where only the time-of-day matters (the date is implicit
 /// from grouping or context).
 pub fn fmt_time(utc: &DateTime<Utc>) -> String {
-    utc.with_timezone(&app_tz())
-        .format("%H:%M:%S")
-        .to_string()
+    utc.with_timezone(&app_tz()).format("%H:%M:%S").to_string()
 }
 
 /// Convert a UTC timestamp to the configured-zone calendar date.

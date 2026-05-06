@@ -254,10 +254,16 @@ async fn load_or_create_dashboard(token: &str) -> Result<DashboardResponse, Stri
         };
         let created = create_dashboard(token, &def).await?;
         let _ = set_default_dashboard(token, &created.dashboard.id).await;
-        return Ok(DashboardResponse { is_default: true, ..created });
+        return Ok(DashboardResponse {
+            is_default: true,
+            ..created
+        });
     }
 
-    let mut db = dashboards.iter().find(|d| d.is_default).cloned()
+    let mut db = dashboards
+        .iter()
+        .find(|d| d.is_default)
+        .cloned()
         .unwrap_or_else(|| dashboards[0].clone());
 
     // Migrate stale template dashboards: if layouts reference widgets that
@@ -266,16 +272,19 @@ async fn load_or_create_dashboard(token: &str) -> Result<DashboardResponse, Stri
     let widget_ids: std::collections::HashSet<String> =
         db.dashboard.widgets.iter().map(|w| w.id.clone()).collect();
     let stale_layouts = db.dashboard.layouts.iter().any(|l| {
-        l.placements.iter().any(|p| !widget_ids.contains(&p.widget_id))
+        l.placements
+            .iter()
+            .any(|p| !widget_ids.contains(&p.widget_id))
     });
     if stale_layouts {
         db.dashboard.layouts.clear();
         db.dashboard.sections.clear();
         // If widgets are all from a template (no counter_type, no card_size),
         // replace with our defaults.
-        let has_our_widgets = db.dashboard.widgets.iter().any(|w| {
-            w.config.get("card_size").is_some() || w.config.get("counter_type").is_some()
-        });
+        let has_our_widgets =
+            db.dashboard.widgets.iter().any(|w| {
+                w.config.get("card_size").is_some() || w.config.get("counter_type").is_some()
+            });
         if !has_our_widgets {
             db.dashboard.widgets = default_overview_widgets();
         }
@@ -309,12 +318,19 @@ fn DashboardView(initial: DashboardResponse) -> impl IntoView {
         let live_ids: std::collections::HashSet<String> =
             def.widgets.iter().map(|w| w.id.clone()).collect();
         for layout in &mut def.layouts {
-            layout.placements.retain(|p| live_ids.contains(&p.widget_id));
+            layout
+                .placements
+                .retain(|p| live_ids.contains(&p.widget_id));
         }
         // Remove sections referencing breakpoints with no placements
-        let active_breakpoints: std::collections::HashSet<_> =
-            def.layouts.iter().filter(|l| !l.placements.is_empty()).map(|l| l.breakpoint).collect();
-        def.sections.retain(|s| active_breakpoints.contains(&s.breakpoint));
+        let active_breakpoints: std::collections::HashSet<_> = def
+            .layouts
+            .iter()
+            .filter(|l| !l.placements.is_empty())
+            .map(|l| l.breakpoint)
+            .collect();
+        def.sections
+            .retain(|s| active_breakpoints.contains(&s.breakpoint));
         let id = id_for_save.clone();
         saving.set(true);
         error.set(None);
@@ -552,9 +568,17 @@ fn WidgetConfigEditor(
     let title_input = RwSignal::new(widget.title.clone());
 
     let device_options = Memo::new(move |_| {
-        let mut opts: Vec<(String, String)> = ws.devices.get().values()
+        let mut opts: Vec<(String, String)> = ws
+            .devices
+            .get()
+            .values()
             .filter(|d| !d.device_id.starts_with("mode_"))
-            .map(|d| (d.device_id.clone(), format!("{} ({})", display_name(d), d.area.as_deref().unwrap_or("—"))))
+            .map(|d| {
+                (
+                    d.device_id.clone(),
+                    format!("{} ({})", display_name(d), d.area.as_deref().unwrap_or("—")),
+                )
+            })
             .collect();
         opts.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
         opts
@@ -562,7 +586,13 @@ fn WidgetConfigEditor(
 
     match wtype {
         DashboardWidgetType::DeviceTile => {
-            let current_id = config.get("device_ids").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let current_id = config
+                .get("device_ids")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let selected = RwSignal::new(current_id);
             let wid = widget_id.clone();
             view! {
@@ -591,8 +621,15 @@ fn WidgetConfigEditor(
             }.into_any()
         }
         DashboardWidgetType::DeviceGrid => {
-            let current_ids: Vec<String> = config.get("device_ids").and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+            let current_ids: Vec<String> = config
+                .get("device_ids")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
             let selected_ids: RwSignal<Vec<String>> = RwSignal::new(current_ids);
             let wid = widget_id.clone();
             view! {
@@ -621,13 +658,29 @@ fn WidgetConfigEditor(
             }.into_any()
         }
         DashboardWidgetType::StatSummary => {
-            let is_chip = config.get("chip_mode").and_then(|v| v.as_bool()).unwrap_or(false);
+            let is_chip = config
+                .get("chip_mode")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             if is_chip {
                 // Stat chips editor: device picker + attribute selector
-                let current_ids: Vec<String> = config.get("device_ids").and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
-                let current_attrs: Vec<String> = config.get("attributes").and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                let current_ids: Vec<String> = config
+                    .get("device_ids")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let current_attrs: Vec<String> = config
+                    .get("attributes")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_else(|| vec!["temperature".into(), "humidity".into()]);
                 let selected_ids: RwSignal<Vec<String>> = RwSignal::new(current_ids);
                 let sel_on = RwSignal::new(current_attrs.contains(&"on".into()));
@@ -679,12 +732,49 @@ fn WidgetConfigEditor(
                 }.into_any()
             } else {
                 // Overview counter editor
-                let ct = config.get("counter_type").and_then(|v| v.as_str()).unwrap_or("device_filter").to_string();
-                let dt = RwSignal::new(config.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string());
-                let attr = RwSignal::new(config.get("attribute").and_then(|v| v.as_str()).unwrap_or("").to_string());
-                let val = RwSignal::new(config.get("value").map(|v| match v { Value::Bool(b) => b.to_string(), Value::String(s) => s.clone(), _ => v.to_string() }).unwrap_or_default());
-                let icon = RwSignal::new(config.get("icon").and_then(|v| v.as_str()).unwrap_or("info").to_string());
-                let ds = RwSignal::new(config.get("display_style").and_then(|v| v.as_str()).unwrap_or("badge").to_string());
+                let ct = config
+                    .get("counter_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("device_filter")
+                    .to_string();
+                let dt = RwSignal::new(
+                    config
+                        .get("device_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                );
+                let attr = RwSignal::new(
+                    config
+                        .get("attribute")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                );
+                let val = RwSignal::new(
+                    config
+                        .get("value")
+                        .map(|v| match v {
+                            Value::Bool(b) => b.to_string(),
+                            Value::String(s) => s.clone(),
+                            _ => v.to_string(),
+                        })
+                        .unwrap_or_default(),
+                );
+                let icon = RwSignal::new(
+                    config
+                        .get("icon")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("info")
+                        .to_string(),
+                );
+                let ds = RwSignal::new(
+                    config
+                        .get("display_style")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("badge")
+                        .to_string(),
+                );
                 let is_avail = ct == "availability";
                 let wid = widget_id.clone();
                 view! {
@@ -755,13 +845,13 @@ fn WidgetConfigEditor(
             // the user's existing ordering (if customized) is preserved
             // for systems they've enabled and present in their config.
             const ALL_SYSTEMS: &[(&str, &str)] = &[
-                ("lighting",  "Lighting"),
-                ("climate",   "Climate"),
-                ("security",  "Security"),
-                ("battery",   "Battery"),
-                ("media",     "Media"),
-                ("energy",    "Energy"),
-                ("activity",  "Activity"),
+                ("lighting", "Lighting"),
+                ("climate", "Climate"),
+                ("security", "Security"),
+                ("battery", "Battery"),
+                ("media", "Media"),
+                ("energy", "Energy"),
+                ("activity", "Activity"),
             ];
             let cur_systems: std::collections::HashSet<String> = config
                 .get("systems")
@@ -771,10 +861,9 @@ fn WidgetConfigEditor(
                         .filter_map(|v| v.as_str().map(str::to_string))
                         .collect()
                 })
-                .unwrap_or_else(|| {
-                    ALL_SYSTEMS.iter().map(|(k, _)| k.to_string()).collect()
-                });
-            let systems_sig: RwSignal<std::collections::HashSet<String>> = RwSignal::new(cur_systems);
+                .unwrap_or_else(|| ALL_SYSTEMS.iter().map(|(k, _)| k.to_string()).collect());
+            let systems_sig: RwSignal<std::collections::HashSet<String>> =
+                RwSignal::new(cur_systems);
 
             let wid = widget_id.clone();
             view! {
@@ -906,9 +995,16 @@ fn DeviceCheckboxList(
 
 #[component]
 fn SingleDeviceCard(config: Value) -> impl IntoView {
-    let device_id = config.get("device_ids").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let device_id = config
+        .get("device_ids")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     if device_id.is_empty() {
-        return view! { <p class="cell-subtle" style="padding:0.75rem">"No device configured"</p> }.into_any();
+        return view! { <p class="cell-subtle" style="padding:0.75rem">"No device configured"</p> }
+            .into_any();
     }
     view! { <DeviceCard device_id=device_id /> }.into_any()
 }
@@ -918,8 +1014,15 @@ fn SingleDeviceCard(config: Value) -> impl IntoView {
 #[component]
 fn EntitiesCard(title: String, config: Value) -> impl IntoView {
     let ws = use_ws();
-    let device_ids: Vec<String> = config.get("device_ids").and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+    let device_ids: Vec<String> = config
+        .get("device_ids")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
 
     if device_ids.is_empty() {
         return view! {
@@ -1039,16 +1142,41 @@ fn EntityRow(device: Memo<Option<DeviceState>>, device_id: String) -> impl IntoV
 #[component]
 fn OverviewCard(title: String, config: Value) -> impl IntoView {
     let ws = use_ws();
-    let counter_type = config.get("counter_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let device_type = config.get("device_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let attribute = config.get("attribute").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let counter_type = config
+        .get("counter_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let device_type = config
+        .get("device_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let attribute = config
+        .get("attribute")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let match_value = config.get("value").cloned().unwrap_or(Value::Null);
-    let icon = config.get("icon").and_then(|v| v.as_str()).unwrap_or("info").to_string();
-    let _link_url = config.get("link_url").and_then(|v| v.as_str()).unwrap_or("/devices").to_string();
-    let style = config.get("display_style").and_then(|v| v.as_str()).unwrap_or("badge").to_string();
+    let icon = config
+        .get("icon")
+        .and_then(|v| v.as_str())
+        .unwrap_or("info")
+        .to_string();
+    let _link_url = config
+        .get("link_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("/devices")
+        .to_string();
+    let style = config
+        .get("display_style")
+        .and_then(|v| v.as_str())
+        .unwrap_or("badge")
+        .to_string();
 
     let is_alert = counter_type == "availability"
-        || attribute == "leak" || attribute == "water"
+        || attribute == "leak"
+        || attribute == "water"
         || (attribute == "contact" && match_value == json!("open"));
 
     let ct = counter_type;
@@ -1060,42 +1188,57 @@ fn OverviewCard(title: String, config: Value) -> impl IntoView {
         if ct == "availability" {
             return devices.values().filter(|d| !d.available).count();
         }
-        devices.values().filter(|d| {
-            if !dt.is_empty() {
-                let key = presentation_device_type_key(d);
-                let raw = d.device_type.as_deref().unwrap_or("");
-                let types: Vec<&str> = dt.split(',').map(|t| t.trim()).collect();
-                let matched = types.iter().any(|t| key == *t || raw == *t);
-                if !matched { return false; }
-            }
-            if !attr.is_empty() && !mv.is_null() {
-                let actual = d.attributes.get(attr.as_str());
-                match &mv {
-                    Value::Bool(e) => bool_attr(actual) == Some(*e),
-                    Value::String(e) => {
-                        // Try exact string match first, then try bool_attr
-                        // interpretation (e.g., "open" → true, "closed" → false)
-                        if str_attr(actual) == Some(e.as_str()) {
-                            true
-                        } else if let Some(bool_meaning) = bool_attr(Some(&serde_json::Value::String(e.clone()))) {
-                            bool_attr(actual) == Some(bool_meaning)
-                        } else {
-                            false
-                        }
-                    },
-                    Value::Number(n) => num_attr(actual) == n.as_f64(),
-                    _ => false,
+        devices
+            .values()
+            .filter(|d| {
+                if !dt.is_empty() {
+                    let key = presentation_device_type_key(d);
+                    let raw = d.device_type.as_deref().unwrap_or("");
+                    let types: Vec<&str> = dt.split(',').map(|t| t.trim()).collect();
+                    let matched = types.iter().any(|t| key == *t || raw == *t);
+                    if !matched {
+                        return false;
+                    }
                 }
-            } else { true }
-        }).count()
+                if !attr.is_empty() && !mv.is_null() {
+                    let actual = d.attributes.get(attr.as_str());
+                    match &mv {
+                        Value::Bool(e) => bool_attr(actual) == Some(*e),
+                        Value::String(e) => {
+                            // Try exact string match first, then try bool_attr
+                            // interpretation (e.g., "open" → true, "closed" → false)
+                            if str_attr(actual) == Some(e.as_str()) {
+                                true
+                            } else if let Some(bool_meaning) =
+                                bool_attr(Some(&serde_json::Value::String(e.clone())))
+                            {
+                                bool_attr(actual) == Some(bool_meaning)
+                            } else {
+                                false
+                            }
+                        }
+                        Value::Number(n) => num_attr(actual) == n.as_f64(),
+                        _ => false,
+                    }
+                } else {
+                    true
+                }
+            })
+            .count()
     });
 
     // Navigate to /devices with pre-set filters matching this counter.
     let config_for_nav = config.clone();
     let nav_fn = move || {
         use crate::pages::shared::ls_set;
-        let ct = config_for_nav.get("counter_type").and_then(|v| v.as_str()).unwrap_or("");
-        let dt = config_for_nav.get("device_type").and_then(|v| v.as_str()).unwrap_or("");
+        let ct = config_for_nav
+            .get("counter_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let dt = config_for_nav
+            .get("device_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         // DeviceCardsPage filters by presentation_device_type_label (e.g., "Light", "Contact Sensor")
         let mut type_filter = Vec::new();
         if !dt.is_empty() {
@@ -1162,7 +1305,8 @@ fn OverviewCard(title: String, config: Value) -> impl IntoView {
                 <span class="overview-chip-count">{move || count.get().to_string()}</span>
                 <span class="overview-chip-label">{title}</span>
             </div>
-        }.into_any()
+        }
+        .into_any()
     } else {
         view! {
             <div class=move || {
@@ -1177,7 +1321,8 @@ fn OverviewCard(title: String, config: Value) -> impl IntoView {
                     <span class="overview-card-count">{move || count.get().to_string()}</span>
                 </div>
             </div>
-        }.into_any()
+        }
+        .into_any()
     }
 }
 
@@ -1186,8 +1331,15 @@ fn OverviewCard(title: String, config: Value) -> impl IntoView {
 #[component]
 fn GenericStatCard(title: String, config: Value) -> impl IntoView {
     let ws = use_ws();
-    let metrics: Vec<String> = config.get("metrics").and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+    let metrics: Vec<String> = config
+        .get("metrics")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
 
     view! {
         <div class="generic-stat-card">
@@ -1255,7 +1407,11 @@ fn resolve_sensor_value(d: &DeviceState, attr: &str) -> Option<(String, String)>
         for variant in &["temperature_f", "temperature_c"] {
             if let Some(val) = d.attributes.get(*variant) {
                 if let Some(n) = num_attr(Some(val)) {
-                    let unit = if *variant == "temperature_c" { "°C" } else { "°F" };
+                    let unit = if *variant == "temperature_c" {
+                        "°C"
+                    } else {
+                        "°F"
+                    };
                     return Some(("temperature".into(), format!("{:.1}{unit}", n)));
                 }
             }
@@ -1297,10 +1453,12 @@ fn HouseStatusHero(config: Value) -> impl IntoView {
                 .collect()
         })
         .unwrap_or_else(|| {
-            ["lighting", "climate", "security", "battery", "media", "energy", "activity"]
-                .iter()
-                .map(|s| (*s).to_string())
-                .collect()
+            [
+                "lighting", "climate", "security", "battery", "media", "energy", "activity",
+            ]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect()
         });
 
     // Battery threshold is now server-authoritative (drives event emission +
@@ -1394,19 +1552,19 @@ fn compute_hero_tile(
         "lighting" => {
             let lights: Vec<&DeviceState> = devices
                 .values()
-                .filter(|d| {
-                    matches!(
-                        d.device_type.as_deref(),
-                        Some("light") | Some("dimmer")
-                    )
-                })
+                .filter(|d| matches!(d.device_type.as_deref(), Some("light") | Some("dimmer")))
                 .collect();
             if lights.is_empty() {
                 return None;
             }
             let on = lights
                 .iter()
-                .filter(|d| d.attributes.get("on").and_then(Value::as_bool).unwrap_or(false))
+                .filter(|d| {
+                    d.attributes
+                        .get("on")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                })
                 .count();
             let unavail = lights.iter().filter(|d| !d.available).count();
             let pill = if unavail > 0 {
@@ -1449,9 +1607,7 @@ fn compute_hero_tile(
             };
             let any_calling = thermos.iter().any(|d| {
                 matches!(
-                    d.attributes
-                        .get("call_for")
-                        .and_then(Value::as_str),
+                    d.attributes.get("call_for").and_then(Value::as_str),
                     Some("heat") | Some("cool")
                 )
             });
@@ -1473,9 +1629,7 @@ fn compute_hero_tile(
             Some(HeroTile {
                 name: "climate",
                 icon: "thermometer-simple",
-                value: avg
-                    .map(|t| format!("{t:.0}"))
-                    .unwrap_or_else(|| "—".into()),
+                value: avg.map(|t| format!("{t:.0}")).unwrap_or_else(|| "—".into()),
                 unit: avg.map(|_| "°"),
                 pill,
                 target: "/devices?focus=climate".into(),
@@ -1558,10 +1712,8 @@ fn compute_hero_tile(
             // sensors (Z-Wave, Hue, Yolink) AND kind-based ones (Ecowitt
             // emits battery_low + battery_kind without a percentage).
             // Auto-hide if there's nothing battery-powered in the map.
-            let battery_devices: Vec<&DeviceState> = devices
-                .values()
-                .filter(|d| has_battery_info(d))
-                .collect();
+            let battery_devices: Vec<&DeviceState> =
+                devices.values().filter(|d| has_battery_info(d)).collect();
             if battery_devices.is_empty() {
                 return None;
             }
@@ -1594,10 +1746,7 @@ fn compute_hero_tile(
             };
             // Embed the threshold so the devices page filter matches the
             // tile's count exactly when the user clicks through.
-            let target = format!(
-                "/devices?focus=battery&below={}",
-                battery_threshold as i64
-            );
+            let target = format!("/devices?focus=battery&below={}", battery_threshold as i64);
             Some(HeroTile {
                 name: "battery",
                 icon: "battery-low",
@@ -1695,10 +1844,23 @@ fn compute_hero_tile(
 #[component]
 fn StatChipsCard(config: Value) -> impl IntoView {
     let ws = use_ws();
-    let device_ids: Vec<String> = config.get("device_ids").and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
-    let attributes: Vec<String> = config.get("attributes").and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+    let device_ids: Vec<String> = config
+        .get("device_ids")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let attributes: Vec<String> = config
+        .get("attributes")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_else(|| vec!["temperature".into(), "humidity".into()]);
 
     if device_ids.is_empty() {
@@ -1767,7 +1929,13 @@ fn ModeChipsCard() -> impl IntoView {
     let ws = use_ws();
     let auth = use_auth();
     let mode_ids = Memo::new(move |_| {
-        let mut ids: Vec<String> = ws.devices.get().keys().filter(|id| id.starts_with("mode_")).cloned().collect();
+        let mut ids: Vec<String> = ws
+            .devices
+            .get()
+            .keys()
+            .filter(|id| id.starts_with("mode_"))
+            .cloned()
+            .collect();
         ids.sort();
         ids
     });
@@ -1814,9 +1982,15 @@ fn SceneButtonsCard() -> impl IntoView {
     let busy: RwSignal<Option<String>> = RwSignal::new(None);
 
     Effect::new(move |_| {
-        let token = match auth.token.get() { Some(t) => t, None => return };
+        let token = match auth.token.get() {
+            Some(t) => t,
+            None => return,
+        };
         spawn_local(async move {
-            if let Ok(mut data) = fetch_scenes(&token).await { data.sort_by(|a, b| a.name.cmp(&b.name)); scenes.set(data); }
+            if let Ok(mut data) = fetch_scenes(&token).await {
+                data.sort_by(|a, b| a.name.cmp(&b.name));
+                scenes.set(data);
+            }
         });
     });
 
@@ -1865,18 +2039,32 @@ fn AddCardPanel(widgets: RwSignal<Vec<DashboardWidget>>) -> impl IntoView {
 
     let add_widget = move |wtype: DashboardWidgetType, title: String, config: Value| {
         let id = format!("w_{}", uuid::Uuid::new_v4().simple());
-        widgets.update(|w| w.push(DashboardWidget {
-            id, r#type: wtype, title, subtitle: None,
-            refresh_policy: DashboardRefreshPolicy::Live, config,
-        }));
+        widgets.update(|w| {
+            w.push(DashboardWidget {
+                id,
+                r#type: wtype,
+                title,
+                subtitle: None,
+                refresh_policy: DashboardRefreshPolicy::Live,
+                config,
+            })
+        });
         adding.set(None);
         reset_form();
     };
 
     let device_options = Memo::new(move |_| {
-        let mut opts: Vec<(String, String)> = ws.devices.get().values()
+        let mut opts: Vec<(String, String)> = ws
+            .devices
+            .get()
+            .values()
             .filter(|d| !d.device_id.starts_with("mode_"))
-            .map(|d| (d.device_id.clone(), format!("{} ({})", display_name(d), d.area.as_deref().unwrap_or("—"))))
+            .map(|d| {
+                (
+                    d.device_id.clone(),
+                    format!("{} ({})", display_name(d), d.area.as_deref().unwrap_or("—")),
+                )
+            })
             .collect();
         opts.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
         opts

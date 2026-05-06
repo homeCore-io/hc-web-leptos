@@ -7,10 +7,8 @@ use crate::api::{
 use crate::auth::use_auth;
 use crate::models::{Rule, RuleGroup};
 use crate::pages::shared::{
-    ErrorBanner, SkeletonRows,
-    json_str_set, load_pref_json, ls_set, set_to_json_array,
-    MultiSelectDropdown, ResetFiltersButton, SearchField,
-    SortDir, SortDirToggle, SortSelect,
+    json_str_set, load_pref_json, ls_set, set_to_json_array, ErrorBanner, MultiSelectDropdown,
+    ResetFiltersButton, SearchField, SkeletonRows, SortDir, SortDirToggle, SortSelect,
 };
 use hc_types::rule::Trigger;
 use leptos::prelude::*;
@@ -148,22 +146,36 @@ fn rule_tags(r: &Rule) -> Vec<String> {
 /// Default sort: priority descending, then name ascending.
 fn sort_rules_default(rules: &mut [Rule]) {
     rules.sort_by(|a, b| {
-        b.priority.cmp(&a.priority).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        b.priority
+            .cmp(&a.priority)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SortKey { Name, Priority }
+enum SortKey {
+    Name,
+    Priority,
+}
 
 fn sort_key_from_str(s: Option<&str>) -> SortKey {
-    match s { Some("priority") => SortKey::Priority, _ => SortKey::Name }
+    match s {
+        Some("priority") => SortKey::Priority,
+        _ => SortKey::Name,
+    }
 }
 fn sort_key_to_str(k: SortKey) -> &'static str {
-    match k { SortKey::Name => "name", SortKey::Priority => "priority" }
+    match k {
+        SortKey::Name => "name",
+        SortKey::Priority => "priority",
+    }
 }
 
 fn sort_options() -> Vec<(String, String)> {
-    vec![("name".into(), "Name".into()), ("priority".into(), "Priority".into())]
+    vec![
+        ("name".into(), "Name".into()),
+        ("priority".into(), "Priority".into()),
+    ]
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -184,8 +196,11 @@ pub fn RulesPage() -> impl IntoView {
     let trigger_filter: RwSignal<HashSet<String>> = RwSignal::new(json_str_set(&prefs, "trigger"));
     let tag_filter: RwSignal<HashSet<String>> = RwSignal::new(json_str_set(&prefs, "tags"));
     let sort_by = RwSignal::new(sort_key_from_str(prefs["sort"].as_str()));
-    let sort_dir = RwSignal::new(if prefs["sort_dir"].as_str() == Some("desc") { SortDir::Desc } else { SortDir::Asc });
-
+    let sort_dir = RwSignal::new(if prefs["sort_dir"].as_str() == Some("desc") {
+        SortDir::Desc
+    } else {
+        SortDir::Asc
+    });
 
     let confirm_delete: RwSignal<Option<String>> = RwSignal::new(None);
     let row_busy: RwSignal<Option<String>> = RwSignal::new(None);
@@ -247,7 +262,10 @@ pub fn RulesPage() -> impl IntoView {
 
     // ── Dynamic filter options (computed from loaded rules) ─────────────────
     let status_options: Signal<Vec<(String, String)>> = Signal::derive(move || {
-        vec![("active".into(), "Active".into()), ("disabled".into(), "Disabled".into())]
+        vec![
+            ("active".into(), "Active".into()),
+            ("disabled".into(), "Disabled".into()),
+        ]
     });
     let trigger_options: Signal<Vec<(String, String)>> = Signal::derive(move || {
         vec![
@@ -258,10 +276,13 @@ pub fn RulesPage() -> impl IntoView {
         ]
     });
     let tag_options: Signal<Vec<(String, String)>> = Signal::derive(move || {
-        let mut tags: Vec<String> = rules.get().iter()
+        let mut tags: Vec<String> = rules
+            .get()
+            .iter()
             .flat_map(|r| rule_tags(r))
             .collect::<HashSet<_>>()
-            .into_iter().collect();
+            .into_iter()
+            .collect();
         tags.sort();
         tags.into_iter().map(|t| (t.clone(), t)).collect()
     });
@@ -276,9 +297,11 @@ pub fn RulesPage() -> impl IntoView {
         let sd = sort_dir.get();
         let grp = active_group.get();
         let grp_ids: Option<HashSet<String>> = grp.as_ref().and_then(|gid| {
-            groups.get().iter().find(|g| g.id == *gid).map(|g| {
-                g.rule_ids.iter().cloned().collect()
-            })
+            groups
+                .get()
+                .iter()
+                .find(|g| g.id == *gid)
+                .map(|g| g.rule_ids.iter().cloned().collect())
         });
         let mut list: Vec<Rule> = rules
             .get()
@@ -286,7 +309,9 @@ pub fn RulesPage() -> impl IntoView {
             .filter(|r| {
                 // Group filter
                 if let Some(ref ids) = grp_ids {
-                    if !ids.contains(&r.id.to_string()) { return false; }
+                    if !ids.contains(&r.id.to_string()) {
+                        return false;
+                    }
                 }
                 let name = r.name.to_lowercase();
                 let tags = rule_tags(r);
@@ -295,15 +320,25 @@ pub fn RulesPage() -> impl IntoView {
                     return false;
                 }
                 if !st.is_empty() {
-                    let status = if rule_enabled(r) { "active" } else { "disabled" };
-                    if !st.contains(status) { return false; }
+                    let status = if rule_enabled(r) {
+                        "active"
+                    } else {
+                        "disabled"
+                    };
+                    if !st.contains(status) {
+                        return false;
+                    }
                 }
                 if !tr.is_empty() {
                     let cat = trigger_category(trigger_type(r)).to_string();
-                    if !tr.contains(&cat) { return false; }
+                    if !tr.contains(&cat) {
+                        return false;
+                    }
                 }
                 if !tf.is_empty() {
-                    if !tags.iter().any(|t| tf.contains(t)) { return false; }
+                    if !tags.iter().any(|t| tf.contains(t)) {
+                        return false;
+                    }
                 }
                 true
             })
@@ -313,7 +348,11 @@ pub fn RulesPage() -> impl IntoView {
                 SortKey::Priority => b.priority.cmp(&a.priority),
                 SortKey::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
             };
-            if sd == SortDir::Desc { cmp.reverse() } else { cmp }
+            if sd == SortDir::Desc {
+                cmp.reverse()
+            } else {
+                cmp
+            }
         });
         list
     });

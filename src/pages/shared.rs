@@ -417,7 +417,11 @@ impl ToastContext {
     fn push(&self, text: impl Into<String>, level: ToastLevel) {
         let id = self.next_id.get_untracked();
         self.next_id.set(id + 1);
-        let msg = ToastMessage { id, text: text.into(), level };
+        let msg = ToastMessage {
+            id,
+            text: text.into(),
+            level,
+        };
         self.messages.update(|list| list.push(msg));
 
         // Auto-dismiss after 4 seconds.
@@ -428,9 +432,15 @@ impl ToastContext {
         });
     }
 
-    pub fn success(&self, text: impl Into<String>) { self.push(text, ToastLevel::Success); }
-    pub fn error(&self, text: impl Into<String>) { self.push(text, ToastLevel::Error); }
-    pub fn warning(&self, text: impl Into<String>) { self.push(text, ToastLevel::Warning); }
+    pub fn success(&self, text: impl Into<String>) {
+        self.push(text, ToastLevel::Success);
+    }
+    pub fn error(&self, text: impl Into<String>) {
+        self.push(text, ToastLevel::Error);
+    }
+    pub fn warning(&self, text: impl Into<String>) {
+        self.push(text, ToastLevel::Warning);
+    }
 }
 
 /// Retrieve the toast context from Leptos context.
@@ -497,11 +507,7 @@ pub struct TabSpec {
 }
 
 #[component]
-pub fn TabBar<F>(
-    tabs: Vec<TabSpec>,
-    base_path: &'static str,
-    active_slug: F,
-) -> impl IntoView
+pub fn TabBar<F>(tabs: Vec<TabSpec>, base_path: &'static str, active_slug: F) -> impl IntoView
 where
     F: Fn() -> String + Copy + Send + Sync + 'static,
 {

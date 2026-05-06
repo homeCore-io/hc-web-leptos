@@ -136,7 +136,8 @@ impl ChannelRow {
 
         row.smtp_host.set(s("smtp_host"));
         let port = i("smtp_port");
-        row.smtp_port.set(if port.is_empty() { "587".into() } else { port });
+        row.smtp_port
+            .set(if port.is_empty() { "587".into() } else { port });
         row.username.set(s("username"));
         row.password.set(s("password"));
         row.from.set(s("from"));
@@ -185,7 +186,10 @@ impl ChannelRow {
                     "username".into(),
                     Value::String(self.username.get_untracked().trim().into()),
                 );
-                m.insert("password".into(), Value::String(self.password.get_untracked()));
+                m.insert(
+                    "password".into(),
+                    Value::String(self.password.get_untracked()),
+                );
                 m.insert(
                     "from".into(),
                     Value::String(self.from.get_untracked().trim().into()),
@@ -202,7 +206,10 @@ impl ChannelRow {
                     return Err(format!("[{name}] at least one recipient required"));
                 }
                 m.insert("to".into(), Value::Array(to));
-                m.insert("starttls".into(), Value::Bool(self.starttls.get_untracked()));
+                m.insert(
+                    "starttls".into(),
+                    Value::Bool(self.starttls.get_untracked()),
+                );
             }
             ChannelKind::Pushover => {
                 let api_token = self.api_token.get_untracked();
@@ -233,7 +240,10 @@ impl ChannelRow {
                 }
                 m.insert("bot_token".into(), Value::String(bot_token.trim().into()));
                 m.insert("chat_id".into(), Value::String(chat_id.trim().into()));
-                m.insert("markdown".into(), Value::Bool(self.markdown.get_untracked()));
+                m.insert(
+                    "markdown".into(),
+                    Value::Bool(self.markdown.get_untracked()),
+                );
             }
         }
 
@@ -266,7 +276,11 @@ pub fn NotificationsTab() -> impl IntoView {
                         .get("notify")
                         .and_then(|n| n.get("channels"))
                         .and_then(|c| c.as_array())
-                        .map(|arr| arr.iter().filter_map(ChannelRow::from_value).collect::<Vec<_>>())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(ChannelRow::from_value)
+                                .collect::<Vec<_>>()
+                        })
                         .unwrap_or_default();
                     rows.set(channels);
                 }
@@ -319,7 +333,9 @@ pub fn NotificationsTab() -> impl IntoView {
         spawn_local(async move {
             match put_system_config_array_of_tables(&token, "notify.channels", &items).await {
                 Ok(_) => {
-                    notice.set(Some("Saved. Restart core for changes to take effect.".into()));
+                    notice.set(Some(
+                        "Saved. Restart core for changes to take effect.".into(),
+                    ));
                 }
                 Err(e) => error.set(Some(format!("Save failed: {e}"))),
             }

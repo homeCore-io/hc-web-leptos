@@ -268,7 +268,9 @@ pub async fn fetch_audit(token: &str, f: &AuditFilter) -> Result<Vec<Value>, Str
     fn enc(s: &str) -> String {
         // Minimal URL-encode: this is WASM so we pull from js_sys rather than
         // adding another crate.
-        js_sys::encode_uri_component(s).as_string().unwrap_or_default()
+        js_sys::encode_uri_component(s)
+            .as_string()
+            .unwrap_or_default()
     }
     let mut params: Vec<String> = Vec::new();
     if let Some(v) = &f.actor_id {
@@ -360,7 +362,12 @@ pub async fn create_api_key(
 }
 
 pub async fn rotate_api_key(token: &str, id: &str) -> Result<Value, String> {
-    post_json(&format!("/auth/api-keys/{id}/rotate"), token, &serde_json::json!({})).await
+    post_json(
+        &format!("/auth/api-keys/{id}/rotate"),
+        token,
+        &serde_json::json!({}),
+    )
+    .await
 }
 
 pub async fn delete_api_key(token: &str, id: &str) -> Result<(), String> {
@@ -702,8 +709,14 @@ pub async fn fetch_plugin_config(token: &str, id: &str) -> Result<serde_json::Va
     get_json(&format!("/plugins/{id}/config"), token).await
 }
 
-pub async fn update_plugin_config(token: &str, id: &str, body: &serde_json::Value) -> Result<(), String> {
-    put_json(&format!("/plugins/{id}/config"), token, body).await.map(|_: serde_json::Value| ())
+pub async fn update_plugin_config(
+    token: &str,
+    id: &str,
+    body: &serde_json::Value,
+) -> Result<(), String> {
+    put_json(&format!("/plugins/{id}/config"), token, body)
+        .await
+        .map(|_: serde_json::Value| ())
 }
 
 /// Bulk-wipe every device whose plugin_id matches `id`. The plugin
@@ -752,7 +765,10 @@ pub async fn send_plugin_command(
 
     let status = resp.status();
     if resp.ok() || status == 409 {
-        return resp.json::<serde_json::Value>().await.map_err(|e| e.to_string());
+        return resp
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|e| e.to_string());
     }
     Err(api_error(&resp).await)
 }
@@ -798,11 +814,7 @@ pub async fn set_user_role(token: &str, id: &str, role: &str) -> Result<UserInfo
     .await
 }
 
-pub async fn change_password(
-    token: &str,
-    current: &str,
-    new_pass: &str,
-) -> Result<(), String> {
+pub async fn change_password(token: &str, current: &str, new_pass: &str) -> Result<(), String> {
     post_json_no_response(
         "/auth/change-password",
         token,

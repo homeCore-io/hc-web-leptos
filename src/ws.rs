@@ -149,10 +149,26 @@ fn schedule_reconnect(trigger: RwSignal<u32>, attempt: u32) {
 /// socket before the Effect re-runs, so there is never more than one socket
 /// open at a time.
 pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
-    // Seed the shared device + plugin maps from REST so every page has data
-    // immediately, even when navigated to directly (e.g. /plugins/:id).
+    // Re-seed the shared device + plugin maps from REST every time the WS
+    // transitions to Live. Covers three cases:
+    //   1. First connect after login — pages have data immediately.
+    //   2. Reconnect after a disconnect (network blip, server restart).
+    //      Any state changes that happened during the gap are reconciled.
+    //   3. Reconnect after a tokio broadcast lag on the server. The lag
+    //      doesn't disconnect the WS, but a periodic reseed via reconnect
+    //      will eventually catch up; for the lag-without-disconnect case
+    //      we accept that until the next real disconnect.
+    //
+    // To avoid clobbering a live WS event that happened to arrive between
+    // the REST snapshot and the response, we only replace a device entry
+    // when REST's `last_seen` is at least as new as the in-memory copy.
+    // PluginInfo doesn't have the same race because plugin events are
+    // rare; we just replace.
     Effect::new(move |_| {
-        let token = match auth_token.get() {
+        if ctx.status.get() != WsStatus::Live {
+            return;
+        }
+        let token = match auth_token.get_untracked() {
             Some(t) => t,
             None => return,
         };
@@ -161,14 +177,20 @@ pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
             if let Ok(list) = crate::api::fetch_devices(&token).await {
                 ws.devices.update(|m| {
                     for d in list {
-                        m.entry(d.device_id.clone()).or_insert(d);
+                        let should_replace = m
+                            .get(&d.device_id)
+                            .map(|existing| d.last_seen >= existing.last_seen)
+                            .unwrap_or(true);
+                        if should_replace {
+                            m.insert(d.device_id.clone(), d);
+                        }
                     }
                 });
             }
             if let Ok(list) = crate::api::fetch_plugins(&token).await {
                 ws.plugins.update(|m| {
                     for p in list {
-                        m.entry(p.plugin_id.clone()).or_insert(p);
+                        m.insert(p.plugin_id.clone(), p);
                     }
                 });
             }

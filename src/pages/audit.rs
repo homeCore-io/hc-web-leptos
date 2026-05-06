@@ -307,15 +307,31 @@ pub fn AuditPage() -> impl IntoView {
 // ─── Rendering helpers ───────────────────────────────────────────────────────
 
 fn render_entry(r: Value) -> impl IntoView {
-    let ts_raw = r.get("ts").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let ts_raw = r
+        .get("ts")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let parsed = DateTime::parse_from_rfc3339(&ts_raw).ok();
     let ts_local = parsed
         .map(|d| crate::tz::fmt_time(&d.with_timezone(&Utc)))
         .unwrap_or_default();
 
-    let result = r.get("result").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let event = r.get("event_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let actor = r.get("actor_label").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let result = r
+        .get("result")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let event = r
+        .get("event_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let actor = r
+        .get("actor_label")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let actor_type = r
         .get("actor_type")
         .and_then(|v| v.as_str())
@@ -332,7 +348,9 @@ fn render_entry(r: Value) -> impl IntoView {
         .unwrap_or("")
         .to_string();
     let detail = r.get("detail").cloned().unwrap_or(Value::Null);
-    let detail_pretty = if detail.is_null() || (detail.is_object() && detail.as_object().map(|m| m.is_empty()).unwrap_or(false)) {
+    let detail_pretty = if detail.is_null()
+        || (detail.is_object() && detail.as_object().map(|m| m.is_empty()).unwrap_or(false))
+    {
         None
     } else {
         Some(serde_json::to_string_pretty(&detail).unwrap_or_default())
@@ -410,12 +428,7 @@ fn group_by_day(rows: Vec<Value>) -> Vec<(String, Vec<Value>)> {
                 } else if d == today.pred_opt().unwrap_or(today) {
                     "Yesterday".to_string()
                 } else {
-                    format!(
-                        "{} {}, {}",
-                        month_short(d.month()),
-                        d.day(),
-                        d.year()
-                    )
+                    format!("{} {}, {}", month_short(d.month()), d.day(), d.year())
                 }
             })
             .unwrap_or_else(|| "Unknown date".to_string());

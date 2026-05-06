@@ -1,12 +1,12 @@
 //! Scene detail pages — native scene editor and plugin scene detail.
 
-use crate::pages::shared::ErrorBanner;
 use crate::api::{
     activate_scene, create_scene, delete_scene, fetch_device, fetch_devices, fetch_scene,
     set_device_state, update_scene,
 };
 use crate::auth::use_auth;
 use crate::models::*;
+use crate::pages::shared::ErrorBanner;
 use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;

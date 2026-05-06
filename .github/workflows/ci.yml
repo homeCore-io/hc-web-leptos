@@ -1,0 +1,30 @@
+# CI for hc-web-leptos.
+#
+# Mirrors the plugins' ci.yml shape: same shared rust-ci.yml in
+# hc-scripts. fmt + tests run on the host target — the tz module
+# (the only test surface today) is platform-independent. Clippy is
+# disabled because the codebase carries ~66 stylistic lints
+# accumulated pre-CI; cleanup tracked separately as LEPTOS-CLP-1
+# in release_0_1_4.md (or its successor). Re-enable
+# `run_clippy: true` once those land.
+#
+# WASM target verification is implicit via the eventual `trunk
+# build` deploy step (not yet a CI job). Adding an explicit
+# `cargo check --target wasm32-unknown-unknown` matrix is a
+# possible follow-up if the host check ever stops catching
+# wasm-only regressions.
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: homeCore-io/hc-scripts/.github/workflows/rust-ci.yml@main
+    with:
+      rust_version: "1.95"
+      run_clippy: false

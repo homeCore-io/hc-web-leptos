@@ -16,16 +16,16 @@
 use crate::api::{fetch_devices, set_device_state};
 use crate::auth::use_auth;
 use crate::models::*;
-use serde_json::{json, Value};
 use crate::pages::shared::{
     card_size_canvas_class, common_card_prefs_map, json_str_set, load_common_card_prefs,
     load_pref_json, ls_set, set_to_json_array, CardSize, CardSizeSelect, CommonCardPrefs,
-    LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField,
-    SortDir, SortDirToggle, SortSelect,
+    LiveStatusBanner, MultiSelectDropdown, ResetFiltersButton, SearchField, SortDir, SortDirToggle,
+    SortSelect,
 };
 use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use serde_json::{json, Value};
 use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -768,7 +768,6 @@ pub fn DeviceCardsPage() -> impl IntoView {
     let sort_by = RwSignal::new(prefs.sort_by);
     let sort_dir = RwSignal::new(prefs.sort_dir);
 
-
     // Persist preferences
     Effect::new(move |_| {
         save_prefs(
@@ -861,12 +860,10 @@ pub fn DeviceCardsPage() -> impl IntoView {
     let focus: Memo<Option<String>> = Memo::new(move |_| {
         let raw = location.search.get();
         // Parse "?focus=security&x=y" — first match wins.
-        raw.trim_start_matches('?')
-            .split('&')
-            .find_map(|kv| {
-                let (k, v) = kv.split_once('=')?;
-                (k == "focus").then(|| v.to_string())
-            })
+        raw.trim_start_matches('?').split('&').find_map(|kv| {
+            let (k, v) = kv.split_once('=')?;
+            (k == "focus").then(|| v.to_string())
+        })
     });
 
     // Battery threshold from `?below=N`; defaults to 20 when not specified.
@@ -948,10 +945,8 @@ pub fn DeviceCardsPage() -> impl IntoView {
                         // often control non-light loads (fans, outlets,
                         // appliances) and including them would inflate
                         // "lighting on" beyond what the user means.
-                        let is_lighting = matches!(
-                            d.device_type.as_deref(),
-                            Some("light") | Some("dimmer")
-                        );
+                        let is_lighting =
+                            matches!(d.device_type.as_deref(), Some("light") | Some("dimmer"));
                         let is_on = d
                             .attributes
                             .get("on")

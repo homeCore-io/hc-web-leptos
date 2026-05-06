@@ -14,11 +14,10 @@
 
 use crate::api::fetch_events;
 use crate::auth::{logs_ws_url, use_auth};
-use crate::ws::use_ws;
 use crate::pages::shared::{
-    MultiSelectDropdown, ResetFiltersButton, SearchField,
-    SortDir, SortDirToggle,
+    MultiSelectDropdown, ResetFiltersButton, SearchField, SortDir, SortDirToggle,
 };
+use crate::ws::use_ws;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde_json::Value;
@@ -34,8 +33,8 @@ struct ActivityEntry {
     id: String,
     timestamp: String,
     source: &'static str, // "event" or "log"
-    kind: String,          // event type or log target
-    severity: String,      // "info", "warn", "error", "debug", "trace"
+    kind: String,         // event type or log target
+    severity: String,     // "info", "warn", "error", "debug", "trace"
     summary: String,
     device_id: Option<String>,
     rule_id: Option<String>,
@@ -53,18 +52,31 @@ fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
     let dn = ev["device_name"].as_str().unwrap_or(did);
     let summary = match t {
         "device_state_changed" => {
-            let changed = ev["changed"].as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", "))
+            let changed = ev["changed"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
                 .unwrap_or_default();
             format!("{dn}: {changed}")
         }
         "device_availability_changed" => {
-            let avail = if ev["available"].as_bool() == Some(true) { "online" } else { "offline" };
+            let avail = if ev["available"].as_bool() == Some(true) {
+                "online"
+            } else {
+                "offline"
+            };
             format!("{dn} → {avail}")
         }
         "rule_fired" => {
             let name = ev["rule_name"].as_str().unwrap_or("");
-            let ms = ev["elapsed_ms"].as_u64().map(|n| format!(" ({n}ms)")).unwrap_or_default();
+            let ms = ev["elapsed_ms"]
+                .as_u64()
+                .map(|n| format!(" ({n}ms)"))
+                .unwrap_or_default();
             format!("Rule fired: {name}{ms}")
         }
         "rule_evaluation_failed" => {
@@ -83,8 +95,14 @@ fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
             format!("Scene: {name}")
         }
         "mode_changed" => {
-            let name = ev["mode_name"].as_str().unwrap_or(ev["mode_id"].as_str().unwrap_or(""));
-            let on = if ev["on"].as_bool() == Some(true) { "on" } else { "off" };
+            let name = ev["mode_name"]
+                .as_str()
+                .unwrap_or(ev["mode_id"].as_str().unwrap_or(""));
+            let on = if ev["on"].as_bool() == Some(true) {
+                "on"
+            } else {
+                "off"
+            };
             format!("Mode: {name} → {on}")
         }
         "device_command_sent" => {
@@ -97,9 +115,15 @@ fn normalize_event(seq: u64, ev: &Value) -> ActivityEntry {
             let state = ev["state"].as_str().unwrap_or("");
             format!("Timer {tname}: {state}")
         }
-        "plugin_registered" => format!("Plugin registered: {}", ev["plugin_id"].as_str().unwrap_or("")),
+        "plugin_registered" => format!(
+            "Plugin registered: {}",
+            ev["plugin_id"].as_str().unwrap_or("")
+        ),
         "plugin_offline" => format!("Plugin offline: {}", ev["plugin_id"].as_str().unwrap_or("")),
-        "plugin_heartbeat" => format!("Plugin heartbeat: {}", ev["plugin_id"].as_str().unwrap_or("")),
+        "plugin_heartbeat" => format!(
+            "Plugin heartbeat: {}",
+            ev["plugin_id"].as_str().unwrap_or("")
+        ),
         "custom" => format!("Custom: {}", ev["event_type"].as_str().unwrap_or("")),
         "system_alert" => format!("Alert: {}", ev["message"].as_str().unwrap_or("")),
         _ => t.to_string(),
@@ -141,7 +165,7 @@ fn normalize_log(counter: u64, log: &Value) -> ActivityEntry {
 fn severity_class(sev: &str) -> &'static str {
     match sev {
         "error" => "activity-sev--error",
-        "warn"  => "activity-sev--warn",
+        "warn" => "activity-sev--warn",
         "debug" | "trace" => "activity-sev--debug",
         _ => "activity-sev--info",
     }
@@ -150,7 +174,7 @@ fn severity_class(sev: &str) -> &'static str {
 fn source_class(src: &str) -> &'static str {
     match src {
         "event" => "activity-src--event",
-        "log"   => "activity-src--log",
+        "log" => "activity-src--log",
         _ => "",
     }
 }
@@ -205,12 +229,16 @@ pub fn EventsPage() -> impl IntoView {
         if paused.get_untracked() {
             pause_buffer.update(|buf| {
                 buf.push(entry);
-                if buf.len() > MAX_ENTRIES { buf.remove(0); }
+                if buf.len() > MAX_ENTRIES {
+                    buf.remove(0);
+                }
             });
         } else {
             entries.update(|list| {
                 list.insert(0, entry);
-                if list.len() > MAX_ENTRIES { list.pop(); }
+                if list.len() > MAX_ENTRIES {
+                    list.pop();
+                }
             });
         }
     };
@@ -221,7 +249,9 @@ pub fn EventsPage() -> impl IntoView {
         let buf = pause_buffer.get_untracked();
         if !buf.is_empty() {
             entries.update(|list| {
-                for e in buf { list.insert(0, e); }
+                for e in buf {
+                    list.insert(0, e);
+                }
                 list.truncate(MAX_ENTRIES);
             });
             pause_buffer.set(vec![]);
@@ -238,21 +268,28 @@ pub fn EventsPage() -> impl IntoView {
     // opens its own `/events/stream` socket (WS-3). The logs WS is still
     // opened here — different endpoint, separate ring of historical lines.
     Effect::new(move |_| {
-        let token = match auth.token.get() { Some(t) => t, None => return };
+        let token = match auth.token.get() {
+            Some(t) => t,
+            None => return,
+        };
 
         // Fetch event history via REST
         {
             let token = token.clone();
             spawn_local(async move {
                 if let Ok(data) = fetch_events(&token, 200).await {
-                    let events: Vec<ActivityEntry> = data.iter().enumerate()
+                    let events: Vec<ActivityEntry> = data
+                        .iter()
+                        .enumerate()
                         .map(|(i, ev)| {
                             let seq = ev["seq"].as_u64().unwrap_or(i as u64);
                             normalize_event(seq, &ev["event"])
                         })
                         .collect();
                     entries.update(|list| {
-                        for e in events { list.push(e); }
+                        for e in events {
+                            list.push(e);
+                        }
                         list.truncate(MAX_ENTRIES);
                     });
                 }
@@ -263,17 +300,27 @@ pub fn EventsPage() -> impl IntoView {
         {
             let url = logs_ws_url(&token, 200);
             if let Ok(ws) = web_sys::WebSocket::new(&url) {
-                let on_msg = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |ev: web_sys::MessageEvent| {
-                    let text = match ev.data().as_string() { Some(s) => s, None => return };
-                    let parsed: Value = match serde_json::from_str(&text) { Ok(v) => v, Err(_) => return };
-                    let c = log_counter.get_untracked();
-                    log_counter.set(c + 1);
-                    add_entry(normalize_log(c, &parsed));
-                });
+                let on_msg = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
+                    move |ev: web_sys::MessageEvent| {
+                        let text = match ev.data().as_string() {
+                            Some(s) => s,
+                            None => return,
+                        };
+                        let parsed: Value = match serde_json::from_str(&text) {
+                            Ok(v) => v,
+                            Err(_) => return,
+                        };
+                        let c = log_counter.get_untracked();
+                        log_counter.set(c + 1);
+                        add_entry(normalize_log(c, &parsed));
+                    },
+                );
                 ws.set_onmessage(Some(on_msg.as_ref().unchecked_ref()));
                 on_msg.forget();
 
-                on_cleanup(move || { let _ = ws.close(); });
+                on_cleanup(move || {
+                    let _ = ws.close();
+                });
             }
         }
     });
@@ -293,7 +340,9 @@ pub fn EventsPage() -> impl IntoView {
     // page trigger this Effect.
     let last_seq: RwSignal<u64> = RwSignal::new(0);
     Effect::new(move |_| {
-        let Some((seq, ref raw)) = ws.latest_event.get() else { return };
+        let Some((seq, ref raw)) = ws.latest_event.get() else {
+            return;
+        };
         if seq <= last_seq.get_untracked() {
             return;
         }
@@ -303,24 +352,35 @@ pub fn EventsPage() -> impl IntoView {
 
     // ── Dynamic filter options ───────────────────────────────────────────────
     let source_options: Signal<Vec<(String, String)>> = Signal::derive(move || {
-        vec![("event".into(), "Events".into()), ("log".into(), "Logs".into())]
+        vec![
+            ("event".into(), "Events".into()),
+            ("log".into(), "Logs".into()),
+        ]
     });
     let severity_options: Signal<Vec<(String, String)>> = Signal::derive(move || {
         vec![
-            ("error".into(), "Error".into()), ("warn".into(), "Warning".into()),
-            ("info".into(), "Info".into()), ("debug".into(), "Debug".into()),
+            ("error".into(), "Error".into()),
+            ("warn".into(), "Warning".into()),
+            ("info".into(), "Info".into()),
+            ("debug".into(), "Debug".into()),
         ]
     });
     let type_options: Signal<Vec<(String, String)>> = Signal::derive(move || {
-        let mut types: Vec<String> = entries.get().iter()
+        let mut types: Vec<String> = entries
+            .get()
+            .iter()
             .map(|e| e.kind.clone())
             .collect::<HashSet<_>>()
-            .into_iter().collect();
+            .into_iter()
+            .collect();
         types.sort();
-        types.into_iter().map(|t| {
-            let label = t.replace('_', " ");
-            (t, label)
-        }).collect()
+        types
+            .into_iter()
+            .map(|t| {
+                let label = t.replace('_', " ");
+                (t, label)
+            })
+            .collect()
     });
 
     // ── Filtered list ────────────────────────────────────────────────────────
@@ -331,19 +391,32 @@ pub fn EventsPage() -> impl IntoView {
         let typ = type_filter.get();
         let dir = sort_dir.get();
 
-        let mut list: Vec<ActivityEntry> = entries.get().into_iter()
+        let mut list: Vec<ActivityEntry> = entries
+            .get()
+            .into_iter()
             .filter(|e| {
-                if !q.is_empty() && !e.summary.to_lowercase().contains(&q) && !e.kind.to_lowercase().contains(&q) {
+                if !q.is_empty()
+                    && !e.summary.to_lowercase().contains(&q)
+                    && !e.kind.to_lowercase().contains(&q)
+                {
                     return false;
                 }
-                if !src.is_empty() && !src.contains(e.source) { return false; }
-                if !sev.is_empty() && !sev.contains(&e.severity) { return false; }
-                if !typ.is_empty() && !typ.contains(&e.kind) { return false; }
+                if !src.is_empty() && !src.contains(e.source) {
+                    return false;
+                }
+                if !sev.is_empty() && !sev.contains(&e.severity) {
+                    return false;
+                }
+                if !typ.is_empty() && !typ.contains(&e.kind) {
+                    return false;
+                }
                 true
             })
             .collect();
 
-        if dir == SortDir::Asc { list.reverse(); }
+        if dir == SortDir::Asc {
+            list.reverse();
+        }
         list
     });
 

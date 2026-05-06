@@ -548,37 +548,35 @@ fn render_field(spec: FieldSpec, signal: RwSignal<String>) -> impl IntoView {
     // their values genuinely benefit from the room.
     let width_class = match spec.kind {
         FieldKind::Integer => "hc-form-input hc-form-input--xs",
-        FieldKind::Float   => "hc-form-input hc-form-input--sm",
-        FieldKind::Text    => "hc-form-input hc-form-input--md",
-        FieldKind::Path    => "hc-form-input hc-form-input--full",
+        FieldKind::Float => "hc-form-input hc-form-input--sm",
+        FieldKind::Text => "hc-form-input hc-form-input--md",
+        FieldKind::Path => "hc-form-input hc-form-input--full",
         FieldKind::StringList => "hc-form-input hc-form-input--full",
-        FieldKind::Bool    => "hc-form-checkbox",
+        FieldKind::Bool => "hc-form-checkbox",
     };
 
     let input_view = match spec.kind {
-        FieldKind::Bool => {
-            view! {
-                <input
-                    type="checkbox"
-                    class=width_class
-                    prop:checked=move || signal.get() == "true"
-                    on:change=move |ev| {
-                        let target: web_sys::HtmlInputElement = event_target(&ev);
-                        signal.set(if target.checked() { "true".into() } else { "false".into() });
-                    }
-                />
-            }.into_any()
+        FieldKind::Bool => view! {
+            <input
+                type="checkbox"
+                class=width_class
+                prop:checked=move || signal.get() == "true"
+                on:change=move |ev| {
+                    let target: web_sys::HtmlInputElement = event_target(&ev);
+                    signal.set(if target.checked() { "true".into() } else { "false".into() });
+                }
+            />
         }
-        FieldKind::StringList => {
-            view! {
-                <textarea
-                    class=width_class
-                    style="min-height:3.25rem; font-family:inherit"
-                    prop:value=move || signal.get()
-                    on:input=move |ev| signal.set(event_target_value(&ev))
-                ></textarea>
-            }.into_any()
+        .into_any(),
+        FieldKind::StringList => view! {
+            <textarea
+                class=width_class
+                style="min-height:3.25rem; font-family:inherit"
+                prop:value=move || signal.get()
+                on:input=move |ev| signal.set(event_target_value(&ev))
+            ></textarea>
         }
+        .into_any(),
         _ => {
             let extra_style = if mono { "font-family:monospace" } else { "" };
             view! {
@@ -589,7 +587,8 @@ fn render_field(spec: FieldSpec, signal: RwSignal<String>) -> impl IntoView {
                     prop:value=move || signal.get()
                     on:input=move |ev| signal.set(event_target_value(&ev))
                 />
-            }.into_any()
+            }
+            .into_any()
         }
     };
 

@@ -40,7 +40,11 @@ fn status_label(status: &str) -> &'static str {
 }
 
 fn type_label(managed: bool) -> &'static str {
-    if managed { "Local" } else { "Remote" }
+    if managed {
+        "Local"
+    } else {
+        "Remote"
+    }
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
@@ -57,7 +61,10 @@ pub fn PluginsPage() -> impl IntoView {
 
     // Fetch plugins and seed WS map
     Effect::new(move |_| {
-        let token = match auth.token.get() { Some(t) => t, None => return };
+        let token = match auth.token.get() {
+            Some(t) => t,
+            None => return,
+        };
         loading.set(true);
         spawn_local(async move {
             match fetch_plugins(&token).await {
@@ -102,7 +109,10 @@ pub fn PluginsPage() -> impl IntoView {
 
     // Action helpers
     let do_action = move |id: String, action: &'static str| {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         busy_id.set(Some(id.clone()));
         spawn_local(async move {
             let result = match action {
@@ -131,7 +141,10 @@ pub fn PluginsPage() -> impl IntoView {
     // Mirrors the per-detail page toggle so behavior is consistent
     // across the two surfaces.
     let toggle_enabled = move |id: String, current: bool| {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         let next = !current;
         busy_id.set(Some(id.clone()));
         spawn_local(async move {
@@ -367,22 +380,36 @@ pub fn PluginDetailPage() -> impl IntoView {
 
     // Seed plugin into WS map if not already present (direct navigation)
     Effect::new(move |_| {
-        let token = match auth.token.get() { Some(t) => t, None => return };
+        let token = match auth.token.get() {
+            Some(t) => t,
+            None => return,
+        };
         let id = plugin_id();
-        if id.is_empty() { return; }
-        if ws.plugins.get_untracked().contains_key(&id) { return; }
+        if id.is_empty() {
+            return;
+        }
+        if ws.plugins.get_untracked().contains_key(&id) {
+            return;
+        }
         spawn_local(async move {
             if let Ok(p) = fetch_plugin(&token, &id).await {
-                ws.plugins.update(|m| { m.insert(p.plugin_id.clone(), p); });
+                ws.plugins.update(|m| {
+                    m.insert(p.plugin_id.clone(), p);
+                });
             }
         });
     });
 
     // Fetch config on mount
     Effect::new(move |_| {
-        let token = match auth.token.get() { Some(t) => t, None => return };
+        let token = match auth.token.get() {
+            Some(t) => t,
+            None => return,
+        };
         let id = plugin_id();
-        if id.is_empty() { return; }
+        if id.is_empty() {
+            return;
+        }
         config_loading.set(true);
         spawn_local(async move {
             match fetch_plugin_config(&token, &id).await {
@@ -403,7 +430,10 @@ pub fn PluginDetailPage() -> impl IntoView {
 
     // Action helper
     let do_action = move |action: &'static str| {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         let id = plugin_id();
         busy.set(true);
         spawn_local(async move {
@@ -413,10 +443,16 @@ pub fn PluginDetailPage() -> impl IntoView {
                 "restart" => restart_plugin(&token, &id).await,
                 _ => Ok(()),
             };
-            if let Err(e) = result { error.set(Some(e)); }
+            if let Err(e) = result {
+                error.set(Some(e));
+            }
             // Refresh plugin list
             if let Ok(list) = fetch_plugins(&token).await {
-                ws.plugins.update(|m| { for p in list { m.insert(p.plugin_id.clone(), p); } });
+                ws.plugins.update(|m| {
+                    for p in list {
+                        m.insert(p.plugin_id.clone(), p);
+                    }
+                });
             }
             busy.set(false);
         });
@@ -434,10 +470,7 @@ pub fn PluginDetailPage() -> impl IntoView {
             None => return,
         };
         let id = plugin_id();
-        let current = plugin
-            .get_untracked()
-            .map(|p| p.enabled)
-            .unwrap_or(false);
+        let current = plugin.get_untracked().map(|p| p.enabled).unwrap_or(false);
         let next = !current;
         busy.set(true);
         spawn_local(async move {
@@ -464,7 +497,10 @@ pub fn PluginDetailPage() -> impl IntoView {
 
     // Log level change
     let on_log_level_change = move |level: String| {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         let id = plugin_id();
         spawn_local(async move {
             if let Err(e) = patch_plugin(&token, &id, &json!({ "log_level": level })).await {
@@ -495,7 +531,10 @@ pub fn PluginDetailPage() -> impl IntoView {
     let therm_create_busy = RwSignal::new(false);
 
     let do_therm_create = move || {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         let id = plugin_id();
         let config = json!({
             "id": therm_new_id.get_untracked().trim(),
@@ -512,7 +551,9 @@ pub fn PluginDetailPage() -> impl IntoView {
         });
         therm_create_busy.set(true);
         spawn_local(async move {
-            match send_plugin_command(&token, &id, "add_thermostat", json!({"config": config})).await {
+            match send_plugin_command(&token, &id, "add_thermostat", json!({"config": config}))
+                .await
+            {
                 Ok(_) => {
                     notice.set(Some("Thermostat created.".into()));
                     therm_wizard_open.set(false);
@@ -529,7 +570,10 @@ pub fn PluginDetailPage() -> impl IntoView {
 
     // Save config
     let save_config = move || {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         let id = plugin_id();
         config_save_busy.set(true);
         let text = edit_text.get_untracked();
@@ -539,7 +583,9 @@ pub fn PluginDetailPage() -> impl IntoView {
                     // Update the stored raw config and exit editing mode
                     config_raw.set(Some(edit_text.get_untracked()));
                     editing.set(false);
-                    notice.set(Some("Config saved. Restart plugin to apply changes.".into()));
+                    notice.set(Some(
+                        "Config saved. Restart plugin to apply changes.".into(),
+                    ));
                     restart_required.set(true);
                 }
                 Err(e) => error.set(Some(format!("Save failed: {e}"))),
@@ -552,7 +598,8 @@ pub fn PluginDetailPage() -> impl IntoView {
     let plugin_devices = Memo::new(move |_| {
         let id = plugin_id();
         let devs = ws.devices.get();
-        let mut list: Vec<_> = devs.values()
+        let mut list: Vec<_> = devs
+            .values()
             .filter(|d| d.plugin_id == id)
             .cloned()
             .collect();
@@ -566,7 +613,10 @@ pub fn PluginDetailPage() -> impl IntoView {
     // re-register on the next sync cycle. Useful for cleaning up
     // zombies left over from config churn.
     let do_wipe_devices = move || {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         let id = plugin_id();
         let device_count = plugin_devices.with(|d| d.len());
         let prompt = format!(
@@ -579,7 +629,9 @@ pub fn PluginDetailPage() -> impl IntoView {
         let confirmed = web_sys::window()
             .and_then(|w| w.confirm_with_message(&prompt).ok())
             .unwrap_or(false);
-        if !confirmed { return; }
+        if !confirmed {
+            return;
+        }
         wipe_busy.set(true);
         notice.set(None);
         error.set(None);
@@ -1050,11 +1102,16 @@ fn therm_sensor_candidates(
                 .is_some()
         })
         .map(|d| {
-            let t = d.attributes.get("temperature")
+            let t = d
+                .attributes
+                .get("temperature")
                 .and_then(|v| v.as_f64())
                 .map(|v| format!("{v:.1}°"))
                 .unwrap_or_default();
-            (d.device_id.clone(), format!("{} ({}) — {}", d.name, d.device_id, t))
+            (
+                d.device_id.clone(),
+                format!("{} ({}) — {}", d.name, d.device_id, t),
+            )
         })
         .collect();
     out.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
@@ -1124,7 +1181,9 @@ struct ParamDef {
 }
 
 fn parse_params(params: Option<&Value>) -> Vec<ParamDef> {
-    let Some(obj) = params.and_then(|v| v.as_object()) else { return Vec::new() };
+    let Some(obj) = params.and_then(|v| v.as_object()) else {
+        return Vec::new();
+    };
     let mut out = Vec::with_capacity(obj.len());
     for (name, spec) in obj {
         let ty = spec
@@ -1157,13 +1216,13 @@ fn parse_params(params: Option<&Value>) -> Vec<ParamDef> {
             name: name.clone(),
             ty,
             default: spec.get("default").cloned(),
-            enum_values: spec
-                .get("enum")
-                .and_then(Value::as_array)
-                .cloned(),
+            enum_values: spec.get("enum").and_then(Value::as_array).cloned(),
             option_labels,
             render_hint,
-            required: spec.get("required").and_then(Value::as_bool).unwrap_or(false),
+            required: spec
+                .get("required")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             minimum: spec.get("minimum").and_then(Value::as_f64),
             maximum: spec.get("maximum").and_then(Value::as_f64),
             description: spec
@@ -1187,10 +1246,7 @@ fn initial_form_state(params: &[ParamDef]) -> HashMap<String, Value> {
 }
 
 #[component]
-fn ParamsForm(
-    params: Vec<ParamDef>,
-    state: RwSignal<HashMap<String, Value>>,
-) -> impl IntoView {
+fn ParamsForm(params: Vec<ParamDef>, state: RwSignal<HashMap<String, Value>>) -> impl IntoView {
     view! {
         <div class="plugin-action-row__form">
             {params.into_iter().map(|p| view! {
@@ -1214,8 +1270,7 @@ fn ActionRow(
 
     let params = parse_params(action.params.as_ref());
     let has_params = !params.is_empty();
-    let form_state: RwSignal<HashMap<String, Value>> =
-        RwSignal::new(initial_form_state(&params));
+    let form_state: RwSignal<HashMap<String, Value>> = RwSignal::new(initial_form_state(&params));
 
     let is_streaming = action.stream;
     let is_admin = matches!(action.requires_role, RequiresRole::Admin);
@@ -1224,12 +1279,7 @@ fn ActionRow(
     // this client-side gate avoids a click → 403 → toast roundtrip and
     // makes the UI honest about what's actionable.
     let role_blocked = Signal::derive(move || {
-        is_admin
-            && !auth
-                .user
-                .get()
-                .map(|u| u.role == "admin")
-                .unwrap_or(false)
+        is_admin && !auth.user.get().map(|u| u.role == "admin").unwrap_or(false)
     });
     let label = action.label.clone();
     let description = action.description.clone();
@@ -1241,7 +1291,9 @@ fn ActionRow(
         let action_id = action_id.clone();
         let label = label.clone();
         move || {
-            let Some(token) = auth.token.get_untracked() else { return };
+            let Some(token) = auth.token.get_untracked() else {
+                return;
+            };
             let pid = plugin_id.clone();
             let aid = action_id.clone();
             let label = label.clone();
@@ -1274,7 +1326,11 @@ fn ActionRow(
         } else if is_streaming {
             "Run".to_string()
         } else if has_params {
-            if form_open.get() { "Hide".to_string() } else { "Configure…".to_string() }
+            if form_open.get() {
+                "Hide".to_string()
+            } else {
+                "Configure…".to_string()
+            }
         } else {
             "Run".to_string()
         }
@@ -1397,8 +1453,10 @@ fn ParamField(def: ParamDef, state: RwSignal<HashMap<String, Value>>) -> impl In
         }
     };
 
-    let help = def.description.clone().map(|d| view! {
-        <div class="msg-muted" style="font-size:0.75rem; margin-top:0.15rem">{d}</div>
+    let help = def.description.clone().map(|d| {
+        view! {
+            <div class="msg-muted" style="font-size:0.75rem; margin-top:0.15rem">{d}</div>
+        }
     });
 
     let input = match def.ty.as_str() {
@@ -1414,7 +1472,8 @@ fn ParamField(def: ParamDef, state: RwSignal<HashMap<String, Value>>) -> impl In
                     />
                     <span>{def.name.clone()}</span>
                 </label>
-            }.into_any()
+            }
+            .into_any()
         }
         "integer" | "number" => {
             let is_int = def.ty == "integer";
@@ -1444,7 +1503,8 @@ fn ParamField(def: ParamDef, state: RwSignal<HashMap<String, Value>>) -> impl In
                         }
                     }
                 />
-            }.into_any()
+            }
+            .into_any()
         }
         "string" if def.enum_values.is_some() => {
             let options = def.enum_values.clone().unwrap_or_default();
@@ -1464,7 +1524,8 @@ fn ParamField(def: ParamDef, state: RwSignal<HashMap<String, Value>>) -> impl In
                         view! { <option value=s prop:selected=selected>{s_for_label}</option> }
                     }).collect_view()}
                 </select>
-            }.into_any()
+            }
+            .into_any()
         }
         "string" => {
             let set_val = set_val.clone();
@@ -1480,7 +1541,8 @@ fn ParamField(def: ParamDef, state: RwSignal<HashMap<String, Value>>) -> impl In
                         else { set_val(Value::String(s)); }
                     }
                 />
-            }.into_any()
+            }
+            .into_any()
         }
         _ => {
             let set_val = set_val.clone();
@@ -1503,7 +1565,8 @@ fn ParamField(def: ParamDef, state: RwSignal<HashMap<String, Value>>) -> impl In
                         }
                     }
                 />
-            }.into_any()
+            }
+            .into_any()
         }
     };
 
@@ -1568,8 +1631,7 @@ fn ActionDrawer(
     // Param form state (same shape as ActionRow's non-streaming form).
     let params = parse_params(action.params.as_ref());
     let has_params = !params.is_empty();
-    let form_state: RwSignal<HashMap<String, Value>> =
-        RwSignal::new(initial_form_state(&params));
+    let form_state: RwSignal<HashMap<String, Value>> = RwSignal::new(initial_form_state(&params));
     let respond_state: RwSignal<HashMap<String, Value>> = RwSignal::new(HashMap::new());
 
     // Non-Copy props go into StoredValue::new_local so click closures
@@ -1591,12 +1653,7 @@ fn ActionDrawer(
     // action is admin-only and the current user isn't admin (server
     // enforces the same rule via W2's scope guard).
     let role_blocked = Signal::derive(move || {
-        is_admin
-            && !auth
-                .user
-                .get()
-                .map(|u| u.role == "admin")
-                .unwrap_or(false)
+        is_admin && !auth.user.get().map(|u| u.role == "admin").unwrap_or(false)
     });
 
     // Keep the SSE handle + callbacks alive for the lifetime of the run.
@@ -1613,7 +1670,11 @@ fn ActionDrawer(
         match stage.as_str() {
             "progress" => last_progress.set(Some(ev)),
             "item" => {
-                let op = ev.get("op").and_then(Value::as_str).unwrap_or("").to_string();
+                let op = ev
+                    .get("op")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 let data = ev.get("data").cloned().unwrap_or(Value::Null);
                 let key = item_key_sv
                     .with_value(|k| k.clone())
@@ -1698,15 +1759,18 @@ fn ActionDrawer(
                             let url = plugin_stream_sse_url(&pid, &rid, &token);
                             match web_sys::EventSource::new(&url) {
                                 Ok(es) => {
-                                    let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
-                                        move |ev: web_sys::MessageEvent| {
-                                            let raw = ev.data().as_string().unwrap_or_default();
-                                            if raw.is_empty() { return; }
-                                            if let Ok(v) = serde_json::from_str::<Value>(&raw) {
-                                                apply_for_spawn(v);
-                                            }
-                                        },
-                                    );
+                                    let on_message =
+                                        Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
+                                            move |ev: web_sys::MessageEvent| {
+                                                let raw = ev.data().as_string().unwrap_or_default();
+                                                if raw.is_empty() {
+                                                    return;
+                                                }
+                                                if let Ok(v) = serde_json::from_str::<Value>(&raw) {
+                                                    apply_for_spawn(v);
+                                                }
+                                            },
+                                        );
                                     let _ = es.add_event_listener_with_callback(
                                         "stream",
                                         on_message.as_ref().unchecked_ref(),
@@ -1746,8 +1810,12 @@ fn ActionDrawer(
     });
 
     let cancel_action: Rc<dyn Fn()> = Rc::new(move || {
-        let Some(token) = auth.token.get_untracked() else { return };
-        let Some(rid) = request_id.get_untracked() else { return };
+        let Some(token) = auth.token.get_untracked() else {
+            return;
+        };
+        let Some(rid) = request_id.get_untracked() else {
+            return;
+        };
         let pid = plugin_id_sv.with_value(|v| v.clone());
         spawn_local(async move {
             let body = json!({ "target_request_id": rid });
@@ -1761,8 +1829,12 @@ fn ActionDrawer(
     // On success we just clear the banner — the user re-clicks Run
     // to retry (manual; no auto-retry per design decision 2026-04-26).
     let cancel_busy_action: Rc<dyn Fn()> = Rc::new(move || {
-        let Some(token) = auth.token.get_untracked() else { return };
-        let Some(active) = busy_active_id.get_untracked() else { return };
+        let Some(token) = auth.token.get_untracked() else {
+            return;
+        };
+        let Some(active) = busy_active_id.get_untracked() else {
+            return;
+        };
         let pid = plugin_id_sv.with_value(|v| v.clone());
         busy_canceling.set(true);
         spawn_local(async move {
@@ -1776,8 +1848,12 @@ fn ActionDrawer(
     });
 
     let respond_action: Rc<dyn Fn()> = Rc::new(move || {
-        let Some(token) = auth.token.get_untracked() else { return };
-        let Some(rid) = request_id.get_untracked() else { return };
+        let Some(token) = auth.token.get_untracked() else {
+            return;
+        };
+        let Some(rid) = request_id.get_untracked() else {
+            return;
+        };
         let pid = plugin_id_sv.with_value(|v| v.clone());
         let response = Value::Object(
             respond_state
@@ -2099,7 +2175,8 @@ fn AwaitingUserCard(
                 >"Submit response"</button>
             </div>
         </div>
-    }.into_any()
+    }
+    .into_any()
 }
 
 #[component]
@@ -2168,7 +2245,13 @@ fn StreamItemRow(item: Value, item_key: Option<String>) -> impl IntoView {
             // still get a generic pill.
             let safe: String = s
                 .chars()
-                .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() {
+                        c.to_ascii_lowercase()
+                    } else {
+                        '_'
+                    }
+                })
                 .collect();
             format!("action-drawer__item-status action-drawer__item-status--{safe}")
         })

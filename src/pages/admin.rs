@@ -3,11 +3,11 @@
 
 use crate::api::{
     add_calendar_by_url, bulk_delete_devices, change_password, create_api_key, create_user,
-    delete_api_key, delete_calendar, delete_user, export_rules, export_scenes, fetch_calendars,
-    fetch_calendar_events, fetch_me, fetch_plugins, fetch_stale_refs, fetch_system_config,
-    fetch_system_status, fetch_users, get_log_level, import_rules, import_scenes, list_api_keys,
-    put_system_config_raw, restart_system, restore_backup, rotate_api_key, set_log_level,
-    set_user_role, trigger_backup, upload_calendar,
+    delete_api_key, delete_calendar, delete_user, export_rules, export_scenes,
+    fetch_calendar_events, fetch_calendars, fetch_me, fetch_plugins, fetch_stale_refs,
+    fetch_system_config, fetch_system_status, fetch_users, get_log_level, import_rules,
+    import_scenes, list_api_keys, put_system_config_raw, restart_system, restore_backup,
+    rotate_api_key, set_log_level, set_user_role, trigger_backup, upload_calendar,
 };
 use crate::auth::use_auth;
 use crate::models::*;
@@ -103,15 +103,14 @@ async fn read_file_input(input_id: &str) -> Result<String, String> {
     let el = document
         .get_element_by_id(input_id)
         .ok_or("File input not found")?;
-    let input: web_sys::HtmlInputElement = el
-        .dyn_into()
-        .map_err(|_| "Element is not an input")?;
+    let input: web_sys::HtmlInputElement = el.dyn_into().map_err(|_| "Element is not an input")?;
     let files = input.files().ok_or("No files property")?;
     let file = files.get(0).ok_or("No file selected")?;
     let text = JsFuture::from(file.text())
         .await
         .map_err(|_| "Failed to read file")?;
-    text.as_string().ok_or_else(|| "File content not a string".to_string())
+    text.as_string()
+        .ok_or_else(|| "File content not a string".to_string())
 }
 
 /// Read a file chosen via `<input type="file">` and return its raw bytes.
@@ -124,9 +123,7 @@ async fn read_file_input_bytes(input_id: &str) -> Result<Vec<u8>, String> {
     let el = document
         .get_element_by_id(input_id)
         .ok_or("File input not found")?;
-    let input: web_sys::HtmlInputElement = el
-        .dyn_into()
-        .map_err(|_| "Element is not an input")?;
+    let input: web_sys::HtmlInputElement = el.dyn_into().map_err(|_| "Element is not an input")?;
     let files = input.files().ok_or("No files property")?;
     let file = files.get(0).ok_or("No file selected")?;
     let array_buffer = JsFuture::from(file.array_buffer())
@@ -142,12 +139,12 @@ async fn read_file_input_bytes(input_id: &str) -> Result<Vec<u8>, String> {
 // /admin (no trailing slug) defaults to System.
 
 const ADMIN_TABS: &[(&str, &str, &str)] = &[
-    ("system",         "System",         "ph ph-pulse"),
-    ("config",         "Configuration",  "ph ph-sliders"),
-    ("notifications",  "Notifications",  "ph ph-bell"),
-    ("users",          "Users",          "ph ph-users"),
-    ("data",           "Data",           "ph ph-database"),
-    ("maintenance",    "Maintenance",    "ph ph-broom"),
+    ("system", "System", "ph ph-pulse"),
+    ("config", "Configuration", "ph ph-sliders"),
+    ("notifications", "Notifications", "ph ph-bell"),
+    ("users", "Users", "ph ph-users"),
+    ("data", "Data", "ph ph-database"),
+    ("maintenance", "Maintenance", "ph ph-broom"),
 ];
 
 #[component]
@@ -163,11 +160,7 @@ pub fn AdminPage() -> impl IntoView {
 
     let tabs: Vec<TabSpec> = ADMIN_TABS
         .iter()
-        .map(|(slug, label, icon)| TabSpec {
-            slug,
-            label,
-            icon,
-        })
+        .map(|(slug, label, icon)| TabSpec { slug, label, icon })
         .collect();
 
     view! {
@@ -236,7 +229,10 @@ fn ApiKeysSection() -> impl IntoView {
     let create_expires_days = RwSignal::new(String::new());
 
     let reload = move || {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         loading.set(true);
         spawn_local(async move {
             match list_api_keys(&token).await {
@@ -255,7 +251,10 @@ fn ApiKeysSection() -> impl IntoView {
     });
 
     let do_create = move |_| {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         let label = create_label.get_untracked().trim().to_string();
         if label.is_empty() {
             error.set(Some("Label is required.".into()));
@@ -294,7 +293,10 @@ fn ApiKeysSection() -> impl IntoView {
     };
 
     let do_rotate = move |id: String| {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         error.set(None);
         notice.set(None);
         spawn_local(async move {
@@ -303,7 +305,9 @@ fn ApiKeysSection() -> impl IntoView {
                     if let Some(t) = resp["token"].as_str() {
                         new_token.set(Some(t.to_string()));
                     }
-                    notice.set(Some("Key rotated. The previous secret is now invalid.".into()));
+                    notice.set(Some(
+                        "Key rotated. The previous secret is now invalid.".into(),
+                    ));
                     reload();
                 }
                 Err(e) => error.set(Some(e)),
@@ -312,7 +316,10 @@ fn ApiKeysSection() -> impl IntoView {
     };
 
     let do_delete = move |id: String, label: String| {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         let confirm_msg = format!("Revoke API key '{label}'? This cannot be undone.");
         if let Some(w) = web_sys::window() {
             if w.confirm_with_message(&confirm_msg).unwrap_or(false) == false {
@@ -540,7 +547,10 @@ fn ConfigurationTab() -> impl IntoView {
 
     // Load current config on mount.
     Effect::new(move |_| {
-        let token = match auth.token.get() { Some(t) => t, None => return };
+        let token = match auth.token.get() {
+            Some(t) => t,
+            None => return,
+        };
         spawn_local(async move {
             match fetch_system_config(&token).await {
                 Ok(v) => {
@@ -559,7 +569,10 @@ fn ConfigurationTab() -> impl IntoView {
     });
 
     let save_raw = move |_| {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         let body = edit_text.get_untracked();
         busy.set(true);
         error.set(None);
@@ -589,7 +602,10 @@ fn ConfigurationTab() -> impl IntoView {
     let restarting = RwSignal::new(false);
 
     let do_restart = move |_| {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         busy.set(true);
         spawn_local(async move {
             match restart_system(&token).await {
@@ -1287,13 +1303,11 @@ fn BackupDataSection() -> impl IntoView {
         spawn_local(async move {
             gloo_timers::future::TimeoutFuture::new(1500).await;
             if backup_status.get_untracked().is_some() {
-                backup_status
-                    .set(Some("Reading state and history databases…".to_string()));
+                backup_status.set(Some("Reading state and history databases…".to_string()));
             }
             gloo_timers::future::TimeoutFuture::new(2500).await;
             if backup_status.get_untracked().is_some() {
-                backup_status
-                    .set(Some("Bundling plugin configs and rules…".to_string()));
+                backup_status.set(Some("Bundling plugin configs and rules…".to_string()));
             }
             gloo_timers::future::TimeoutFuture::new(3000).await;
             if backup_status.get_untracked().is_some() {
@@ -1305,11 +1319,7 @@ fn BackupDataSection() -> impl IntoView {
             match trigger_backup(&token).await {
                 Ok(bytes) => {
                     let size_mb = bytes.len() as f64 / 1_048_576.0;
-                    trigger_browser_download(
-                        &bytes,
-                        "homecore-backup.zip",
-                        "application/zip",
-                    );
+                    trigger_browser_download(&bytes, "homecore-backup.zip", "application/zip");
                     notice.set(Some(format!("Backup downloaded ({size_mb:.1} MB).")));
                 }
                 Err(e) => error.set(Some(format!("Backup failed: {e}"))),
@@ -1330,7 +1340,11 @@ fn BackupDataSection() -> impl IntoView {
             match export_rules(&token).await {
                 Ok(data) => {
                     let json = serde_json::to_string_pretty(&data).unwrap_or_default();
-                    trigger_browser_download(json.as_bytes(), "homecore-rules.json", "application/json");
+                    trigger_browser_download(
+                        json.as_bytes(),
+                        "homecore-rules.json",
+                        "application/json",
+                    );
                     notice.set(Some("Rules exported.".to_string()));
                 }
                 Err(e) => error.set(Some(format!("Export rules failed: {e}"))),
@@ -1350,7 +1364,11 @@ fn BackupDataSection() -> impl IntoView {
             match export_scenes(&token).await {
                 Ok(data) => {
                     let json = serde_json::to_string_pretty(&data).unwrap_or_default();
-                    trigger_browser_download(json.as_bytes(), "homecore-scenes.json", "application/json");
+                    trigger_browser_download(
+                        json.as_bytes(),
+                        "homecore-scenes.json",
+                        "application/json",
+                    );
                     notice.set(Some("Scenes exported.".to_string()));
                 }
                 Err(e) => error.set(Some(format!("Export scenes failed: {e}"))),
@@ -1449,8 +1467,7 @@ fn BackupDataSection() -> impl IntoView {
             }
             gloo_timers::future::TimeoutFuture::new(2500).await;
             if backup_status.get_untracked().is_some() {
-                backup_status
-                    .set(Some("Server is extracting and writing files…".to_string()));
+                backup_status.set(Some("Server is extracting and writing files…".to_string()));
             }
         });
 
@@ -1458,17 +1475,9 @@ fn BackupDataSection() -> impl IntoView {
             match read_file_input_bytes("restore-backup-file").await {
                 Ok(bytes) => match restore_backup(&token, &bytes).await {
                     Ok(resp) => {
-                        let restored = resp["restored"]
-                            .as_array()
-                            .map(|a| a.len())
-                            .unwrap_or(0);
-                        let skipped = resp["skipped"]
-                            .as_array()
-                            .map(|a| a.len())
-                            .unwrap_or(0);
-                        let msg = resp["message"]
-                            .as_str()
-                            .unwrap_or("Restore complete.");
+                        let restored = resp["restored"].as_array().map(|a| a.len()).unwrap_or(0);
+                        let skipped = resp["skipped"].as_array().map(|a| a.len()).unwrap_or(0);
+                        let msg = resp["message"].as_str().unwrap_or("Restore complete.");
                         let skipped_note = if skipped > 0 {
                             format!(" {skipped} entries skipped (see server logs).")
                         } else {
@@ -1715,7 +1724,11 @@ fn CalendarsSection() -> impl IntoView {
         let token = auth.token_str().unwrap_or_default();
         let url = url_input.get();
         let name = url_name.get();
-        let name_opt = if name.trim().is_empty() { None } else { Some(name.as_str().to_string()) };
+        let name_opt = if name.trim().is_empty() {
+            None
+        } else {
+            Some(name.as_str().to_string())
+        };
         busy.set(true);
         error.set(None);
         notice.set(None);
@@ -1743,17 +1756,17 @@ fn CalendarsSection() -> impl IntoView {
         notice.set(None);
         spawn_local(async move {
             match read_file_input("cal-upload-file").await {
-                Ok(content) => {
-                    match upload_calendar(&token, &content, None).await {
-                        Ok(resp) => {
-                            let id = resp["calendar_id"].as_str().unwrap_or("?");
-                            let count = resp["event_count"].as_u64().unwrap_or(0);
-                            notice.set(Some(format!("Calendar '{id}' uploaded with {count} events.")));
-                            refresh();
-                        }
-                        Err(e) => error.set(Some(e)),
+                Ok(content) => match upload_calendar(&token, &content, None).await {
+                    Ok(resp) => {
+                        let id = resp["calendar_id"].as_str().unwrap_or("?");
+                        let count = resp["event_count"].as_u64().unwrap_or(0);
+                        notice.set(Some(format!(
+                            "Calendar '{id}' uploaded with {count} events."
+                        )));
+                        refresh();
                     }
-                }
+                    Err(e) => error.set(Some(e)),
+                },
                 Err(e) => error.set(Some(e)),
             }
             busy.set(false);

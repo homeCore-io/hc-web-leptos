@@ -1,12 +1,12 @@
 //! Device detail page — `/devices/:id`
 
-use crate::pages::shared::ErrorBanner;
 use crate::api::{
     delete_device as delete_device_request, fetch_areas, fetch_device, fetch_device_history,
     fetch_device_schema, set_device_state, update_device_meta,
 };
 use crate::auth::use_auth;
 use crate::models::*;
+use crate::pages::shared::ErrorBanner;
 use crate::ws::{use_ws, WsStatus};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -257,7 +257,14 @@ pub fn DeviceDetailPage() -> impl IntoView {
                         m.insert(d.device_id.clone(), d.clone());
                     });
                     if device.get_untracked().is_none() || !show_edit.get_untracked() {
-                        sync_edit_fields(&d, edit_name, edit_area, edit_canonical, edit_icon, edit_ui_hint);
+                        sync_edit_fields(
+                            &d,
+                            edit_name,
+                            edit_area,
+                            edit_canonical,
+                            edit_icon,
+                            edit_ui_hint,
+                        );
                     }
                     device.set(Some(d));
                 }
@@ -328,7 +335,14 @@ pub fn DeviceDetailPage() -> impl IntoView {
         spawn_local(async move {
             match update_device_meta(&token, &id, &body).await {
                 Ok(updated) => {
-                    sync_edit_fields(&updated, edit_name, edit_area, edit_canonical, edit_icon, edit_ui_hint);
+                    sync_edit_fields(
+                        &updated,
+                        edit_name,
+                        edit_area,
+                        edit_canonical,
+                        edit_icon,
+                        edit_ui_hint,
+                    );
                     device.set(Some(updated));
                     notice.set(Some("Device updated.".into()));
                     show_edit.set(false);

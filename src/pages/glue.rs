@@ -1,6 +1,8 @@
 //! Glue devices management page — create, view, and delete helper devices.
 
-use crate::api::{create_glue, delete_glue, fetch_glue, fetch_glue_device, send_glue_command, update_device_meta};
+use crate::api::{
+    create_glue, delete_glue, fetch_glue, fetch_glue_device, send_glue_command, update_device_meta,
+};
 use crate::auth::use_auth;
 use crate::pages::shared::{ErrorBanner, SearchField};
 use crate::ws::use_ws;
@@ -13,36 +15,60 @@ use wasm_bindgen::prelude::*;
 // ── Type metadata ────────────────────────────────────────────────────────────
 
 const GLUE_TYPES: &[(&str, &str, &str)] = &[
-    ("switch",    "Switch",         "On/off toggle for automation flags"),
-    ("timer",     "Timer",          "Countdown timer with start/pause/cancel"),
-    ("counter",   "Counter",        "Tracks event counts with increment/decrement"),
-    ("number",    "Input Number",   "Adjustable numeric value with min/max"),
-    ("select",    "Input Select",   "Dropdown with predefined options"),
-    ("text",      "Input Text",     "Stored string value"),
-    ("button",    "Button",         "Stateless trigger — fires event on press"),
-    ("datetime",  "Date/Time",      "Stored date and/or time"),
-    ("group",     "Device Group",   "Combines devices into one (any/all logic)"),
-    ("threshold", "Threshold",      "Binary sensor from numeric crossing"),
-    ("schedule",  "Schedule",       "Weekly time blocks → on/off"),
+    ("switch", "Switch", "On/off toggle for automation flags"),
+    ("timer", "Timer", "Countdown timer with start/pause/cancel"),
+    (
+        "counter",
+        "Counter",
+        "Tracks event counts with increment/decrement",
+    ),
+    (
+        "number",
+        "Input Number",
+        "Adjustable numeric value with min/max",
+    ),
+    ("select", "Input Select", "Dropdown with predefined options"),
+    ("text", "Input Text", "Stored string value"),
+    (
+        "button",
+        "Button",
+        "Stateless trigger — fires event on press",
+    ),
+    ("datetime", "Date/Time", "Stored date and/or time"),
+    (
+        "group",
+        "Device Group",
+        "Combines devices into one (any/all logic)",
+    ),
+    (
+        "threshold",
+        "Threshold",
+        "Binary sensor from numeric crossing",
+    ),
+    ("schedule", "Schedule", "Weekly time blocks → on/off"),
 ];
 
 fn type_label(t: &str) -> String {
-    GLUE_TYPES.iter().find(|(k, _, _)| *k == t).map(|(_, l, _)| l.to_string()).unwrap_or_else(|| t.to_string())
+    GLUE_TYPES
+        .iter()
+        .find(|(k, _, _)| *k == t)
+        .map(|(_, l, _)| l.to_string())
+        .unwrap_or_else(|| t.to_string())
 }
 
 /// Returns Phosphor icon names (slot into "ph ph-{name}" by the view).
 fn type_icon(t: &str) -> &'static str {
     match t {
-        "counter"   => "hash",
-        "number"    => "number-square-one",
-        "select"    => "list",
-        "text"      => "text-aa",
-        "button"    => "cursor-click",
-        "datetime"  => "clock",
-        "group"     => "squares-four",
+        "counter" => "hash",
+        "number" => "number-square-one",
+        "select" => "list",
+        "text" => "text-aa",
+        "button" => "cursor-click",
+        "datetime" => "clock",
+        "group" => "squares-four",
         "threshold" => "thermometer-simple",
-        "schedule"  => "calendar",
-        "timer"     => "timer",
+        "schedule" => "calendar",
+        "timer" => "timer",
         "switch" | "virtual_switch" => "toggle-right",
         _ => "puzzle-piece",
     }
@@ -65,9 +91,16 @@ fn device_value_summary(d: &Value) -> String {
         "select" => attrs["selected"].as_str().unwrap_or("—").to_string(),
         "text" => {
             let v = attrs["value"].as_str().unwrap_or("");
-            if v.len() > 30 { format!("{}…", &v[..30]) } else { v.to_string() }
+            if v.len() > 30 {
+                format!("{}…", &v[..30])
+            } else {
+                v.to_string()
+            }
         }
-        "button" => attrs["last_pressed"].as_str().unwrap_or("never").to_string(),
+        "button" => attrs["last_pressed"]
+            .as_str()
+            .unwrap_or("never")
+            .to_string(),
         "datetime" => attrs["value"].as_str().unwrap_or("—").to_string(),
         "group" => {
             let active = attrs["active_count"].as_u64().unwrap_or(0);
@@ -77,11 +110,19 @@ fn device_value_summary(d: &Value) -> String {
         }
         "threshold" => {
             let above = attrs["above"].as_bool().unwrap_or(false);
-            if above { "ABOVE".to_string() } else { "below".to_string() }
+            if above {
+                "ABOVE".to_string()
+            } else {
+                "below".to_string()
+            }
         }
         "schedule" => {
             let active = attrs["active"].as_bool().unwrap_or(false);
-            if active { "ACTIVE".to_string() } else { "inactive".to_string() }
+            if active {
+                "ACTIVE".to_string()
+            } else {
+                "inactive".to_string()
+            }
         }
         "timer" => {
             let state = attrs["state"].as_str().unwrap_or("idle");
@@ -95,7 +136,11 @@ fn device_value_summary(d: &Value) -> String {
             }
         }
         "switch" | "virtual_switch" => {
-            if attrs["on"].as_bool() == Some(true) { "ON".to_string() } else { "off".to_string() }
+            if attrs["on"].as_bool() == Some(true) {
+                "ON".to_string()
+            } else {
+                "off".to_string()
+            }
         }
         _ => "—".to_string(),
     }
@@ -120,7 +165,6 @@ fn compute_remaining(attrs: &Value) -> u64 {
 fn is_glue_device(plugin_id: &str) -> bool {
     matches!(plugin_id, "core.glue" | "core.timer" | "core.switch")
 }
-
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -164,14 +208,18 @@ pub fn GluePage() -> impl IntoView {
 
     // Seed WS device map from glue REST endpoint
     Effect::new(move |_| {
-        let token = match auth.token.get() { Some(t) => t, None => return };
+        let token = match auth.token.get() {
+            Some(t) => t,
+            None => return,
+        };
         loading.set(true);
         spawn_local(async move {
             match fetch_glue(&token).await {
                 Ok(data) => {
                     ws.devices.update(|m| {
                         for d in data {
-                            if let Ok(dev) = serde_json::from_value::<crate::models::DeviceState>(d) {
+                            if let Ok(dev) = serde_json::from_value::<crate::models::DeviceState>(d)
+                            {
                                 m.insert(dev.device_id.clone(), dev);
                             }
                         }
@@ -188,29 +236,37 @@ pub fn GluePage() -> impl IntoView {
         let _ = timer_tick.get(); // subscribe to tick for timer countdowns
         let q = search.get().to_lowercase();
         let all = ws.devices.get();
-        let mut list: Vec<Value> = all.values()
+        let mut list: Vec<Value> = all
+            .values()
             .filter(|d| is_glue_device(&d.plugin_id))
             .filter(|d| {
-                if q.is_empty() { return true; }
+                if q.is_empty() {
+                    return true;
+                }
                 let dt = d.device_type.as_deref().unwrap_or("");
                 d.name.to_lowercase().contains(&q)
                     || d.device_id.to_lowercase().contains(&q)
                     || dt.to_lowercase().contains(&q)
             })
-            .map(|d| json!({
-                "device_id": d.device_id,
-                "name": d.name,
-                "device_type": d.device_type,
-                "available": d.available,
-                "plugin_id": d.plugin_id,
-                "attributes": d.attributes,
-            }))
+            .map(|d| {
+                json!({
+                    "device_id": d.device_id,
+                    "name": d.name,
+                    "device_type": d.device_type,
+                    "available": d.available,
+                    "plugin_id": d.plugin_id,
+                    "attributes": d.attributes,
+                })
+            })
             .collect();
         list.sort_by(|a, b| {
             let ta = device_type_str(a);
             let tb = device_type_str(b);
             ta.cmp(&tb).then_with(|| {
-                a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
+                a["name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .cmp(b["name"].as_str().unwrap_or(""))
             })
         });
         list
@@ -407,9 +463,14 @@ pub fn GlueDetailPage() -> impl IntoView {
 
     // Fetch device
     Effect::new(move |_| {
-        let token = match auth.token.get() { Some(t) => t, None => return };
+        let token = match auth.token.get() {
+            Some(t) => t,
+            None => return,
+        };
         let did = device_id();
-        if did.is_empty() { return; }
+        if did.is_empty() {
+            return;
+        }
         loading.set(true);
         spawn_local(async move {
             match fetch_glue_device(&token, &did).await {
@@ -422,7 +483,10 @@ pub fn GlueDetailPage() -> impl IntoView {
 
     // Send command helper
     let send_cmd = move |cmd: Value| {
-        let token = match auth.token.get_untracked() { Some(t) => t, None => return };
+        let token = match auth.token.get_untracked() {
+            Some(t) => t,
+            None => return,
+        };
         let did = device_id();
         busy.set(true);
         spawn_local(async move {

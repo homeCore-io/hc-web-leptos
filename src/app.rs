@@ -32,8 +32,17 @@ use leptos_router::{
 
 #[component]
 pub fn App() -> impl IntoView {
-    provide_context(AuthState::new());
+    let auth = AuthState::new();
+    provide_context(auth);
     provide_context(ToastContext::new());
+
+    // Shared WS context lives at the app root so the WebSocket survives
+    // route navigation. Hosting it in NavShell (which is created fresh
+    // by every <AuthGuard> wrapper) tore the socket down on every page
+    // change and discarded the seeded device/plugin maps.
+    let ws_ctx = WsContext::new();
+    provide_context(ws_ctx);
+    mount_ws(ws_ctx, auth.token);
 
     // Restore saved theme preference on load.
     if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
@@ -158,11 +167,6 @@ fn AuthGuard(children: Children) -> impl IntoView {
 #[component]
 fn NavShell(children: Children) -> impl IntoView {
     let auth = use_auth();
-
-    // Provide the shared WS context for all child pages.
-    let ws_ctx = WsContext::new();
-    provide_context(ws_ctx);
-    mount_ws(ws_ctx, auth.token);
 
     // Server-reported version, populated from /system/status alongside
     // the TZ fetch below. Rendered in the sidebar header so the operator

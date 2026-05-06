@@ -30,7 +30,9 @@ use chrono::{DateTime, Utc};
 use leptos::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
 // ── Connection status ─────────────────────────────────────────────────────────
@@ -296,18 +298,31 @@ pub fn mount_ws(ctx: WsContext, auth_token: RwSignal<Option<String>>) {
         // `schedule_reconnect`) and *read* once at the top of the Effect — the
         // feedback loop is broken because the `set_timeout` fires outside the
         // reactive scope.
+        //
+        // Network-error closes fire both `onerror` and `onclose`. The shared
+        // `scheduled` flag ensures only the first one schedules a reconnect.
 
-        let on_err = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
-            ctx.status.set(WsStatus::Disconnected);
-            schedule_reconnect(reconnect_trigger, attempt);
-        });
+        let scheduled = Rc::new(Cell::new(false));
+
+        let on_err = {
+            let scheduled = scheduled.clone();
+            Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+                if scheduled.replace(true) { return; }
+                ctx.status.set(WsStatus::Disconnected);
+                schedule_reconnect(reconnect_trigger, attempt);
+            })
+        };
         ws.set_onerror(Some(on_err.as_ref().unchecked_ref()));
         on_err.forget();
 
-        let on_close = Closure::<dyn FnMut(web_sys::CloseEvent)>::new(move |_| {
-            ctx.status.set(WsStatus::Disconnected);
-            schedule_reconnect(reconnect_trigger, attempt);
-        });
+        let on_close = {
+            let scheduled = scheduled.clone();
+            Closure::<dyn FnMut(web_sys::CloseEvent)>::new(move |_| {
+                if scheduled.replace(true) { return; }
+                ctx.status.set(WsStatus::Disconnected);
+                schedule_reconnect(reconnect_trigger, attempt);
+            })
+        };
         ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
         on_close.forget();
 

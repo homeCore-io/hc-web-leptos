@@ -925,6 +925,17 @@ pub fn DeviceCardsPage() -> impl IntoView {
             }
         };
 
+        // Focus mode skips the persisted avail/area/type/plugin
+        // filters entirely. OVERVIEW-WIDGET-FILTER-OVERRIDE-1: a user
+        // who lands on /devices?focus=security expects to see the
+        // security view, not the intersection of "security devices"
+        // with whatever filter chips they had set last week. The
+        // persisted state stays in localStorage and re-applies the
+        // moment the user clears the focus banner — no destructive
+        // change. Search (`q`) still applies inside a focus view
+        // because the search input is in-page and operator-typed,
+        // not persisted from elsewhere.
+        let focus_active = focus_value.is_some();
         let mut result: Vec<&DeviceState> = all
             .values()
             .filter(|d| !is_scene_like(d))
@@ -962,19 +973,27 @@ pub fn DeviceCardsPage() -> impl IntoView {
                 }
             })
             .filter(|d| {
-                avail_f.is_empty() || {
-                    let key = if d.available { "online" } else { "offline" };
-                    avail_f.contains(key)
-                }
+                focus_active
+                    || avail_f.is_empty()
+                    || {
+                        let key = if d.available { "online" } else { "offline" };
+                        avail_f.contains(key)
+                    }
             })
             .filter(|d| {
-                area_f.is_empty() || {
-                    let a = d.area.as_deref().unwrap_or("Unassigned");
-                    area_f.contains(a)
-                }
+                focus_active
+                    || area_f.is_empty()
+                    || {
+                        let a = d.area.as_deref().unwrap_or("Unassigned");
+                        area_f.contains(a)
+                    }
             })
-            .filter(|d| type_f.is_empty() || type_f.contains(presentation_device_type_label(d)))
-            .filter(|d| plugin_f.is_empty() || plugin_f.contains(&d.plugin_id))
+            .filter(|d| {
+                focus_active
+                    || type_f.is_empty()
+                    || type_f.contains(presentation_device_type_label(d))
+            })
+            .filter(|d| focus_active || plugin_f.is_empty() || plugin_f.contains(&d.plugin_id))
             .filter(|d| {
                 if q.is_empty() {
                     return true;

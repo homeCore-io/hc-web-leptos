@@ -61,17 +61,36 @@ impl VersionState {
         }
     }
 
-    /// True when we have a server version and it differs from the client.
-    pub fn has_mismatch(&self) -> bool {
-        self.server_version
-            .get()
-            .map(|sv| sv != CLIENT_VERSION)
-            .unwrap_or(false)
+    /// True when the server is on a strictly newer version than this
+    /// tab. Returns false when versions match, when the server is older
+    /// (mid-deploy or rolled-back state), or when either side's
+    /// version string can't be parsed as `X.Y.Z`.
+    ///
+    /// The asymmetry is deliberate. The banner exists to nudge the
+    /// operator to reload after a server upgrade — that's a "click
+    /// Reload to pick up new code" affordance. When the tab is ahead
+    /// of the server (this can happen briefly during a multi-step
+    /// release ceremony, or if the operator manually downgrades the
+    /// server), Reload would just refetch the same WASM — the banner
+    /// can't actually resolve the mismatch, and showing it just
+    /// confuses the operator. CLIENT-VER-1-BUG-1 was the operator
+    /// report that surfaced this gap.
+    pub fn server_is_newer(&self) -> bool {
+        let Some(sv) = self.server_version.get() else {
+            return false;
+        };
+        let Some(server) = parse_simple_version(&sv) else {
+            return false;
+        };
+        let Some(client) = parse_simple_version(CLIENT_VERSION) else {
+            return false;
+        };
+        server > client
     }
 
     /// True when the banner should currently render.
     pub fn show_banner(&self) -> bool {
-        self.has_mismatch() && !self.mismatch_dismissed.get()
+        self.server_is_newer() && !self.mismatch_dismissed.get()
     }
 
     /// Persist a dismissal for the current server version and hide the
@@ -90,6 +109,27 @@ impl VersionState {
         let dismissed = ss_get(&format!("{DISMISSED_KEY_PREFIX}{server_version}")).is_some();
         self.mismatch_dismissed.set(dismissed);
     }
+}
+
+// ── Version parsing ──────────────────────────────────────────────────────────
+
+/// Parse `X.Y.Z` into a comparable tuple. Returns `None` for any input
+/// that doesn't have exactly three dot-separated unsigned integer
+/// components — that includes pre-release suffixes (`0.1.4-rc.1`),
+/// build-metadata suffixes (`0.1.4+sha`), and dev-tags
+/// (`dev-abc123`). The conservative behaviour for unparseable input
+/// is "don't fire the banner" — better silence than a misleading
+/// nudge. If the homeCore project ever ships pre-release versions,
+/// this is the function to upgrade to a real semver crate.
+fn parse_simple_version(s: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = s.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, patch))
 }
 
 // ── Probe ────────────────────────────────────────────────────────────────────
@@ -148,11 +188,11 @@ pub fn VersionBanner() -> impl IntoView {
             <div class="version-banner" role="alert">
                 <i class="ph ph-arrows-clockwise version-banner__icon"></i>
                 <span class="version-banner__text">
-                    "New homeCore version available "
+                    "homeCore was upgraded — server is on "
                     <code>{move || format!("v{}", state.server_version.get().unwrap_or_default())}</code>
-                    " — this tab is on "
+                    ", this tab is still on "
                     <code>{format!("v{}", CLIENT_VERSION)}</code>
-                    ". Reload to update."
+                    ". Reload to pick up the new client."
                 </span>
                 <button
                     class="version-banner__action"
@@ -187,5 +227,45 @@ fn ss_get(key: &str) -> Option<String> {
 fn ss_set(key: &str, val: &str) {
     if let Some(s) = web_sys::window().and_then(|w| w.session_storage().ok().flatten()) {
         let _ = s.set_item(key, val);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_simple_version;
+
+    #[test]
+    fn parses_valid_xyz() {
+        assert_eq!(parse_simple_version("0.1.4"), Some((0, 1, 4)));
+        assert_eq!(parse_simple_version("1.0.0"), Some((1, 0, 0)));
+        assert_eq!(parse_simple_version("12.34.56"), Some((12, 34, 56)));
+    }
+
+    #[test]
+    fn rejects_pre_release_and_build_metadata() {
+        // CLIENT-VER-1-BUG-1: parser returns None for any non-X.Y.Z,
+        // so the banner doesn't fire on parseable-but-unusual inputs.
+        assert_eq!(parse_simple_version("0.1.4-rc.1"), None);
+        assert_eq!(parse_simple_version("0.1.4+sha.abc"), None);
+        assert_eq!(parse_simple_version("dev-abc123"), None);
+        assert_eq!(parse_simple_version("0.1"), None);
+        assert_eq!(parse_simple_version("0.1.4.5"), None);
+        assert_eq!(parse_simple_version(""), None);
+        assert_eq!(parse_simple_version("0.1.x"), None);
+    }
+
+    #[test]
+    fn comparison_orders_by_major_minor_patch() {
+        // Tuple comparison gives the right ordering for our X.Y.Z.
+        let v013 = parse_simple_version("0.1.3").unwrap();
+        let v014 = parse_simple_version("0.1.4").unwrap();
+        let v020 = parse_simple_version("0.2.0").unwrap();
+        let v100 = parse_simple_version("1.0.0").unwrap();
+        assert!(v013 < v014);
+        assert!(v014 < v020);
+        assert!(v020 < v100);
+        assert!(v013 < v100);
+        // Same version isn't "newer".
+        assert!(!(v014 > v014));
     }
 }

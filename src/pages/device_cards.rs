@@ -896,18 +896,11 @@ pub fn DeviceCardsPage() -> impl IntoView {
         let focus_value = focus.get();
         let battery_threshold = battery_below.get();
 
-        // Pre-compute once: which devices are in the security set?
-        let security_tags = load_security_tags();
-        let in_security_set = |d: &DeviceState| -> bool {
-            if !security_tags.is_empty() {
-                security_tags.contains(&d.device_id)
-            } else {
-                matches!(
-                    d.device_type.as_deref(),
-                    Some("lock") | Some("contact_sensor")
-                )
-            }
-        };
+        // Single source of truth via `should_include_in_security`.
+        // OVERVIEW-SECURITY-OPT-IN-1: honours both explicit tags and
+        // explicit excludes (the latter is what made unchecking the
+        // bathroom door actually take effect).
+        let in_security_set = should_include_in_security;
         let device_in_alert = |d: &DeviceState| -> bool {
             match d.device_type.as_deref() {
                 Some("lock") => !d
@@ -925,6 +918,17 @@ pub fn DeviceCardsPage() -> impl IntoView {
             }
         };
 
+        // Focus mode skips the persisted avail/area/type/plugin
+        // filters entirely. OVERVIEW-WIDGET-FILTER-OVERRIDE-1: a user
+        // who lands on /devices?focus=security expects to see the
+        // security view, not the intersection of "security devices"
+        // with whatever filter chips they had set last week. The
+        // persisted state stays in localStorage and re-applies the
+        // moment the user clears the focus banner — no destructive
+        // change. Search (`q`) still applies inside a focus view
+        // because the search input is in-page and operator-typed,
+        // not persisted from elsewhere.
+        let focus_active = focus_value.is_some();
         let mut result: Vec<&DeviceState> = all
             .values()
             .filter(|d| !is_scene_like(d))
@@ -962,19 +966,27 @@ pub fn DeviceCardsPage() -> impl IntoView {
                 }
             })
             .filter(|d| {
-                avail_f.is_empty() || {
-                    let key = if d.available { "online" } else { "offline" };
-                    avail_f.contains(key)
-                }
+                focus_active
+                    || avail_f.is_empty()
+                    || {
+                        let key = if d.available { "online" } else { "offline" };
+                        avail_f.contains(key)
+                    }
             })
             .filter(|d| {
-                area_f.is_empty() || {
-                    let a = d.area.as_deref().unwrap_or("Unassigned");
-                    area_f.contains(a)
-                }
+                focus_active
+                    || area_f.is_empty()
+                    || {
+                        let a = d.area.as_deref().unwrap_or("Unassigned");
+                        area_f.contains(a)
+                    }
             })
-            .filter(|d| type_f.is_empty() || type_f.contains(presentation_device_type_label(d)))
-            .filter(|d| plugin_f.is_empty() || plugin_f.contains(&d.plugin_id))
+            .filter(|d| {
+                focus_active
+                    || type_f.is_empty()
+                    || type_f.contains(presentation_device_type_label(d))
+            })
+            .filter(|d| focus_active || plugin_f.is_empty() || plugin_f.contains(&d.plugin_id))
             .filter(|d| {
                 if q.is_empty() {
                     return true;
@@ -1092,9 +1104,12 @@ pub fn DeviceCardsPage() -> impl IntoView {
                         "security" => (
                             "ph ph-shield-check",
                             "Security-relevant devices currently needing attention.".into(),
-                            if load_security_tags().is_empty() {
-                                "No devices are tagged yet — falling back to all locks and contact sensors. \
-                                 Mark specific devices on their detail page."
+                            if load_security_tags().is_empty()
+                                && load_security_excludes().is_empty()
+                            {
+                                "Showing all locks and contact sensors by default. \
+                                 Toggle the security checkbox on a device's detail page \
+                                 to add or exclude specific devices."
                             } else {
                                 ""
                             },

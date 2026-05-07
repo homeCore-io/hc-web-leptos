@@ -146,21 +146,26 @@ fn sync_edit_fields(
     edit_ui_hint.set(device.ui_hint.clone().unwrap_or_default());
 }
 
-/// Local checkbox bound to the localStorage security-tag set for one
-/// device. Pulled out so the parent edit-panel `view!` doesn't have
-/// to manage the inline `let` block + closure shape (which trips
-/// Leptos's FnMut requirement when nested inside `then(...)`).
+/// Local checkbox bound to the security membership for one device.
+/// Reads the combined include/exclude state via
+/// `should_include_in_security` so the checkbox accurately reflects
+/// whether the device is currently in the Security tile, including
+/// the default-set fallback for locks + contact_sensors.
+/// OVERVIEW-SECURITY-OPT-IN-1: previously this read only the explicit
+/// tag set, so a lock or contact_sensor showed unchecked yet still
+/// appeared in the tile via the default fallback — operators couldn't
+/// uncheck them out.
 #[component]
-fn SecurityToggleField(device_id: String) -> impl IntoView {
-    let is_security = RwSignal::new(is_security_tagged(&device_id));
-    let did_for_toggle = device_id.clone();
+fn SecurityToggleField(device: DeviceState) -> impl IntoView {
+    let is_security = RwSignal::new(should_include_in_security(&device));
+    let device_for_toggle = device.clone();
     view! {
         <label style="display:flex; align-items:center; gap:0.5rem; font-weight:400;">
             <input
                 type="checkbox"
                 prop:checked=move || is_security.get()
                 on:change=move |_| {
-                    toggle_security_tag(&did_for_toggle);
+                    toggle_security_membership(&device_for_toggle);
                     is_security.update(|v| *v = !*v);
                 }
             />
@@ -540,7 +545,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                 let delete_confirm_label = d.device_id.clone();
                 let delete_confirm_target = d.device_id.clone();
                 let delete_request_target = d.device_id.clone();
-                let security_target = d.device_id.clone();
+                let security_device = d.clone();
 
                 view! {
                     // ── Edit form ─────────────────────────────────────────────
@@ -549,7 +554,7 @@ pub fn DeviceDetailPage() -> impl IntoView {
                         let delete_confirm_label = delete_confirm_label.clone();
                         let delete_confirm_target = delete_confirm_target.clone();
                         let delete_request_target = delete_request_target.clone();
-                        let security_target = security_target.clone();
+                        let security_device = security_device.clone();
                         move || view! {
                         <div class="detail-card edit-card">
                             <h2 class="card-title">"Edit Device"</h2>
@@ -646,11 +651,12 @@ pub fn DeviceDetailPage() -> impl IntoView {
                                 </div>
                                 <div class="edit-field">
                                     <label>"Security relevant"</label>
-                                    <SecurityToggleField device_id=security_target.clone() />
+                                    <SecurityToggleField device=security_device.clone() />
                                     <span class="cell-subtle">
-                                        "Mark interior doors / windows as not security-relevant so the Overview \
-                                         hero only flags devices you care about. If no devices are marked, the \
-                                         Security tile falls back to all locks and contact sensors."
+                                        "Locks and contact sensors are counted by default. Uncheck to exclude \
+                                         interior doors / windows from the Overview Security tile. Check this \
+                                         box on devices that aren't locks or contact sensors but you still \
+                                         want counted (e.g. a motion sensor at the back gate)."
                                     </span>
                                 </div>
                             </div>

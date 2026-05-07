@@ -1637,19 +1637,12 @@ fn compute_hero_tile(
         }
 
         "security" => {
-            let tags = load_security_tags();
-            // If the user has explicitly tagged any devices as security-
-            // relevant, honor that set. Otherwise fall back to "all locks
-            // + all contact sensors" so the tile is useful out of the box.
+            // Single source of truth via `should_include_in_security`:
+            // honours explicit tags AND explicit excludes, falling back
+            // to "all locks + contact sensors" only when neither store
+            // has an opinion on the device. OVERVIEW-SECURITY-OPT-IN-1.
             let in_security_set = |d: &&DeviceState| -> bool {
-                if !tags.is_empty() {
-                    tags.contains(&d.device_id)
-                } else {
-                    matches!(
-                        d.device_type.as_deref(),
-                        Some("lock") | Some("contact_sensor")
-                    )
-                }
+                should_include_in_security(d)
             };
             let locks: Vec<&DeviceState> = devices
                 .values()

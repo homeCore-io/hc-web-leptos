@@ -950,14 +950,31 @@ pub fn device_color_css(d: &DeviceState) -> Option<String> {
 
 // ── Security tags ────────────────────────────────────────────────────────────
 //
-// Client-side per-device flag marking which locks / contact sensors count
-// toward the "Security" hero tile and the ?focus=security filter on the
-// Devices page. Stored in localStorage under SECURITY_TAGS_KEY as a JSON
-// array of device_ids. Lightweight, no backend dependency. If/when this
-// needs to roam between users or devices, promote to a server-side tags
-// field.
+// Client-side per-device flag marking which devices count toward the
+// "Security" hero tile on Overview and the `?focus=security` filter on
+// the Devices page. Two stores in localStorage:
+//
+//   - `hc-leptos:security-tags`     — explicit-include set
+//   - `hc-leptos:security-excludes` — explicit-exclude set
+//
+// Plus a default: locks + contact sensors are members unless explicitly
+// excluded. The combined predicate is `should_include_in_security(d)`:
+//
+//   excluded   → never (operator said no)
+//   tagged     → always (operator said yes)
+//   default    → in for locks + contact_sensors, out otherwise
+//
+// This is the OVERVIEW-SECURITY-OPT-IN-1 fix. The previous version had
+// only the include-set with a bare default fallback — operators couldn't
+// uncheck a contact_sensor (e.g. a bathroom door) out of the tile
+// because there was no way to express "yes, this is a contact sensor;
+// no, I don't want it counted."
+//
+// If/when this state needs to roam between users or devices, promote to
+// a server-side per-device flag.
 
 const SECURITY_TAGS_KEY: &str = "hc-leptos:security-tags";
+const SECURITY_EXCLUDES_KEY: &str = "hc-leptos:security-excludes";
 
 pub fn load_security_tags() -> std::collections::HashSet<String> {
     crate::pages::shared::ls_get(SECURITY_TAGS_KEY)
@@ -973,16 +990,82 @@ pub fn save_security_tags(tags: &std::collections::HashSet<String>) {
     }
 }
 
-pub fn is_security_tagged(device_id: &str) -> bool {
-    load_security_tags().contains(device_id)
+pub fn load_security_excludes() -> std::collections::HashSet<String> {
+    crate::pages::shared::ls_get(SECURITY_EXCLUDES_KEY)
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+        .map(|v| v.into_iter().collect())
+        .unwrap_or_default()
 }
 
-pub fn toggle_security_tag(device_id: &str) {
-    let mut tags = load_security_tags();
-    if !tags.remove(device_id) {
-        tags.insert(device_id.to_string());
+pub fn save_security_excludes(excludes: &std::collections::HashSet<String>) {
+    let arr: Vec<&String> = excludes.iter().collect();
+    if let Ok(json) = serde_json::to_string(&arr) {
+        crate::pages::shared::ls_set(SECURITY_EXCLUDES_KEY, &json);
     }
+}
+
+/// Devices that default to "in the security set" without any explicit
+/// operator action. Today: locks + contact sensors. Other types must
+/// be explicitly tagged via the device-detail checkbox.
+pub fn is_default_security_type(d: &DeviceState) -> bool {
+    matches!(
+        d.device_type.as_deref(),
+        Some("lock") | Some("contact_sensor")
+    )
+}
+
+/// True when this device counts toward the Security tile and
+/// `?focus=security`. Single source of truth — call sites should use
+/// this rather than reading `load_security_tags()` directly.
+pub fn should_include_in_security(d: &DeviceState) -> bool {
+    let excludes = load_security_excludes();
+    if excludes.contains(&d.device_id) {
+        return false;
+    }
+    let tags = load_security_tags();
+    if tags.contains(&d.device_id) {
+        return true;
+    }
+    is_default_security_type(d)
+}
+
+/// Flip a device's security membership. Handles all four state
+/// transitions:
+/// - default-included → excluded   (add to excludes)
+/// - excluded         → default-included (remove from excludes)
+/// - explicit-tagged  → not-tagged + (if default-type) excluded
+/// - not-tagged       → explicit-tagged
+pub fn toggle_security_membership(d: &DeviceState) {
+    let mut tags = load_security_tags();
+    let mut excludes = load_security_excludes();
+    let id = &d.device_id;
+    let default_type = is_default_security_type(d);
+
+    if should_include_in_security(d) {
+        // Currently in → flip to out.
+        // Remove from explicit-tags first; if the device would still
+        // be in via default-type membership, add an explicit exclude.
+        let was_tagged = tags.remove(id);
+        if default_type {
+            excludes.insert(id.clone());
+        } else if !was_tagged {
+            // Defensive: device was somehow "in" without being tagged
+            // and without being default-type. Add an exclude so the
+            // toggle's user-visible promise ("I clicked off") holds.
+            excludes.insert(id.clone());
+        }
+    } else {
+        // Currently out → flip to in.
+        // Remove from excludes first; if that doesn't restore
+        // membership (non-default-type), add an explicit tag.
+        excludes.remove(id);
+        if !default_type {
+            tags.insert(id.clone());
+        }
+    }
+
     save_security_tags(&tags);
+    save_security_excludes(&excludes);
 }
 
 fn humanize_identifier(value: &str) -> String {

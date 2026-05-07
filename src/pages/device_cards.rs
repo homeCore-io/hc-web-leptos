@@ -896,18 +896,11 @@ pub fn DeviceCardsPage() -> impl IntoView {
         let focus_value = focus.get();
         let battery_threshold = battery_below.get();
 
-        // Pre-compute once: which devices are in the security set?
-        let security_tags = load_security_tags();
-        let in_security_set = |d: &DeviceState| -> bool {
-            if !security_tags.is_empty() {
-                security_tags.contains(&d.device_id)
-            } else {
-                matches!(
-                    d.device_type.as_deref(),
-                    Some("lock") | Some("contact_sensor")
-                )
-            }
-        };
+        // Single source of truth via `should_include_in_security`.
+        // OVERVIEW-SECURITY-OPT-IN-1: honours both explicit tags and
+        // explicit excludes (the latter is what made unchecking the
+        // bathroom door actually take effect).
+        let in_security_set = should_include_in_security;
         let device_in_alert = |d: &DeviceState| -> bool {
             match d.device_type.as_deref() {
                 Some("lock") => !d
@@ -1111,9 +1104,12 @@ pub fn DeviceCardsPage() -> impl IntoView {
                         "security" => (
                             "ph ph-shield-check",
                             "Security-relevant devices currently needing attention.".into(),
-                            if load_security_tags().is_empty() {
-                                "No devices are tagged yet — falling back to all locks and contact sensors. \
-                                 Mark specific devices on their detail page."
+                            if load_security_tags().is_empty()
+                                && load_security_excludes().is_empty()
+                            {
+                                "Showing all locks and contact sensors by default. \
+                                 Toggle the security checkbox on a device's detail page \
+                                 to add or exclude specific devices."
                             } else {
                                 ""
                             },

@@ -1,7 +1,7 @@
 //! Root application component: provides AuthState context, router, auth guard,
 //! and the nav shell wrapper.
 
-use crate::auth::{install_auth_handle, use_auth, AuthState};
+use crate::auth::{install_auth_handle, refresh_user, use_auth, AuthState};
 use crate::pages::shared::{ToastContainer, ToastContext};
 use crate::pages::{
     admin::AdminPage,
@@ -48,6 +48,15 @@ pub fn App() -> impl IntoView {
     // can trigger logout from inside `spawn_local` tasks where
     // `use_context` returns None.
     install_auth_handle(auth);
+
+    // Rehydrate the user profile when a stored token survived a reload.
+    // Without this, role-gated UI (admin-only plugin actions, etc.) sees
+    // `auth.user == None` and stays disabled until the next fresh login.
+    if auth.is_authenticated() {
+        leptos::task::spawn_local(async move {
+            refresh_user(auth).await;
+        });
+    }
 
     // Proactive expiry check: bounce the user to /login within
     // SESSION_CHECK_INTERVAL_MS of the JWT's `exp`, even if they're

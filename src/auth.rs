@@ -142,6 +142,31 @@ pub async fn api_login(username: &str, password: &str) -> Result<String, String>
         .ok_or_else(|| "No token in response".to_string())
 }
 
+/// Fetch `/auth/me` and populate `auth.user`. Role gates around the app
+/// (e.g. plugin actions with `requires_role: Admin`) check this signal —
+/// without it every admin-only control stays disabled even for admins.
+pub async fn refresh_user(auth: AuthState) {
+    use gloo_net::http::Request;
+
+    let Some(token) = auth.token.get_untracked() else {
+        return;
+    };
+    let Ok(resp) = Request::get(&format!("{API_BASE}/auth/me"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Accept", "application/json")
+        .send()
+        .await
+    else {
+        return;
+    };
+    if !resp.ok() {
+        return;
+    }
+    if let Ok(user) = resp.json::<HcUser>().await {
+        auth.user.set(Some(user));
+    }
+}
+
 // ── JWT expiry check ──────────────────────────────────────────────────────────
 
 /// Return `true` if the JWT's `exp` claim is in the past, or if the token

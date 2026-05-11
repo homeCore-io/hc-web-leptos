@@ -44,20 +44,22 @@ jobs:
     needs: ci
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    # `secrets.X` is not allowed in step-level `if:` per GH security
+    # hardening — read the PAT into a job-level env var and gate on that.
+    env:
+      PAT: ${{ secrets.CROSS_REPO_DISPATCH_PAT }}
     steps:
-      - name: Pre-flight — token present
-        run: |
-          if [ -z "${{ secrets.CROSS_REPO_DISPATCH_PAT }}" ]; then
-            echo "::warning::CROSS_REPO_DISPATCH_PAT not set; core cascade skipped."
-            exit 0
-          fi
       - name: Fire repository_dispatch on homeCore-io/homeCore
-        if: ${{ secrets.CROSS_REPO_DISPATCH_PAT != '' }}
+        if: env.PAT != ''
         env:
-          GH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_PAT }}
+          GH_TOKEN: ${{ env.PAT }}
         run: |
           gh api repos/homeCore-io/homeCore/dispatches \
             --method POST \
             -f event_type=webui-updated \
             --field "client_payload[sha]=${{ github.sha }}" \
             --field "client_payload[source_repo]=${{ github.repository }}"
+      - name: Skip notice
+        if: env.PAT == ''
+        run: |
+          echo "::warning::CROSS_REPO_DISPATCH_PAT not set; core cascade skipped."

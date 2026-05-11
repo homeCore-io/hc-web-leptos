@@ -1641,9 +1641,7 @@ fn compute_hero_tile(
             // honours explicit tags AND explicit excludes, falling back
             // to "all locks + contact sensors" only when neither store
             // has an opinion on the device. OVERVIEW-SECURITY-OPT-IN-1.
-            let in_security_set = |d: &&DeviceState| -> bool {
-                should_include_in_security(d)
-            };
+            let in_security_set = |d: &&DeviceState| -> bool { should_include_in_security(d) };
             let locks: Vec<&DeviceState> = devices
                 .values()
                 .filter(|d| d.device_type.as_deref() == Some("lock"))

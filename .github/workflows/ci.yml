@@ -49,16 +49,18 @@ jobs:
     env:
       PAT: ${{ secrets.CROSS_REPO_DISPATCH_PAT }}
     steps:
-      - name: Fire repository_dispatch on homeCore-io/homeCore
+      - name: Dispatch homeCore release on develop
         if: env.PAT != ''
         env:
           GH_TOKEN: ${{ env.PAT }}
+        # workflow_dispatch (Actions: write) rather than repository_dispatch
+        # (Contents: write) — fewer PAT permissions, same effect (homeCore
+        # release builds hc-core:dev with the latest leptos main bundled).
         run: |
-          gh api repos/homeCore-io/homeCore/dispatches \
-            --method POST \
-            -f event_type=webui-updated \
-            --field "client_payload[sha]=${{ github.sha }}" \
-            --field "client_payload[source_repo]=${{ github.repository }}"
+          gh workflow run release.yml \
+            --repo homeCore-io/homeCore \
+            --ref develop \
+            -F fast=true
       - name: Skip notice
         if: env.PAT == ''
         run: |

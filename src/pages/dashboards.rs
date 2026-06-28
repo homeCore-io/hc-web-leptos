@@ -1969,7 +1969,7 @@ fn ModeChipsCard() -> impl IntoView {
 fn SceneButtonsCard() -> impl IntoView {
     let auth = use_auth();
     let ws = use_ws();
-    let scenes: RwSignal<Vec<Scene>> = RwSignal::new(vec![]);
+    let native: RwSignal<Vec<Scene>> = RwSignal::new(vec![]);
     let busy: RwSignal<Option<String>> = RwSignal::new(None);
 
     Effect::new(move |_| {
@@ -1978,28 +1978,54 @@ fn SceneButtonsCard() -> impl IntoView {
             None => return,
         };
         spawn_local(async move {
-            if let Ok(mut data) = fetch_scenes(&token).await {
-                data.sort_by(|a, b| a.name.cmp(&b.name));
-                scenes.set(data);
+            if let Ok(data) = fetch_scenes(&token).await {
+                native.set(data);
             }
         });
     });
 
+    // Scenes come from two places, exactly like the Scenes page:
+    //   * native scenes from `GET /scenes`
+    //   * plugin scenes registered as devices (`device_type == "scene"`,
+    //     e.g. Hue/Lutron) from the live device map.
+    // Sourcing only native scenes left this card empty on installs whose
+    // scenes are all plugin-provided. `is_plugin` selects the activation
+    // path: native scenes POST /scenes/{id}/activate, plugin scenes get a
+    // device command. Tuple is (id, name, is_plugin).
+    let entries = Memo::new(move |_| {
+        let mut out: Vec<(String, String, bool)> = native
+            .get()
+            .into_iter()
+            .map(|s| (s.id, s.name, false))
+            .collect();
+        for d in ws.devices.get().values().filter(|d| is_scene_like(d)) {
+            out.push((d.device_id.clone(), display_name(d).to_string(), true));
+        }
+        out.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+        out
+    });
+
     view! {
         <div class="scene-buttons-row">
-            <For each=move || scenes.get() key=|s| s.id.clone()
-                children=move |scene| {
-                    let sid = scene.id.clone();
-                    let sid_click = sid.clone();
-                    let name = scene.name.clone();
-                    let recent = Memo::new(move |_| ws.scene_activations.get().get(&sid).is_some());
+            <For each=move || entries.get() key=|(id, _, _)| id.clone()
+                children=move |(id, name, is_plugin)| {
+                    let id_recent = id.clone();
+                    let id_click = id.clone();
+                    let recent = Memo::new(move |_| ws.scene_activations.get().get(&id_recent).is_some());
                     view! {
                         <button class=move || if recent.get() { "scene-btn scene-btn--recent" } else { "scene-btn" }
                             disabled=move || busy.get().is_some()
                             on:click=move |_| {
                                 let token = auth.token_str().unwrap_or_default();
-                                let id = sid_click.clone(); busy.set(Some(id.clone()));
-                                spawn_local(async move { let _ = activate_scene(&token, &id).await; busy.set(None); });
+                                let id = id_click.clone(); busy.set(Some(id.clone()));
+                                spawn_local(async move {
+                                    let _ = if is_plugin {
+                                        set_device_state(&token, &id, &json!({"activate": true})).await
+                                    } else {
+                                        activate_scene(&token, &id).await
+                                    };
+                                    busy.set(None);
+                                });
                             }>
                             <i class="ph ph-play" style="font-size:16px"></i>
                             {name}

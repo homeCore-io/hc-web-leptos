@@ -483,7 +483,7 @@ fn WidgetGrid(
                             }
                         },
                         DashboardWidgetType::ModeChips => view! { <ModeChipsCard /> }.into_any(),
-                        DashboardWidgetType::SceneRow => view! { <SceneButtonsCard /> }.into_any(),
+                        DashboardWidgetType::SceneRow => view! { <SceneButtonsCard config=config.clone() /> }.into_any(),
                         DashboardWidgetType::HouseStatusHero => view! { <HouseStatusHero config=config.clone() /> }.into_any(),
                         _ => view! { <div class="dashboard-widget-fallback"><span class="cell-subtle">{format!("{:?}", wtype)}</span></div> }.into_any(),
                     };
@@ -935,8 +935,78 @@ fn WidgetConfigEditor(
                 </div>
             }.into_any()
         }
+        DashboardWidgetType::SceneRow => {
+            let auth = use_auth();
+            let native: RwSignal<Vec<Scene>> = RwSignal::new(vec![]);
+            Effect::new(move |_| {
+                let Some(token) = auth.token.get() else {
+                    return;
+                };
+                spawn_local(async move {
+                    if let Ok(data) = fetch_scenes(&token).await {
+                        native.set(data);
+                    }
+                });
+            });
+
+            // Both sources, exactly as the card itself renders them: native
+            // scenes from `GET /scenes`, and plugin scenes registered as devices
+            // (`device_type == "scene"` — Hue, Lutron). Offering only one would
+            // leave the picker empty on installs whose scenes all come from the
+            // other.
+            let scene_options = Memo::new(move |_| {
+                let mut opts: Vec<(String, String)> =
+                    native.get().into_iter().map(|s| (s.id, s.name)).collect();
+                for d in ws.devices.get().values().filter(|d| is_scene_like(d)) {
+                    opts.push((d.device_id.clone(), display_name(d).to_string()));
+                }
+                opts.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+                opts
+            });
+
+            let current_ids: Vec<String> = config
+                .get("scene_ids")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let selected_ids: RwSignal<Vec<String>> = RwSignal::new(current_ids);
+            let wid = widget_id.clone();
+            view! {
+                <div class="widget-config-editor">
+                    <label>"Title"</label>
+                    <input class="input" type="text" prop:value=move || title_input.get()
+                        on:input=move |ev| title_input.set(event_target_value(&ev)) />
+                    <label>"Scenes"</label>
+                    <p class="cell-subtle">
+                        "Pick the scenes to show as buttons. Selecting none falls back to showing every scene."
+                    </p>
+                    <DeviceCheckboxList device_options=scene_options selected=selected_ids placeholder="Filter scenes..." />
+                    <div class="widget-config-actions">
+                        <button class="btn btn-primary btn-sm" on:click=move |_| {
+                            let wid = wid.clone();
+                            let ids = selected_ids.get_untracked();
+                            let title = title_input.get_untracked();
+                            widgets.update(|w| { if let Some(widget) = w.iter_mut().find(|x| x.id == wid) {
+                                widget.title = title;
+                                // A freshly-added widget can carry a null config.
+                                if !widget.config.is_object() { widget.config = json!({}); }
+                                if let Some(m) = widget.config.as_object_mut() {
+                                    m.insert("scene_ids".into(), json!(ids));
+                                }
+                            }});
+                            on_close.run(());
+                        }>"Apply"</button>
+                        <button class="btn btn-outline btn-sm" on:click=move |_| on_close.run(())>"Cancel"</button>
+                    </div>
+                </div>
+            }.into_any()
+        }
         _ => {
-            // ModeChips, SceneRow, etc. — no config to edit
+            // ModeChips, etc. — no config to edit
             view! {
                 <div class="widget-config-editor">
                     <p class="cell-subtle">"This card has no configurable settings."</p>
@@ -949,16 +1019,21 @@ fn WidgetConfigEditor(
 
 // ── Device Checkbox List ────────────────────────────────────────────────────
 
+/// Checkbox picker over `(id, label)` pairs. Nothing about it is
+/// device-specific beyond the default filter placeholder, so the scene picker
+/// reuses it rather than growing a near-identical twin.
 #[component]
 fn DeviceCheckboxList(
     device_options: Memo<Vec<(String, String)>>,
     selected: RwSignal<Vec<String>>,
+    #[prop(optional, into)] placeholder: Option<&'static str>,
 ) -> impl IntoView {
     let search = RwSignal::new(String::new());
+    let placeholder = placeholder.unwrap_or("Filter devices...");
 
     view! {
         <div class="device-checkbox-list">
-            <input class="input" type="text" placeholder="Filter devices..."
+            <input class="input" type="text" placeholder=placeholder
                 prop:value=move || search.get()
                 on:input=move |ev| search.set(event_target_value(&ev)) />
             <div class="device-checkbox-scroll">
@@ -1966,11 +2041,25 @@ fn ModeChipsCard() -> impl IntoView {
 // ── Card: Scene Buttons ─────────────────────────────────────────────────────
 
 #[component]
-fn SceneButtonsCard() -> impl IntoView {
+fn SceneButtonsCard(config: Value) -> impl IntoView {
     let auth = use_auth();
     let ws = use_ws();
     let native: RwSignal<Vec<Scene>> = RwSignal::new(vec![]);
     let busy: RwSignal<Option<String>> = RwSignal::new(None);
+
+    // Which scenes the operator picked in the widget editor. Empty (or absent,
+    // as on every dashboard saved before the picker existed) means "show them
+    // all" — the card's original behaviour, kept so those dashboards don't go
+    // blank on upgrade.
+    let chosen: Vec<String> = config
+        .get("scene_ids")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
 
     Effect::new(move |_| {
         let token = match auth.token.get() {
@@ -2001,8 +2090,19 @@ fn SceneButtonsCard() -> impl IntoView {
         for d in ws.devices.get().values().filter(|d| is_scene_like(d)) {
             out.push((d.device_id.clone(), display_name(d).to_string(), true));
         }
-        out.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
-        out
+
+        if chosen.is_empty() {
+            out.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+            return out;
+        }
+
+        // Render only the chosen scenes, in the order they were chosen rather
+        // than alphabetically — the operator picked that order. A scene that has
+        // since been deleted simply drops out instead of leaving a dead button.
+        chosen
+            .iter()
+            .filter_map(|id| out.iter().find(|(i, _, _)| i == id).cloned())
+            .collect()
     });
 
     view! {

@@ -3,7 +3,6 @@ pub mod admin_config;
 pub mod admin_notify;
 pub mod areas;
 pub mod audit;
-pub mod dashboards;
 pub mod device_cards;
 pub mod device_detail;
 pub mod events;

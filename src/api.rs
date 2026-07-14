@@ -309,10 +309,6 @@ pub async fn fetch_devices(token: &str) -> Result<Vec<DeviceState>, String> {
     get_json("/devices", token).await
 }
 
-pub async fn fetch_battery_settings(token: &str) -> Result<Value, String> {
-    get_json("/system/battery_settings", token).await
-}
-
 pub async fn fetch_system_config(token: &str) -> Result<Value, String> {
     get_json("/system/config", token).await
 }
@@ -856,63 +852,6 @@ pub async fn fetch_me(token: &str) -> Result<Value, String> {
 
 pub async fn fetch_stale_refs(token: &str) -> Result<Vec<Value>, String> {
     get_json("/automations/stale-refs", token).await
-}
-
-// ── Dashboards ────────────────────────────────────────────────────────────
-
-pub async fn fetch_dashboards(
-    token: &str,
-) -> Result<Vec<crate::models::DashboardResponse>, String> {
-    get_json("/dashboards", token).await
-}
-
-#[allow(dead_code)]
-pub async fn fetch_dashboard(
-    token: &str,
-    id: &str,
-) -> Result<crate::models::DashboardResponse, String> {
-    get_json(&format!("/dashboards/{id}"), token).await
-}
-
-pub async fn create_dashboard(
-    token: &str,
-    dashboard: &crate::models::DashboardDefinition,
-) -> Result<crate::models::DashboardResponse, String> {
-    let body = serde_json::to_value(dashboard).map_err(|e| e.to_string())?;
-    post_json("/dashboards", token, &body).await
-}
-
-#[allow(dead_code)]
-pub async fn create_dashboard_from_template(
-    token: &str,
-    template_id: &str,
-) -> Result<crate::models::DashboardResponse, String> {
-    post_json(
-        &format!("/dashboards/templates/{template_id}"),
-        token,
-        &serde_json::json!({}),
-    )
-    .await
-}
-
-pub async fn update_dashboard(
-    token: &str,
-    id: &str,
-    dashboard: &crate::models::DashboardDefinition,
-) -> Result<crate::models::DashboardResponse, String> {
-    let body = serde_json::to_value(dashboard).map_err(|e| e.to_string())?;
-    put_json(&format!("/dashboards/{id}"), token, &body).await
-}
-
-pub async fn set_default_dashboard(token: &str, id: &str) -> Result<(), String> {
-    post_no_body(&format!("/dashboards/{id}/default"), token).await
-}
-
-#[allow(dead_code)]
-pub async fn fetch_dashboard_templates(
-    token: &str,
-) -> Result<Vec<crate::models::DashboardDefinition>, String> {
-    get_json("/dashboards/templates", token).await
 }
 
 // ── Rule Groups ───────────────────────────────────────────────────────────

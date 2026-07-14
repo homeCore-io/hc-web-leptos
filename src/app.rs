@@ -7,7 +7,6 @@ use crate::pages::{
     admin::AdminPage,
     areas::AreasPage,
     audit::AuditPage,
-    dashboards::DashboardsPage,
     device_cards::DeviceCardsPage,
     device_detail::DeviceDetailPage,
     events::EventsPage,
@@ -107,9 +106,6 @@ pub fn App() -> impl IntoView {
             <Routes fallback=|| view! { <p class="msg-error">"Page not found."</p> }>
                 <Route path=path!("/")        view=HomeRedirect />
                 <Route path=path!("/login")   view=LoginPage />
-                <Route path=path!("/dashboards") view=move || view! {
-                    <AuthGuard><DashboardsPage /></AuthGuard>
-                }/>
                 <Route path=path!("/areas") view=move || view! {
                     <AuthGuard><AreasPage /></AuthGuard>
                 }/>
@@ -180,7 +176,9 @@ pub fn App() -> impl IntoView {
 fn HomeRedirect() -> impl IntoView {
     let navigate = leptos_router::hooks::use_navigate();
     Effect::new(move |_| {
-        navigate("/dashboards", Default::default());
+        // Devices, not "/dashboards" — this UI is the admin and config surface,
+        // and a config tool should open on the thing it configures.
+        navigate("/devices", Default::default());
     });
     view! {}
 }
@@ -271,7 +269,7 @@ fn NavShell(children: Children) -> impl IntoView {
                     <div class="sidebar__brand">
                         <h1>
                             <a
-                                href="/dashboards"
+                                href="/devices"
                                 class="hc-wordmark"
                                 on:click=move |_| mobile_menu_open.set(false)
                             >
@@ -377,7 +375,6 @@ fn section_title(pathname: &str) -> &'static str {
         .next()
         .unwrap_or("");
     match first {
-        "dashboards" => "Overview",
         "devices" => "Devices",
         "areas" => "Areas",
         "scenes" => "Scenes",
@@ -406,12 +403,6 @@ struct NavItem {
 // Icon names are Phosphor identifiers (without the `ph-` prefix);
 // the SidebarNav view composes the full class as `ph ph-{icon}`.
 const NAV_ITEMS: &[NavItem] = &[
-    NavItem {
-        id: "dashboards",
-        href: "/dashboards",
-        icon: "gauge",
-        label: "Overview",
-    },
     NavItem {
         id: "devices",
         href: "/devices",

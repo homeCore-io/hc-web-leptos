@@ -966,20 +966,16 @@ pub fn DeviceCardsPage() -> impl IntoView {
                 }
             })
             .filter(|d| {
-                focus_active
-                    || avail_f.is_empty()
-                    || {
-                        let key = if d.available { "online" } else { "offline" };
-                        avail_f.contains(key)
-                    }
+                focus_active || avail_f.is_empty() || {
+                    let key = if d.available { "online" } else { "offline" };
+                    avail_f.contains(key)
+                }
             })
             .filter(|d| {
-                focus_active
-                    || area_f.is_empty()
-                    || {
-                        let a = d.area.as_deref().unwrap_or("Unassigned");
-                        area_f.contains(a)
-                    }
+                focus_active || area_f.is_empty() || {
+                    let a = d.area.as_deref().unwrap_or("Unassigned");
+                    area_f.contains(a)
+                }
             })
             .filter(|d| {
                 focus_active

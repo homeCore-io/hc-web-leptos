@@ -1,6 +1,6 @@
 //! Login page — username + password form, stores JWT on success.
 
-use crate::auth::{api_login, use_auth, API_BASE};
+use crate::auth::{api_login, refresh_user, use_auth, API_BASE};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::hooks::use_navigate;
@@ -56,6 +56,7 @@ pub fn LoginPage() -> impl IntoView {
             match api_login(&u, &p).await {
                 Ok(tok) => {
                     auth.set_token(tok);
+                    refresh_user(auth).await;
                     nav("/devices", Default::default());
                 }
                 Err(e) => {

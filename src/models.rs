@@ -13,10 +13,6 @@ use std::collections::HashMap;
 
 // ── Re-exports from hc-types (shared with core) ────────────────────────────
 
-pub use hc_types::dashboard::{
-    DashboardDefinition, DashboardRefreshPolicy, DashboardResponse, DashboardVisibility,
-    DashboardWidget, DashboardWidgetType,
-};
 pub use hc_types::rule::{Rule, RunMode, Trigger};
 
 // ── Admin types ─────────────────────────────────────────────────────────────
@@ -263,12 +259,6 @@ pub fn is_battery_low(d: &DeviceState, threshold_pct: f64) -> Option<bool> {
         return Some(low);
     }
     battery_pct(d).map(|p| p <= threshold_pct)
-}
-
-/// Whether the device exposes any battery information that the UI
-/// might want to display or count.
-pub fn has_battery_info(d: &DeviceState) -> bool {
-    battery_low_explicit(d).is_some() || battery_pct(d).is_some()
 }
 
 pub fn temperature_unit(d: &DeviceState) -> Option<&'static str> {

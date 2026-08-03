@@ -13,6 +13,16 @@
 # `cargo check --target wasm32-unknown-unknown` matrix is a
 # possible follow-up if the host check ever stops catching
 # wasm-only regressions.
+#
+# This repo used to end with a `dispatch-core` job that fired
+# homeCore's release on every green develop push, because core
+# cloned this repo, compiled it to WASM, and baked the bundle into
+# hc-core — so a leptos-only fix would otherwise never reach the dev
+# image. Core no longer bundles any UI (hc-web is the UI, in its own
+# image), so nothing downstream is waiting on a commit here and the
+# cascade had nothing left to trigger. It also passed `-F fast=true`,
+# an input core's release no longer declares, so it would now fail on
+# every push.
 
 name: CI
 
@@ -36,3 +46,4 @@ jobs:
     with:
       rust_version: "1.95"
       run_clippy: false
+    secrets: inherit

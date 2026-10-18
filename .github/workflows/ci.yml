@@ -44,6 +44,6 @@ jobs:
   ci:
     uses: homeCore-io/hc-scripts/.github/workflows/rust-ci.yml@main
     with:
-      rust_version: "1.95"
+      rust_version: "1.99"
       run_clippy: false
     secrets: inherit
